@@ -1,0 +1,64 @@
+---
+title: ChronoGitドキュメント
+description: 端末から未ステージの変更とコミット履歴を安全に調べる方法を説明します。
+tags:
+  - ChronoGit
+  - ターミナル
+  - Git
+template: splash
+hero:
+  title: リポジトリを変えずに、変更を見渡す。
+  tagline: 未ステージの変更、コミット履歴、メッセージ全文、コミットツリーを、Vim指向の軽快なターミナルUIにまとめます。
+  actions:
+    - text: はじめる
+      link: /ja/guides/getting-started/
+      icon: right-arrow
+    - text: 履歴の使い方
+      link: /ja/guides/history/
+      icon: open-book
+      variant: minimal
+    - text: Codexと使う
+      link: /ja/guides/agents/
+      icon: external
+      variant: minimal
+---
+
+<div class="landing-shell not-content">
+  <section class="landing-intro" aria-labelledby="landing-intro-title">
+    <p class="landing-eyebrow">設計から読み取り専用</p>
+    <h2 id="landing-intro-title">ターミナルを離れずに、リポジトリをレビュー。</h2>
+    <p>ワークツリーからコミット、メッセージ全文、変更ファイル、ツリーまでを、複数のGitコマンドを組み立てずにたどれます。ChronoGitが実行するのは閉じた一覧の読み取りコマンドだけで、ステージ、復元、コミット、チェックアウトは行いません。</p>
+  </section>
+
+  <div class="landing-principles" aria-label="ChronoGitでできること">
+    <section>
+      <span aria-hidden="true">01</span>
+      <h3>現在の作業を読む</h3>
+      <p>追跡済み・未追跡の未ステージ変更を、行番号やバイナリ要約とともに確認できます。</p>
+    </section>
+    <section>
+      <span aria-hidden="true">02</span>
+      <h3>コミットをたどる</h3>
+      <p>first-parent差分、メッセージ全文、必要なときだけ読み込むツリーを開けます。</p>
+    </section>
+    <section>
+      <span aria-hidden="true">03</span>
+      <h3>制御を手元に保つ</h3>
+      <p>上限付きのGit読み取り、画面幅に追従するレイアウト、Vim指向のキー操作を備えます。</p>
+    </section>
+  </div>
+
+  <section class="landing-workflow" aria-labelledby="landing-workflow-title">
+    <div>
+      <p class="landing-eyebrow">最初の起動まで2コマンド</p>
+      <h2 id="landing-workflow-title">インストールして、見に行く。</h2>
+      <p>チェックアウトからビルドし、Gitワークツリー内で起動します。キーを確認したいときは <code>F1</code> を押してください。</p>
+      <a href="/ja/guides/getting-started/">インストールガイドを開く <span aria-hidden="true">→</span></a>
+    </div>
+    <pre aria-label="ChronoGitのインストールと起動コマンド"><code>{`$ cargo install --path . --locked
+$ chronogit /path/to/repository
+
+1  Changes    2  History
+F1 ヘルプ     q  終了`}</code></pre>
+  </section>
+</div>

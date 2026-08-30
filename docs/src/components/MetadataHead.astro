@@ -1,0 +1,12 @@
+---
+import Default from '@astrojs/starlight/components/Head.astro';
+
+const { tags = [] } = Astro.locals.starlightRoute.entry.data;
+---
+
+<Default />
+{
+	tags.map((tag) => (
+		<meta name="doc:tag" content={tag} data-pagefind-filter="tag[content]" />
+	))
+}

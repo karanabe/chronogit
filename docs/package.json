@@ -1,0 +1,22 @@
+{
+  "name": "chronogit-docs",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "license": "MIT",
+  "scripts": {
+    "dev": "astro dev --background",
+    "dev:stop": "astro dev stop",
+    "dev:status": "astro dev status",
+    "dev:logs": "astro dev logs",
+    "start": "astro dev --background",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.41.10",
+    "astro": "^7.1.6",
+    "sharp": "^0.35.3"
+  }
+}
