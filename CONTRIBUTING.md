@@ -79,6 +79,12 @@ For documentation-only changes, Rust build and test commands are optional
 unless source code, generated code, compiled examples, commands, or expected
 output changed.
 
+GitHub Actions does not run on pushes or pull requests. When a remote check is
+needed, open the repository's **Actions** tab, select **CI**, and choose
+**Run workflow**. The manually triggered workflow repeats the Rust quality gate
+on Ubuntu and runs the test and release-build steps on macOS; it does not
+replace the required local checks.
+
 ## Testing Expectations
 
 - Add unit tests beside domain rules, parsers, reducers, key mapping, and

@@ -73,6 +73,6 @@ Static searches found no secrets, `unsafe`, `TODO`/`FIXME`, debug macros, direct
 
 ## Platform and release status
 
-GitHub Actions runs tests and release builds on Ubuntu and macOS, with formatting and Clippy on Ubuntu. Linux real-terminal behavior was verified locally. The macOS row in the manual checklist still requires a real terminal in the CI or release environment.
+The GitHub Actions `CI` workflow is manual-only and does not run for pushes or pull requests. When a remote check is needed, a maintainer opens the repository's **Actions** tab, selects **CI**, and chooses **Run workflow**. That run executes tests and release builds on Ubuntu and macOS, with formatting and Clippy on Ubuntu. Linux real-terminal behavior was verified locally. The macOS row in the manual checklist still requires a real terminal in the CI or release environment.
 
 Registry publishing remains disabled with `publish = false`. The repository owner must select the final distribution destination before a public artifact or tag is produced. Follow the [release procedure](/developer/release/) only after those decisions and current checks are complete.

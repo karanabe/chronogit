@@ -73,6 +73,6 @@ license file追加後の`cargo package --allow-dirty --locked`は49ファイル�
 
 ## プラットフォームとリリース状況
 
-GitHub ActionsはUbuntuとmacOSでtestとrelease buildを実行し、UbuntuではformatとClippyも実行します。Linuxの実ターミナル動作はローカルで検証済みです。手動チェックリストのmacOS行は、CIまたはrelease環境の実ターミナルで引き続き確認が必要です。
+GitHub Actionsの`CI` workflowは手動実行専用で、pushやpull requestでは起動しません。リモートcheckが必要な場合は、maintainerがリポジトリの**Actions** tabを開き、**CI**を選択して**Run workflow**を実行します。このworkflowはUbuntuとmacOSでtestとrelease buildを実行し、UbuntuではformatとClippyも実行します。Linuxの実ターミナル動作はローカルで検証済みです。手動チェックリストのmacOS行は、CIまたはrelease環境の実ターミナルで引き続き確認が必要です。
 
 registryへの公開は`publish = false`で無効のままです。公開artifactまたはtagを作る前に、リポジトリ所有者が最終配布先を選ぶ必要があります。その判断と現在のcheckが完了してから[リリース手順](/ja/developer/release/)へ進んでください。
