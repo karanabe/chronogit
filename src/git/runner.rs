@@ -168,7 +168,7 @@ impl GitRunner for SystemGitRunner {
         root: Option<&RepositoryRoot>,
         command: &GitCommand,
     ) -> Result<CommandOutput, GitError> {
-        let mut process = build_process(root, command)?;
+        let mut process = build_process(root, command);
         process.stdout(Stdio::piped()).stderr(Stdio::piped());
 
         let mut child = process.spawn().map_err(|source| GitError::Io {
@@ -235,7 +235,7 @@ impl GitRunner for SystemGitRunner {
     }
 }
 
-fn build_process(root: Option<&RepositoryRoot>, command: &GitCommand) -> Result<Command, GitError> {
+fn build_process(root: Option<&RepositoryRoot>, command: &GitCommand) -> Command {
     let mut process = Command::new("git");
     process
         .arg("--no-pager")
@@ -370,7 +370,7 @@ fn build_process(root: Option<&RepositoryRoot>, command: &GitCommand) -> Result<
             process.args(["ls-tree", "-z", treeish.as_str()]);
         }
     }
-    Ok(process)
+    process
 }
 
 fn read_limited<R: Read>(
