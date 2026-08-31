@@ -4,7 +4,7 @@ import starlight from '@astrojs/starlight';
 
 const project = {
 	title: 'ChronoGit',
-	description: 'A read-only terminal history and diff explorer for humans and AI agents.',
+	description: 'A read-only terminal UI for exploring Git history and diffs.',
 };
 const repository = process.env.PUBLIC_REPOSITORY_URL?.replace(/\/$/, '');
 const site = process.env.PUBLIC_SITE_URL;

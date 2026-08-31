@@ -1,6 +1,6 @@
 ---
-title: Use ChronoGit with coding agents
-description: Set up the Codex-first companion skill, with Claude Code and Grok Build support, and run ChronoGit in a separate terminal.
+title: Use ChronoGit alongside coding agents
+description: Set up the optional command-handoff skill and operate ChronoGit yourself in a separate terminal during coding-agent work.
 tags:
   - agents
   - codex
@@ -13,11 +13,11 @@ sidebar:
 
 ChronoGit gives a human an interactive, read-only view of the repository while a coding agent handles the implementation work. The agent resolves the repository and gives the user an exact command, but it does not launch, view, or operate the TUI. Run ChronoGit in a separate terminal that you control.
 
-## Support priority
+## Command-handoff support
 
 | Priority | Agent | Integration |
 | --- | --- | --- |
-| 1 | **OpenAI Codex** | Primary integration. The companion skill and command handoff are designed and validated for Codex first. |
+| 1 | **OpenAI Codex** | Primary command-handoff target. The companion skill is designed and validated for Codex first. |
 | 2 | **Claude Code** | The same `SKILL.md` can prepare commands as a Claude Code Agent Skill. |
 | 3 | **Grok Build** | The same portable skill can prepare commands for Grok Build users. |
 

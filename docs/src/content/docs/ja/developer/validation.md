@@ -44,7 +44,7 @@ pnpm --dir docs build
 
 ## 現在の変更の検証
 
-現在のworking treeでは、上記のRust完全ゲートがunit、CLI、Git serviceの計77 testとlock済みrelease buildを含めて成功しました。`cargo package --allow-dirty --locked`は40ファイルのcrate（271.2 KiB、圧縮後58.0 KiB）を生成・再buildし、crates.io公開のdry-runは想定どおり中止される前のupload stepまで到達しました。ドキュメントbuildも29ページを生成して成功しました。release対象をcommitした正確なrevisionでは、`--allow-dirty`を付けずに再実行してください。
+現在のworking treeでは、上記のRust完全ゲートがunit、CLI、Git serviceの計77 testとlock済みrelease buildを含めて成功しました。`cargo package --allow-dirty --locked`は40ファイルのcrate（271.2 KiB、圧縮後58.1 KiB）を生成・再buildし、crates.io公開のdry-runは想定どおり中止される前のupload stepまで到達しました。ドキュメントbuildも29ページを生成して成功しました。release対象をcommitした正確なrevisionでは、`--allow-dirty`を付けずに再実行してください。
 
 release binaryを別のcoreutilsリポジトリに対する実80×24 PTYでも操作しました。通常のHistoryでcommitペインの`Enter`により変更ファイルへフォーカスが移り、2回目の`Enter`で選択diffが開きました。`j`と`k`で強調中の現在行が目に見えて移動しました。別の未cacheファイルでは`Loading diff…`の表示中に`Ctrl-d`を入力し、完了直後に10行先が強調され、`Ctrl-u`で先頭行へ戻りました。`q`はターミナル復元シーケンスを出して正常終了しました。直前revisionで実施したmessage全文とbodyレイアウトの確認は、下の履歴記録に残しています。
 

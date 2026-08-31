@@ -1,10 +1,10 @@
 <br />
 <h1 align="center">ChronoGit</h1>
-<h3 align="center">A read-only terminal history and diff explorer for humans and AI agents.</h3>
+<h3 align="center">A read-only terminal UI for exploring Git history and diffs.</h3>
 <br />
 <br />
 
-ChronoGit is a read-only terminal history and diff explorer for humans and AI agents. It keeps unstaged changes, commit history, full commit messages, and commit trees in one Vim-oriented TUI.
+ChronoGit is a read-only terminal UI for exploring Git history and diffs. It keeps unstaged changes, commit history, full commit messages, and commit trees in one Vim-oriented interface.
 
 ## Status
 
@@ -112,9 +112,9 @@ ChronoGit does not stage, restore, commit, reset, check out, or otherwise mutate
 - A pane shows a Git error: correct the repository or permission problem, then press `r` to retry the current view.
 - A diff is truncated or a command times out: inspect a smaller target; the 8 MiB output and 30-second process limits are intentional safety boundaries.
 
-## Agent integration: Codex first
+## Use alongside coding agents
 
-ChronoGit's first-class agent integration is **OpenAI Codex**. **Claude Code** and **Grok Build** are supported second and third through the same portable companion skill. The agent resolves the repository and prepares an exact command for the user to run in a separate terminal:
+ChronoGit can serve as a human-controlled review companion while a coding agent works. An optional command-handoff skill targets **OpenAI Codex** first, with **Claude Code** and **Grok Build** also supported. The agent resolves the repository and prepares an exact command for the user to run in a separate terminal; it does not launch, view, or operate the TUI:
 
 ```bash
 chronogit /path/to/repository --view changes
