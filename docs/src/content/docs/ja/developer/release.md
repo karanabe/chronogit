@@ -1,6 +1,6 @@
 ---
 title: リリース手順
-description: 公開を行わず、ChronoGitのリリースarchiveとchecksumを準備します。
+description: crates.io packageを検証・公開し、native archiveとchecksumを準備します。
 tags:
   - リリース
   - パッケージ
@@ -9,17 +9,17 @@ sidebar:
   order: 4
 ---
 
-この手順はChronoGit `0.1.0`のネイティブarchiveとSHA-256 checksumを準備します。公開を許可する手順ではありません。
+この手順はChronoGit `0.1.0`のcrates.io packageを検証し、SHA-256 checksum付きのnative archiveを準備します。registryへの実際の公開は、maintainerが明示的に行う操作です。
 
-## 最初に必要な所有者の判断
+## リリースの前提条件
 
-公開artifactまたはtagを作る前に、リポジトリ所有者は次を行う必要があります。
+crateの公開、公開artifactの作成、release tagの作成を行う前に、maintainerは次を完了する必要があります。
 
-1. 正式なリポジトリURLを選び、Cargoの`repository`フィールドを設定する。
-2. 配布方法をsource checkout、GitHub Releases、crates.io、または明記した組み合わせから決める。
-3. [手動ターミナルスモークテスト](/ja/developer/terminal-smoke/)の両platform行を完了する。
+1. crates.ioの`chronogit` crateに対する公開権限を用意する。
+2. [手動ターミナルスモークテスト](/ja/developer/terminal-smoke/)の両platform行を完了する。
+3. `Cargo.toml`、`Cargo.lock`、`CHANGELOG.md`、予定tagのversionが一致することを確認する。
 
-crates.ioへの公開を明示的に選ぶまでは`publish = false`を維持します。判断や必須checkが未完了ならtagを作らないでください。
+`Cargo.toml`は公開先をcrates.ioに限定しています。前提条件または必須checkが未完了なら、公開もtag作成も行わないでください。
 
 ## 品質ゲート
 
@@ -31,11 +31,31 @@ cargo clippy --all-targets --all-features --tests --benches -- -D warnings
 cargo test --all-features
 cargo build --release --locked
 cargo install --path . --locked
+cargo package --locked
+cargo publish --dry-run --locked
 pnpm --dir docs install --frozen-lockfile
 pnpm --dir docs build
 ```
 
-[検証](/ja/developer/validation/)に記録された依存関係・ソース監査も再実行します。`Cargo.toml`、`Cargo.lock`、`CHANGELOG.md`、予定tagのversionが一致することを確認します。生成ドキュメントと両platformのsmoke test行もレビューします。
+[検証](/ja/developer/validation/)に記録された依存関係・ソース監査も再実行します。生成ドキュメント、packageに含まれるファイル一覧、両platformのsmoke test行もレビューします。
+
+## crateの内容を確認して公開する
+
+公開前にregistryへ送る正確な内容を確認します。
+
+```sh title="ターミナル"
+cargo package --list
+```
+
+一覧にはRustのapplication・test source、README、changelog、2つのlicense file、Cargoが生成するmanifest・lock・VCS metadataだけが含まれている必要があります。documentation site、repository workflow、agent integration file、contributor専用documentを含めてはいけません。
+
+リリース対象そのもののrevisionで、すべての前提条件と品質ゲートが成功した後、権限を持つmaintainerが公開します。
+
+```sh title="ターミナル"
+cargo publish --locked
+```
+
+公開したcrate versionは取り消せません。registry account、crate名、version、package内容、dry-runの出力を確認してから、このコマンドを実行してください。
 
 ## ネイティブarchiveを作る
 
@@ -91,4 +111,4 @@ tar -tzf "${release_name}.tar.gz"
 test -n "${release_stage}" && test "${release_stage}" != / && rm -rf -- "${release_stage}"
 ```
 
-artifact作成とchecksum検証だけでは、先の所有者判断は解決されず、tag、release upload、registry公開も許可されません。
+artifact作成とchecksum検証だけではcrateは公開されず、tagやrelease uploadも許可されません。registry公開は、上記の`cargo publish --locked`を明示的に実行した場合にだけ行われます。

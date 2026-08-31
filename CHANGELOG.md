@@ -19,6 +19,7 @@ All notable changes to ChronoGit are documented here.
 - Linux/macOS terminal lifecycle protection for normal exit, errors, `q`, Ctrl-C, and panics.
 - 8 MiB output and 30-second Git-process safety limits.
 - Codex-first companion skill, with Claude Code and Grok Build setup, trigger boundaries, separate-terminal handoff, and relaunch guidance.
+- crates.io package metadata and a source-only package allowlist.
 
 ### Fixed
 
@@ -31,4 +32,3 @@ All notable changes to ChronoGit are documented here.
 - Staged-only changes are intentionally hidden.
 - Merge commits are compared only with their first parent.
 - The TUI requires an interactive terminal of at least 80x24.
-- Cargo registry publishing remains disabled for the initial release.

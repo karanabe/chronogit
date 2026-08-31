@@ -20,6 +20,7 @@ cargo fmt --all --check
 cargo clippy --all-targets --all-features --tests --benches -- -D warnings
 cargo test --all-features
 cargo build --release --locked
+cargo package --locked
 ```
 
 For documentation changes, build the site separately:
@@ -43,7 +44,7 @@ Focused Rust commands include `cargo test --lib`, `cargo test --test git_service
 
 ## Current change verification
 
-For the current revision, the complete Rust gate above passed with 77 tests across unit, CLI, and Git-service targets, followed by the locked release build. The documentation build generated 29 pages successfully.
+For the current working tree, the complete Rust gate above passed with 77 tests across unit, CLI, and Git-service targets, followed by the locked release build. `cargo package --allow-dirty --locked` produced and rebuilt a 40-file crate (271.2 KiB, 58.0 KiB compressed), and the crates.io publish dry-run reached the upload step before aborting as expected. The documentation build generated 29 pages successfully. Repeat the commands without `--allow-dirty` from the exact committed release revision.
 
 The release binary was also exercised against the separate coreutils repository in a real 80×24 PTY. In standard History, `Enter` on Commits moved focus to Changed files and a second `Enter` opened the selected diff. `j` and `k` visibly moved its highlighted current line. On another uncached file, `Ctrl-d` was entered while `Loading diff…` was visible; the completed diff immediately highlighted the line ten positions down, and `Ctrl-u` returned it to the first line. `q` exited successfully with the terminal restoration sequences present. The complete-message and body-layout checks from the preceding revision remain recorded below.
 
@@ -75,4 +76,4 @@ Static searches found no secrets, `unsafe`, `TODO`/`FIXME`, debug macros, direct
 
 The GitHub Actions `CI` workflow is manual-only and does not run for pushes or pull requests. When a remote check is needed, a maintainer opens the repository's **Actions** tab, selects **CI**, and chooses **Run workflow**. That run executes tests and release builds on Ubuntu and macOS, with formatting and Clippy on Ubuntu. Linux real-terminal behavior was verified locally. The macOS row in the manual checklist still requires a real terminal in the CI or release environment.
 
-Registry publishing remains disabled with `publish = false`. The repository owner must select the final distribution destination before a public artifact or tag is produced. Follow the [release procedure](/developer/release/) only after those decisions and current checks are complete.
+The manifest permits publication only to crates.io and limits the registry payload to application and test sources plus user-facing release files. Publishing still requires an authorized maintainer to complete the current checks and explicit publish step in the [release procedure](/developer/release/).

@@ -73,6 +73,7 @@ cargo fmt --all --check
 cargo clippy --all-targets --all-features --tests --benches -- -D warnings
 cargo test --all-features
 cargo build --release
+cargo package --locked
 ```
 
 For documentation-only changes, Rust build and test commands are optional

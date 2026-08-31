@@ -10,7 +10,7 @@ ChronoGit is a read-only terminal history and diff explorer for humans and AI ag
 
 ChronoGit is at `0.1.0`. Linux and macOS are supported. Windows, bare repositories, and non-interactive terminals are not supported yet.
 
-Cargo registry publishing remains disabled for this release.
+The manifest is prepared to publish this release to crates.io. Publishing remains a separate maintainer action.
 
 ## Requirements
 
@@ -20,7 +20,13 @@ Cargo registry publishing remains disabled for this release.
 
 ## Install
 
-From a checkout:
+Install the published crate from crates.io:
+
+```bash
+cargo install chronogit --locked
+```
+
+Or install from a checkout:
 
 ```bash
 cargo install --path . --locked
@@ -134,6 +140,7 @@ cargo fmt --all --check
 cargo clippy --all-targets --all-features --tests --benches -- -D warnings
 cargo test --all-features
 cargo build --release
+cargo package --locked
 ```
 
 ## Documentation

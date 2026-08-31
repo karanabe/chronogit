@@ -20,6 +20,7 @@ cargo fmt --all --check
 cargo clippy --all-targets --all-features --tests --benches -- -D warnings
 cargo test --all-features
 cargo build --release --locked
+cargo package --locked
 ```
 
 ドキュメント変更では、サイトを別途ビルドします。
@@ -43,7 +44,7 @@ pnpm --dir docs build
 
 ## 現在の変更の検証
 
-現在のrevisionでは、上記のRust完全ゲートがunit、CLI、Git serviceの計77 testとlock済みrelease buildを含めて成功しました。ドキュメントbuildも29ページを生成して成功しました。
+現在のworking treeでは、上記のRust完全ゲートがunit、CLI、Git serviceの計77 testとlock済みrelease buildを含めて成功しました。`cargo package --allow-dirty --locked`は40ファイルのcrate（271.2 KiB、圧縮後58.0 KiB）を生成・再buildし、crates.io公開のdry-runは想定どおり中止される前のupload stepまで到達しました。ドキュメントbuildも29ページを生成して成功しました。release対象をcommitした正確なrevisionでは、`--allow-dirty`を付けずに再実行してください。
 
 release binaryを別のcoreutilsリポジトリに対する実80×24 PTYでも操作しました。通常のHistoryでcommitペインの`Enter`により変更ファイルへフォーカスが移り、2回目の`Enter`で選択diffが開きました。`j`と`k`で強調中の現在行が目に見えて移動しました。別の未cacheファイルでは`Loading diff…`の表示中に`Ctrl-d`を入力し、完了直後に10行先が強調され、`Ctrl-u`で先頭行へ戻りました。`q`はターミナル復元シーケンスを出して正常終了しました。直前revisionで実施したmessage全文とbodyレイアウトの確認は、下の履歴記録に残しています。
 
@@ -75,4 +76,4 @@ license file追加後の`cargo package --allow-dirty --locked`は49ファイル�
 
 GitHub Actionsの`CI` workflowは手動実行専用で、pushやpull requestでは起動しません。リモートcheckが必要な場合は、maintainerがリポジトリの**Actions** tabを開き、**CI**を選択して**Run workflow**を実行します。このworkflowはUbuntuとmacOSでtestとrelease buildを実行し、UbuntuではformatとClippyも実行します。Linuxの実ターミナル動作はローカルで検証済みです。手動チェックリストのmacOS行は、CIまたはrelease環境の実ターミナルで引き続き確認が必要です。
 
-registryへの公開は`publish = false`で無効のままです。公開artifactまたはtagを作る前に、リポジトリ所有者が最終配布先を選ぶ必要があります。その判断と現在のcheckが完了してから[リリース手順](/ja/developer/release/)へ進んでください。
+manifestは公開先をcrates.ioだけに限定し、registryへ送る内容をapplication・test sourceとユーザー向けrelease fileに絞っています。公開には、権限を持つmaintainerが現在のcheckと[リリース手順](/ja/developer/release/)の明示的な公開操作を完了する必要があります。

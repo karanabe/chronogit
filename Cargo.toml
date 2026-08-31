@@ -6,9 +6,18 @@ rust-version = "1.88"
 description = "A read-only terminal history and diff explorer for humans and AI agents"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
+repository = "https://github.com/karanabe/chronogit"
 keywords = ["git", "tui", "terminal", "diff", "history"]
 categories = ["command-line-utilities", "development-tools"]
-publish = false
+include = [
+    "/src/**",
+    "/tests/**",
+    "/CHANGELOG.md",
+    "/LICENSE-APACHE",
+    "/LICENSE-MIT",
+    "/README.md",
+]
+publish = ["crates-io"]
 
 [dependencies]
 bstr = { version = "1.13.1", default-features = false, features = ["std"] }

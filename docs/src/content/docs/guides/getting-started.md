@@ -1,6 +1,6 @@
 ---
 title: Get started
-description: Install ChronoGit from a checkout and open your first repository.
+description: Install ChronoGit with Cargo and open your first repository.
 tags:
   - installation
   - quickstart
@@ -9,10 +9,10 @@ sidebar:
   order: 1
 ---
 
-ChronoGit is a read-only terminal interface for inspecting unstaged worktree changes and commit history. This guide installs version `0.1.0` from a source checkout and opens a repository without changing it.
+ChronoGit is a read-only terminal interface for inspecting unstaged worktree changes and commit history. This guide installs version `0.1.0` with Cargo and opens a repository without changing it.
 
 :::note[Distribution status]
-Cargo registry publishing is disabled for `0.1.0`. Install from a trusted checkout until the project documents a public distribution channel.
+The manifest is ready for crates.io publication. If `0.1.0` is not available from the registry yet, install it from a trusted checkout.
 :::
 
 ## Requirements
@@ -25,6 +25,14 @@ Cargo registry publishing is disabled for `0.1.0`. Install from a trusted checko
 
 Windows, bare repositories, pipes, captured commands, and background sessions are not supported in `0.1.0`.
 
+## Install from crates.io
+
+Install the published crate and use its locked dependency versions:
+
+```sh title="Terminal"
+cargo install chronogit --locked
+```
+
 ## Install from a checkout
 
 From the ChronoGit repository root, run:
@@ -33,7 +41,7 @@ From the ChronoGit repository root, run:
 cargo install --path . --locked
 ```
 
-Confirm that the installed binary is available:
+Whichever installation method you use, confirm that the binary is available:
 
 ```sh title="Terminal"
 chronogit --version

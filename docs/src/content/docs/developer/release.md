@@ -1,6 +1,6 @@
 ---
 title: Release procedure
-description: Prepare ChronoGit release archives and checksums without publishing them.
+description: Validate and publish the crates.io package, then prepare native archives and checksums.
 tags:
   - release
   - packaging
@@ -9,17 +9,17 @@ sidebar:
   order: 4
 ---
 
-This procedure prepares native ChronoGit `0.1.0` archives and SHA-256 checksums. It does not authorize publication.
+This procedure validates the ChronoGit `0.1.0` crates.io package and prepares native archives with SHA-256 checksums. The actual registry publish remains an explicit maintainer action.
 
-## Owner decisions required first
+## Release prerequisites
 
-Before creating a public artifact or tag, the repository owner must:
+Before publishing a crate, creating a public artifact, or tagging the release, the maintainer must:
 
-1. select the canonical repository URL and set Cargo's `repository` field;
-2. decide whether distribution uses source checkout, GitHub Releases, crates.io, or a documented combination;
-3. complete both platform rows in the [manual terminal smoke test](/developer/terminal-smoke/).
+1. have publish access to the `chronogit` crate on crates.io;
+2. complete both platform rows in the [manual terminal smoke test](/developer/terminal-smoke/);
+3. confirm the version in `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, and the proposed tag agrees.
 
-Keep `publish = false` until crates.io publication is explicitly selected. Do not tag a release while any decision or required check is incomplete.
+`Cargo.toml` restricts publication to crates.io. Do not publish or tag a release while any prerequisite or required check is incomplete.
 
 ## Quality gate
 
@@ -31,11 +31,31 @@ cargo clippy --all-targets --all-features --tests --benches -- -D warnings
 cargo test --all-features
 cargo build --release --locked
 cargo install --path . --locked
+cargo package --locked
+cargo publish --dry-run --locked
 pnpm --dir docs install --frozen-lockfile
 pnpm --dir docs build
 ```
 
-Repeat the dependency and source audits described in [Validation](/developer/validation/). Confirm the version in `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, and the proposed tag agrees. Review the generated documentation and both platform smoke-test rows.
+Repeat the dependency and source audits described in [Validation](/developer/validation/). Review the generated documentation, packaged file list, and both platform smoke-test rows.
+
+## Inspect and publish the crate
+
+Inspect the exact registry payload before publishing:
+
+```sh title="Terminal"
+cargo package --list
+```
+
+The list must contain the Rust application and test sources, README, changelog, both license files, and Cargo-generated manifest, lock, and VCS metadata only. It must not contain the documentation site, repository workflows, agent integration files, or contributor-only documents.
+
+After every prerequisite and quality gate passes on the exact revision to release, an authorized maintainer publishes it:
+
+```sh title="Terminal"
+cargo publish --locked
+```
+
+Publishing a crate version cannot be undone. Run this command only after checking the registry account, crate name, version, package contents, and dry-run output.
 
 ## Create a native archive
 
@@ -91,4 +111,4 @@ Remove the staging directory only after confirming `release_stage` is the exact 
 test -n "${release_stage}" && test "${release_stage}" != / && rm -rf -- "${release_stage}"
 ```
 
-Artifact creation and checksum verification do not resolve the owner decisions above and do not authorize a tag, release upload, or registry publication.
+Artifact creation and checksum verification do not publish the crate or authorize a tag or release upload. Registry publication occurs only through the explicit `cargo publish --locked` step above.
