@@ -19,6 +19,12 @@ export default defineConfig({
 				ja: project.title,
 			},
 			description: project.description,
+			logo: {
+				src: './src/assets/ChronoGitLogo.png',
+				alt: '',
+				replacesTitle: true,
+			},
+			favicon: '/favicon.png',
 			locales: {
 				root: { label: 'English', lang: 'en' },
 				ja: { label: '日本語', lang: 'ja' },

@@ -160,6 +160,24 @@ html[data-has-hero] .hero .tagline {
 	padding-bottom: clamp(3rem, 8vw, 6rem);
 }
 
+.landing-logo {
+	display: flex;
+	justify-content: center;
+	margin: 0 auto clamp(3rem, 7vw, 5rem);
+}
+
+.landing-logo img {
+	display: block;
+	box-sizing: border-box;
+	width: min(100%, 34rem);
+	height: auto;
+	border: 1px solid var(--sl-color-hairline-light);
+	border-radius: 1rem;
+	background: #fff;
+	box-shadow: 0 24px 60px -42px hsla(225, 30%, 2%, 0.75);
+	padding: clamp(0.75rem, 2vw, 1.25rem);
+}
+
 .landing-eyebrow {
 	margin: 0 0 1rem;
 	color: var(--sl-color-text-accent);

@@ -52,6 +52,14 @@ const links = [
 		text-overflow: ellipsis;
 	}
 
+	.site-identity :global(.site-title img) {
+		box-sizing: border-box;
+		max-width: clamp(6rem, 14vw, 8.5rem);
+		border-radius: 0.35rem;
+		background: #fff;
+		padding: 0.2rem 0.35rem;
+	}
+
 	nav {
 		display: flex;
 		flex: none;
@@ -84,8 +92,8 @@ const links = [
 	}
 
 	@media (max-width: 34rem) {
-		.site-identity :global(.site-title span) {
-			max-width: 3.5rem;
+		.site-identity :global(.site-title img) {
+			max-width: 6rem;
 		}
 
 		nav a {

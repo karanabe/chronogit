@@ -1,4 +1,7 @@
 <br />
+<p align="center">
+  <img src="https://raw.githubusercontent.com/karanabe/chronogit/master/docs/src/assets/ChronoGitLogo.png" alt="ChronoGit" width="520" />
+</p>
 <h1 align="center">ChronoGit</h1>
 <h3 align="center">A read-only terminal UI for exploring Git history and diffs.</h3>
 <br />

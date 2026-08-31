@@ -23,7 +23,12 @@ hero:
       variant: minimal
 ---
 
+import logo from '../../assets/ChronoGitLogo.png';
+
 <div class="landing-shell not-content">
+  <div class="landing-logo">
+    <img src={logo.src} alt="" width="543" height="181" loading="eager" decoding="async" />
+  </div>
   <section class="landing-intro" aria-labelledby="landing-intro-title">
     <p class="landing-eyebrow">Read-only by design</p>
     <h2 id="landing-intro-title">Review a repository without leaving your terminal.</h2>
