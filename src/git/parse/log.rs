@@ -11,15 +11,16 @@ pub(crate) fn parse_commits(input: &[u8]) -> Result<Vec<CommitSummary>, GitError
     if fields.is_empty() {
         return Ok(Vec::new());
     }
-    if !fields.len().is_multiple_of(5) {
+    let (records, remainder) = fields.as_chunks::<5>();
+    if !remainder.is_empty() {
         return Err(GitError::parse(
             "commit log",
             format!("expected groups of 5 fields, got {}", fields.len()),
         ));
     }
 
-    fields
-        .chunks_exact(5)
+    records
+        .iter()
         .map(|chunk| {
             let id = parse_oid(chunk[0])?;
             let parents = chunk[1]
