@@ -2,7 +2,7 @@
 
 All notable changes to ChronoGit are documented here.
 
-## Unreleased
+## 0.2.0
 
 ### Added
 
@@ -16,6 +16,11 @@ All notable changes to ChronoGit are documented here.
 - Repository file lists, content matches, file histories, and current file reads share the existing read-only, bounded asynchronous pipeline.
 - Repository searches now refresh after every query edit while stale asynchronous results remain ignored; `Ctrl-j` focuses Results and `Ctrl-k` returns to Search for another live query.
 - `q` and `Esc` now close or go back, while `Q` and Ctrl-C quit; Graph commit details now appear as a floating window over the graph.
+
+### Fixed
+
+- Search prompts now accept `q` and uppercase `Q` as query text; `Esc` cancels input and Ctrl-C remains the global quit key.
+- Current-file previews reject symbolic links in every path component and use descriptor-relative file opens to prevent reads outside the discovered worktree.
 
 ## 0.1.0
 

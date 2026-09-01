@@ -33,4 +33,4 @@ quit = Q
 | `file_search`, `content_search` | リポジトリ全体の検索 |
 | `search_forward`, `search_backward`, `next_match`, `previous_match` | 差分フロート内検索 |
 
-未知のaction/キー、読めない明示ファイル、キーの重複、別の割り当てのprefixになる割り当ては拒否し、raw mode開始前にエラーを表示します。標準では`close`が`q`と`Esc`、`quit`が大文字の`Q`です。`quit`を置き換えても、安全な緊急終了用の`Ctrl-C`は予約されたままです。文字入力中もrepository searchのフォーカス移動、close/back、終了を使えるよう、`Enter`、`Ctrl-j`、`Ctrl-k`、`q`、`Esc`、大文字`Q`、Backspaceは予約されます。アプリ内ヘルプはカスタム設定ではなく組み込み標準キーを表示します。
+未知のaction/キー、読めない明示ファイル、キーの重複、別の割り当てのprefixになる割り当ては拒否し、raw mode開始前にエラーを表示します。標準では`close`が`q`と`Esc`、`quit`が大文字の`Q`です。`quit`を置き換えても、安全な緊急終了用の`Ctrl-C`は予約されたままです。文字入力中は`Enter`、`Ctrl-j`、`Ctrl-k`、`Esc`、Backspace、`Ctrl-C`が予約され、印字可能な`q`と大文字`Q`はクエリ文字として入力できます。アプリ内ヘルプはカスタム設定ではなく組み込み標準キーを表示します。

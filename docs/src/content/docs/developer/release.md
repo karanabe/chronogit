@@ -9,7 +9,7 @@ sidebar:
   order: 4
 ---
 
-This procedure validates the ChronoGit `0.1.0` crates.io package and prepares native archives with SHA-256 checksums. The actual registry publish remains an explicit maintainer action.
+This procedure validates the ChronoGit `0.2.0` crates.io package and prepares native archives with SHA-256 checksums. The actual registry publish remains an explicit maintainer action.
 
 ## Release prerequisites
 
@@ -47,7 +47,7 @@ Inspect the exact registry payload before publishing:
 cargo package --list
 ```
 
-The list must contain the Rust application and test sources, README, changelog, both license files, and Cargo-generated manifest, lock, and VCS metadata only. It must not contain the documentation site, repository workflows, agent integration files, or contributor-only documents.
+The list must contain the Rust application and test sources, sample keymap, README, changelog, both license files, and Cargo-generated manifest, lock, and VCS metadata only. It must not contain the documentation site, repository workflows, agent integration files, or contributor-only documents.
 
 After every prerequisite and quality gate passes on the exact revision to release, an authorized maintainer publishes it:
 
@@ -68,7 +68,7 @@ Build each archive on its target OS. Set one supported target label explicitly:
 From the clean checkout, replace the target value as needed:
 
 ```sh title="Terminal"
-release_version=0.1.0
+release_version=0.2.0
 release_target=x86_64-unknown-linux-gnu
 release_name="chronogit-${release_version}-${release_target}"
 release_stage=$(mktemp -d)

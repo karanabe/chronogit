@@ -99,7 +99,8 @@ impl KeyMapper {
     ///
     /// `None` means the key is either unbound or is a valid prefix awaiting the
     /// next stroke. `search_input_active` switches printable keys to query-edit
-    /// actions while retaining the reserved quit and focus controls.
+    /// actions while retaining the reserved focus, confirmation, cancellation,
+    /// and `Ctrl-C` controls.
     pub fn map(&mut self, key: KeyEvent, search_input_active: bool) -> Option<Action> {
         if matches!(key.code, KeyCode::Char('c')) && key.modifiers.contains(KeyModifiers::CONTROL) {
             self.clear_pending();
@@ -121,16 +122,6 @@ impl KeyMapper {
                         && !modifiers.contains(KeyModifiers::ALT) =>
                 {
                     Some(Action::FocusLeft)
-                }
-                (KeyCode::Char('q'), modifiers)
-                    if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-                {
-                    Some(Action::CancelSearch)
-                }
-                (KeyCode::Char('Q'), modifiers)
-                    if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-                {
-                    Some(Action::Quit)
                 }
                 (KeyCode::Backspace, _) => Some(Action::DeleteSearch),
                 (KeyCode::Char(character), modifiers)
@@ -310,15 +301,15 @@ mod tests {
     }
 
     #[test]
-    fn search_input_reserves_close_quit_and_editing_keys() {
+    fn search_input_accepts_q_and_reserves_control_keys() {
         let mut mapper = KeyMapper::new();
         assert_eq!(
             mapper.map(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE), true),
-            Some(Action::CancelSearch)
+            Some(Action::InsertSearch('q'))
         );
         assert_eq!(
             mapper.map(KeyEvent::new(KeyCode::Char('Q'), KeyModifiers::SHIFT), true),
-            Some(Action::Quit)
+            Some(Action::InsertSearch('Q'))
         );
         assert_eq!(
             mapper.map(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE), true),

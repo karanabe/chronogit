@@ -1,14 +1,17 @@
 //! Domain-level repository reads built on the typed Git runner boundary.
 
-use std::ffi::OsString;
-use std::fs::{self, File};
+use std::ffi::{OsStr, OsString};
+use std::fs::File;
 use std::io::Read;
+use std::os::fd::OwnedFd;
 use std::path::Path;
 
 #[cfg(unix)]
-use std::os::unix::ffi::OsStringExt;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 
 use bstr::ByteSlice;
+use rustix::fs::{FileType, Mode, OFlags};
+use rustix::io::Errno;
 
 use crate::domain::{
     ChangedFile, CommitBaseline, CommitMessage, CommitSummary, DiffDocument, DiffTarget,
@@ -29,6 +32,7 @@ use crate::git::{CommandOutput, GitCommand, GitError, GitRunner};
 pub struct GitService<R> {
     runner: R,
     root: RepositoryRoot,
+    worktree: OwnedFd,
 }
 
 impl<R: GitRunner> GitService<R> {
@@ -66,18 +70,26 @@ impl<R: GitRunner> GitService<R> {
         let path = std::path::PathBuf::from(OsString::from_vec(raw.to_vec()));
         let root = RepositoryRoot::new(path)
             .map_err(|detail| GitError::parse("repository root", detail))?;
-        let service = Self { runner, root };
-        let bare = service
-            .runner
-            .run(Some(&service.root), &GitCommand::IsBare)?;
+        let bare = runner.run(Some(&root), &GitCommand::IsBare)?;
         ensure_complete(&bare, "check bare repository")?;
         ensure_success(&bare, "check bare repository")?;
         if trim_newline(bare.stdout()) == b"true" {
-            return Err(GitError::Unsupported(
-                "bare repositories are not supported by ChronoGit v0.1.0".to_owned(),
-            ));
+            return Err(GitError::Unsupported(format!(
+                "bare repositories are not supported by ChronoGit v{}",
+                env!("CARGO_PKG_VERSION")
+            )));
         }
-        Ok(service)
+        let worktree = rustix::fs::open(
+            root.as_path(),
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|source| filesystem_error("open repository root", source))?;
+        Ok(Self {
+            runner,
+            root,
+            worktree,
+        })
     }
 
     /// Returns the absolute root of the discovered working tree.
@@ -207,7 +219,8 @@ impl<R: GitRunner> GitService<R> {
         parse_commits(output.stdout())
     }
 
-    /// Reads current working-tree content without following symbolic links.
+    /// Reads current working-tree content without following symbolic links in
+    /// any path component.
     ///
     /// Regular-file reads are capped at 8 MiB. A NUL byte classifies the result
     /// as binary, missing or special files become an unavailable document, and
@@ -216,50 +229,17 @@ impl<R: GitRunner> GitService<R> {
     /// # Errors
     ///
     /// Returns an error when metadata, link-target, open, or read operations fail
-    /// for reasons other than a missing path.
+    /// for reasons other than a missing path or a rejected intermediate link.
     pub fn file_content(&self, path: &RepoPath) -> Result<FileDocument, GitError> {
         const MAX_FILE_BYTES: usize = 8 * 1024 * 1024;
-        let absolute = self.root.as_path().join(path.to_os_string());
-        let metadata = match fs::symlink_metadata(&absolute) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(FileDocument::Unavailable {
-                    summary: format!(
-                        "File does not exist in the current working tree: {}",
-                        path.display()
-                    ),
-                });
-            }
-            Err(source) => {
-                return Err(GitError::Io {
-                    operation: "read working tree file metadata",
-                    source,
-                });
+        let (mut file, size) = match open_current_file(&self.worktree, path)? {
+            CurrentFile::Regular { file, size } => (file, size),
+            CurrentFile::Symlink { target } => return Ok(FileDocument::Symlink { target }),
+            CurrentFile::Unavailable { summary } => {
+                return Ok(FileDocument::Unavailable { summary });
             }
         };
-        if metadata.file_type().is_symlink() {
-            let target = fs::read_link(&absolute).map_err(|source| GitError::Io {
-                operation: "read working tree symlink",
-                source,
-            })?;
-            return Ok(FileDocument::Symlink {
-                target: format!("symlink → {}", target.display()),
-            });
-        }
-        if !metadata.is_file() {
-            return Ok(FileDocument::Unavailable {
-                summary: format!("Not a regular working-tree file: {}", path.display()),
-            });
-        }
-        let mut file = File::open(&absolute).map_err(|source| GitError::Io {
-            operation: "open working tree file",
-            source,
-        })?;
-        let mut bytes = Vec::with_capacity(
-            usize::try_from(metadata.len())
-                .unwrap_or(MAX_FILE_BYTES)
-                .min(MAX_FILE_BYTES),
-        );
+        let mut bytes = Vec::with_capacity(size.min(MAX_FILE_BYTES));
         file.by_ref()
             .take((MAX_FILE_BYTES + 1) as u64)
             .read_to_end(&mut bytes)
@@ -388,6 +368,102 @@ impl<R: GitRunner> GitService<R> {
         ensure_complete(&output, "read tree entries")?;
         ensure_success(&output, "read tree entries")?;
         parse_tree_entries(output.stdout())
+    }
+}
+
+enum CurrentFile {
+    Regular { file: File, size: usize },
+    Symlink { target: String },
+    Unavailable { summary: String },
+}
+
+fn open_current_file(worktree: &OwnedFd, path: &RepoPath) -> Result<CurrentFile, GitError> {
+    let directory_flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let mut directory = rustix::io::dup(worktree)
+        .map_err(|source| filesystem_error("duplicate repository root", source))?;
+
+    let mut components = path.as_bytes().split(|byte| *byte == b'/');
+    let final_component = components
+        .next_back()
+        .ok_or_else(|| GitError::parse("working tree path", "path is empty"))?;
+    for component in components {
+        let name = OsStr::from_bytes(component);
+        directory = match rustix::fs::openat(&directory, name, directory_flags, Mode::empty()) {
+            Ok(descriptor) => descriptor,
+            Err(Errno::NOENT) => {
+                return Ok(CurrentFile::Unavailable {
+                    summary: format!(
+                        "File does not exist in the current working tree: {}",
+                        path.display()
+                    ),
+                });
+            }
+            Err(Errno::LOOP | Errno::NOTDIR) => {
+                return Ok(CurrentFile::Unavailable {
+                    summary: format!(
+                        "Path contains a symbolic link or non-directory component: {}",
+                        path.display()
+                    ),
+                });
+            }
+            Err(source) => {
+                return Err(filesystem_error(
+                    "open working tree directory component",
+                    source,
+                ));
+            }
+        };
+    }
+
+    let final_name = OsStr::from_bytes(final_component);
+    let descriptor = match rustix::fs::openat(
+        &directory,
+        final_name,
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
+        Mode::empty(),
+    ) {
+        Ok(descriptor) => descriptor,
+        Err(Errno::LOOP) => {
+            let target = rustix::fs::readlinkat(&directory, final_name, Vec::new())
+                .map_err(|source| filesystem_error("read working tree symlink", source))?;
+            let target = OsString::from_vec(target.as_bytes().to_vec());
+            return Ok(CurrentFile::Symlink {
+                target: format!("symlink → {}", target.to_string_lossy()),
+            });
+        }
+        Err(Errno::NOENT) => {
+            return Ok(CurrentFile::Unavailable {
+                summary: format!(
+                    "File does not exist in the current working tree: {}",
+                    path.display()
+                ),
+            });
+        }
+        Err(Errno::NOTDIR) => {
+            return Ok(CurrentFile::Unavailable {
+                summary: format!("Not a regular working-tree file: {}", path.display()),
+            });
+        }
+        Err(source) => return Err(filesystem_error("open working tree file", source)),
+    };
+
+    let metadata = rustix::fs::fstat(&descriptor)
+        .map_err(|source| filesystem_error("read working tree file metadata", source))?;
+    if !FileType::from_raw_mode(metadata.st_mode).is_file() {
+        return Ok(CurrentFile::Unavailable {
+            summary: format!("Not a regular working-tree file: {}", path.display()),
+        });
+    }
+    Ok(CurrentFile::Regular {
+        file: File::from(descriptor),
+        size: usize::try_from(metadata.st_size).unwrap_or(usize::MAX),
+    })
+}
+
+fn filesystem_error(operation: &'static str, source: Errno) -> GitError {
+    GitError::Io {
+        operation,
+        source: source.into(),
     }
 }
 

@@ -70,7 +70,7 @@ Confirm typed input echoes normally, the cursor is visible, mouse selection work
 2. Press `Enter`; confirm a bordered two-row window floats over the still-visible Graph, with changed files above the selected diff. Press `Enter` for the full diff, use `q` to close it, then use `q` again to return to Graph. Repeat with `Esc`.
 3. From Changes, History, and Graph, run `Space f` and type a known path one character at a time. Confirm results update before `Enter`, use `Enter` or `Ctrl-j` to focus Results, then use `Ctrl-k` to return to Search. Edit the query and confirm live results update again before opening it; confirm file history is above current content.
 4. Change the history selection and confirm the lower pane becomes that commit's diff. Open and close the full diff, then press `q` or `Esc` back to the originating view.
-5. Run `Space g`, type known text, confirm live results follow each edit and deletion, open a result, and confirm the matching current-content line is highlighted. Reopen the prompt and confirm both `q` and `Esc` close it, while uppercase `Q` quits.
+5. Run `Space g`, type known text, confirm live results follow each edit and deletion, open a result, and confirm the matching current-content line is highlighted. Reopen the prompt, enter a query containing both `q` and uppercase `Q`, and confirm both are inserted and update results. Confirm `Esc` closes the prompt and `Ctrl-C` quits.
 6. Start once with the default XDG keymap and once with `--keymap` pointing to a valid custom binding. Confirm an invalid explicit file fails before the alternate screen opens.
 
 ## Sign-off

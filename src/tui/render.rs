@@ -733,7 +733,7 @@ fn render_repository_search_overlay(frame: &mut Frame<'_>, area: Rect, state: &A
     };
     let prompt_active = state.repository_search.prompt.is_some();
     let search_title = if prompt_active {
-        format!("Search {mode} [live; Enter/Ctrl-j: results, q/Esc: close]")
+        format!("Search {mode} [live; Enter/Ctrl-j: results, Esc: close]")
     } else {
         format!("Search {mode} [Ctrl-k: edit again, q/Esc: close]")
     };

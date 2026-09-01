@@ -317,6 +317,43 @@ fn searches_files_and_content_and_reads_file_history_and_current_content() {
     ));
 }
 
+#[cfg(unix)]
+#[test]
+fn current_file_reads_never_follow_symlinks_outside_the_worktree() {
+    use std::os::unix::fs::symlink;
+
+    let repository = TestRepository::new();
+    repository.write("linked/secret.txt", b"indexed content\n");
+    repository.commit_all("track nested file");
+
+    let external = tempfile::tempdir()
+        .unwrap_or_else(|error| panic!("could not create external directory: {error}"));
+    let external_file = external.path().join("secret.txt");
+    fs::write(&external_file, b"outside content\n")
+        .unwrap_or_else(|error| panic!("could not write external file: {error}"));
+    fs::remove_dir_all(repository.path().join("linked"))
+        .unwrap_or_else(|error| panic!("could not replace tracked directory: {error}"));
+    symlink(external.path(), repository.path().join("linked"))
+        .unwrap_or_else(|error| panic!("could not create directory symlink: {error}"));
+
+    let service = repository.service();
+    let nested_path = chronogit::domain::RepoPath::from_bytes(b"linked/secret.txt".to_vec())
+        .unwrap_or_else(|error| panic!("invalid nested path: {error}"));
+    let nested = service
+        .file_content(&nested_path)
+        .unwrap_or_else(|error| panic!("could not inspect nested symlink path: {error}"));
+    assert!(matches!(nested, FileDocument::Unavailable { .. }));
+
+    symlink(&external_file, repository.path().join("direct-link"))
+        .unwrap_or_else(|error| panic!("could not create file symlink: {error}"));
+    let direct_path = chronogit::domain::RepoPath::from_bytes(b"direct-link".to_vec())
+        .unwrap_or_else(|error| panic!("invalid direct path: {error}"));
+    let direct = service
+        .file_content(&direct_path)
+        .unwrap_or_else(|error| panic!("could not inspect direct symlink: {error}"));
+    assert!(matches!(direct, FileDocument::Symlink { .. }));
+}
+
 #[test]
 fn discovers_linked_worktree_root() {
     let repository = TestRepository::new();

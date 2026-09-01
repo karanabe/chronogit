@@ -53,7 +53,7 @@ Owns all communication with the installed Git executable.
 - `GitCommand` is a closed allowlist; callers cannot pass arbitrary arguments.
 - `GitRunner` is the only substitution trait because subprocess I/O is a real slow and stateful test boundary.
 - `SystemGitRunner` executes without a shell, captures bounded byte output, and disables optional locks, prompts, pager, color, external diff, textconv, and fsmonitor execution.
-- `GitService` exposes domain use cases: discovery, status, history, message, changed files, diff, tree children, file/content search, per-file history, and bounded current-file content.
+- `GitService` exposes domain use cases: discovery, status, history, message, changed files, diff, tree children, file/content search, per-file history, and bounded current-file content. Current-file opens stay relative to the discovered worktree descriptor and reject symbolic links in every path component.
 - `git::parse` modules decode NUL-delimited machine output and unified patches.
 
 The repository object format is not assumed to be SHA-1. ChronoGit retains complete hexadecimal IDs returned by Git.
@@ -110,8 +110,9 @@ No new effects are dispatched during exit. Dropping the Tokio runtime completes 
 - Keep repository paths and pathspecs as separate process arguments, never shell text.
 - Reuse object IDs as revisions only after hexadecimal validation.
 - Prevent repository configuration from launching pager, diff, textconv, or fsmonitor programs.
+- Keep current-file reads descriptor-relative and reject symbolic links in every path component.
 - Preserve integration tests that compare `HEAD`, porcelain status, and worktree bytes before and after every read operation.
-- Linux and macOS are the `0.1.0` support boundary. A Windows port must redesign the Unix byte-path boundary rather than adding unchecked conversion.
+- Linux and macOS are the `0.2.0` support boundary. A Windows port must redesign the Unix byte-path boundary rather than adding unchecked conversion.
 - Reject bare repositories and non-interactive terminals during startup.
 
 Future features should add a domain variant and a typed command/effect path instead of bypassing these boundaries.

@@ -1,6 +1,6 @@
 [package]
 name = "chronogit"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.88"
 description = "A read-only terminal UI for exploring Git history and diffs"
@@ -26,6 +26,7 @@ clap = { version = "4.6.6", features = ["derive"] }
 crossterm = { version = "0.29.0", features = ["event-stream"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm_0_29"] }
+rustix = { version = "1.1.4", features = ["fs"] }
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
 
 [dev-dependencies]

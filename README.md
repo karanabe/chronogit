@@ -11,7 +11,7 @@ ChronoGit is a read-only terminal UI for exploring Git history and diffs. It kee
 
 ## Status
 
-ChronoGit is at `0.1.0`. Linux and macOS are supported. Windows, bare repositories, and non-interactive terminals are not supported yet.
+ChronoGit is at `0.2.0`. Linux and macOS are supported. Windows, bare repositories, and non-interactive terminals are not supported yet.
 
 The manifest is prepared to publish this release to crates.io. Publishing remains a separate maintainer action.
 
@@ -79,6 +79,8 @@ Press `3`, or start with `chronogit --view graph`. The graph uses commit parent 
 
 Press `Space f` from any main view to find tracked and untracked file names. Press `Space g` for a fixed-text search across non-binary working-tree content. Results update after every inserted or deleted query character. Press `Enter` or `Ctrl-j` to focus Results, choose a result with `j` / `k`, and press `Enter` again to open it. Press `Ctrl-k` from Results to return to Search, edit the current query, and run another live search.
 
+While entering a search query, `q` and `Q` are ordinary query characters. Use `Esc` to cancel the prompt and `Ctrl-C` to quit.
+
 The file view shows its commit history above its current working-tree content. Changing the selected history commit replaces the lower pane with that commit's first-parent diff. `Enter` opens the current content or diff full-screen; `q` or `Esc` closes the float and then returns to the originating view.
 
 ## Keys
@@ -131,7 +133,7 @@ Startup errors are printed before raw terminal mode is enabled. During the TUI, 
 
 ## Non-goals
 
-ChronoGit does not stage, restore, commit, reset, check out, or otherwise mutate a repository. Version `0.1.0` also does not provide staged-change, remote, pull-request, blame, stash, editor, plugin, or machine-readable export features.
+ChronoGit does not stage, restore, commit, reset, check out, or otherwise mutate a repository. Version `0.2.0` also does not provide staged-change, remote, pull-request, blame, stash, editor, plugin, or machine-readable export features.
 
 ## Troubleshooting
 

@@ -53,7 +53,7 @@ flowchart LR
 - `GitCommand`は閉じた許可リストで、呼び出し側は任意の引数を渡せません。
 - `GitRunner`は唯一の差し替え用traitです。遅く状態を持つサブプロセスI/Oが実際のテスト境界であるためです。
 - `SystemGitRunner`はシェルなしで実行し、上限付きのバイト出力を取得し、任意のロック、プロンプト、pager、色、外部diff、textconv、fsmonitor実行を無効にします。
-- `GitService`は検出、status、履歴、メッセージ、変更ファイル、差分、ツリー子要素、ファイル/内容検索、ファイル単位履歴、上限付き現在内容というドメイン操作を提供します。
+- `GitService`は検出、status、履歴、メッセージ、変更ファイル、差分、ツリー子要素、ファイル/内容検索、ファイル単位履歴、上限付き現在内容というドメイン操作を提供します。現在ファイルは検出済みワークツリーのdescriptorから相対的に開き、すべてのパス要素でシンボリックリンクを拒否します。
 - `git::parse`はNUL区切りの機械出力とunified patchを解析します。
 
 リポジトリのobject formatをSHA-1と仮定しません。Gitが返した完全な16進object IDを保持します。
@@ -110,8 +110,9 @@ Git標準出力は8 MiB、標準エラーは64 KiB、コマンド時間は30秒�
 - リポジトリパスとpathspecは別々のプロセス引数にし、シェル文字列にしないこと。
 - object IDをrevisionとして再利用する前に16進数として検証すること。
 - リポジトリ設定からpager、diff、textconv、fsmonitorプログラムを起動させないこと。
+- 現在ファイルはdescriptorから相対的に読み、すべてのパス要素でシンボリックリンクを拒否すること。
 - 全読み取り操作の前後で`HEAD`、porcelain status、ワークツリーのバイト列を比較するintegration testを維持すること。
-- LinuxとmacOSが`0.1.0`のサポート境界です。Windows対応では未検証変換を加えず、Unixバイトパス境界を再設計すること。
+- LinuxとmacOSが`0.2.0`のサポート境界です。Windows対応では未検証変換を加えず、Unixバイトパス境界を再設計すること。
 - bareリポジトリと非対話ターミナルは起動時に拒否すること。
 
 将来の機能は、この境界を迂回せずdomain variantと型付きcommand/effect経路を追加してください。

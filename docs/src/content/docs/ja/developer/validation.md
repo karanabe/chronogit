@@ -37,16 +37,16 @@ pnpm --dir docs build
 - domainとparserのunit testが、値の不変条件、バイト解析、行番号、不正出力を扱います。
 - reducerとeffectのtestが、Historyの全panel、浮動Graph詳細と戻る操作、live repository searchの入力、Search/Resultsフォーカスの往復と再検索、古い結果の拒否と要求集約、file history/current contentの遷移、全文message/content overlay、本文レイアウトの遷移/選択/scroll、pagination、tree展開、差分フロートのopen/scroll/検索/close遷移、差分読み込み中の移動入力、message読み込み、古い応答の拒否、差分要求の集約を扱います。
 - renderとkeyのtestが、loading、empty、failure、truncation、最小幅のHistoryレイアウト、Graphのlaneと詳細、repository searchのフォーカス案内と結果、file historyとcurrent content、message overlay、差分の現在行強調、差分全体のscroll、比較ラベル、既定/設定済みbinding、leader sequence、意味色、曖昧なキー設定の拒否を扱います。
-- 一時リポジトリのintegration testが、root/merge commit、detached/unborn repository、linked worktree、staged-only/mixed change、file/fixed-text search、現在/過去のfile content、conflict、rename、delete、type change、symlink、submodule、binary/oversized diff、非UTF-8/先頭dash pathを扱います。
+- 一時リポジトリのintegration testが、root/merge commit、detached/unborn repository、linked worktree、staged-only/mixed change、file/fixed-text search、現在/過去のfile content、中間シンボリックリンクの拒否、conflict、rename、delete、type change、symlink、submodule、binary/oversized diff、非UTF-8/先頭dash pathを扱います。
 - CLI testが、help/version、非repository診断、Git未検出、権限エラー、非TTY拒否、ターミナル設定前の不正な明示keymap fileを扱います。
 - 読み取り専用integration checkが、Git service操作の前後で`HEAD`、porcelain status、worktree bytesを比較します。
 - ターミナルライフサイクルtestが、復元シーケンスと意図的にpanicするchild processを検査します。
 
 ## 現在の変更の検証
 
-このrevisionでは、上記のRust完全ゲートがunit、binary、CLI、Git serviceの計88 testとlock済みrelease buildを含めて成功しました。`cargo package --allow-dirty --locked`は46ファイルのcrate（353.3 KiB、圧縮後71.0 KiB）を生成・再buildしました。ドキュメントbuildも33ページを生成して成功しました。
+このrevisionでは、上記のRust完全ゲートがunit、binary、CLI、Git service、rustdocの計90 testとlock済みrelease buildを含めて成功しました。`cargo package --allow-dirty --locked`は46ファイルのcrate（397.3 KiB、圧縮後85.0 KiB）を生成・再buildし、`cargo publish --dry-run --allow-dirty --locked`もuploadせずに完了しました。ドキュメントbuildも33ページを生成して成功しました。
 
-release binaryをこのリポジトリに対する実80×24 PTYでも操作しました。Graphはparent lane付きで表示され、`Enter`で変更ファイル/diff詳細がGraphに重なる中央のfloating windowとして開きました。`q`でGraphへ戻りました。`Space f`でrepository file searchを開き、`R`を入力するとResultsがlive更新され、`Ctrl-j`でResultsへ移り、`Ctrl-k`で`R`を維持したSearchへ戻りました。`E`を追加すると再びlive searchが発行され、READMEのpathだけに絞られました。`q`で入力中のsearch promptを閉じ、大文字`Q`で正常終了してterminal復元シーケンスを確認しました。fixed-text search、古い結果の破棄、close/back動作、Ctrl-C終了はintegration、reducer、executor、keymap、rendering testでも検証しています。以前coreutilsで実施したHistory確認は下の履歴記録に残しています。
+最新のpromptキー変更より前に、このリポジトリに対する実80×24 PTYでもrelease binaryを操作しました。Graphはparent lane付きで表示され、`Enter`で変更ファイル/diff詳細がGraphに重なる中央のfloating windowとして開きました。`q`でGraphへ戻りました。`Space f`でrepository file searchを開き、`R`を入力するとResultsがlive更新され、`Ctrl-j`でResultsへ移り、`Ctrl-k`で`R`を維持したSearchへ戻りました。`E`を追加すると再びlive searchが発行され、READMEのpathだけに絞られました。現在の`q`/`Q`クエリ動作と中間シンボリックリンク拒否は、対象を絞った自動回帰テストで検証しています。公開前には更新済みのplatform smoke test行を完了する必要があります。fixed-text search、古い結果の破棄、close/back動作、Ctrl-C終了はintegration、reducer、executor、keymap、rendering testでも検証しています。以前coreutilsで実施したHistory確認は下の履歴記録に残しています。
 
 ## `0.1.0`リリース候補の履歴記録
 

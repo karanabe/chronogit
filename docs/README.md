@@ -2,6 +2,8 @@
 
 This directory contains the Astro Starlight site for ChronoGit's English and Japanese user and developer documentation.
 
+The private package exists only to build the site locally and is not published to npm. The generated `dist/` directory may later be deployed to GitHub Pages or Azure after the canonical site URL and hosting target are selected.
+
 ## Work locally
 
 Requirements:

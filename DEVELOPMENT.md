@@ -7,7 +7,7 @@ guidelines, and required checks, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Current Implementation Status
 
-The current implementation covers the `0.1.0` scope described in
+The current implementation covers the `0.2.0` scope described in
 [`README.md`](README.md):
 
 - unstaged tracked and untracked worktree changes
@@ -69,6 +69,8 @@ testable without a real terminal.
 - Pass repository paths and pathspecs as separate process arguments; never
   interpolate them into shell text.
 - Keep Git paths as bytes on Unix until presentation requires lossy rendering.
+- Open current files relative to the discovered worktree descriptor and reject
+  symbolic links in every path component.
 - Represent exclusive UI states and load outcomes with enums instead of
   combinations of flags.
 - Attach request IDs to asynchronous work and ignore completions that no longer

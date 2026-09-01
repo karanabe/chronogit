@@ -9,10 +9,10 @@ sidebar:
   order: 1
 ---
 
-ChronoGit is a read-only terminal interface for inspecting unstaged worktree changes and commit history. This guide installs version `0.1.0` with Cargo and opens a repository without changing it.
+ChronoGit is a read-only terminal interface for inspecting unstaged worktree changes and commit history. This guide installs version `0.2.0` with Cargo and opens a repository without changing it.
 
 :::note[Distribution status]
-The manifest is ready for crates.io publication. If `0.1.0` is not available from the registry yet, install it from a trusted checkout.
+The manifest is ready for crates.io publication. If `0.2.0` is not available from the registry yet, install it from a trusted checkout.
 :::
 
 ## Requirements
@@ -23,7 +23,7 @@ The manifest is ready for crates.io publication. If `0.1.0` is not available fro
 - An interactive terminal at least 80 columns by 24 rows
 - A non-bare Git repository
 
-Windows, bare repositories, pipes, captured commands, and background sessions are not supported in `0.1.0`.
+Windows, bare repositories, pipes, captured commands, and background sessions are not supported in `0.2.0`.
 
 ## Install from crates.io
 
@@ -45,7 +45,7 @@ Whichever installation method you use, confirm that the binary is available:
 
 ```sh title="Terminal"
 chronogit --version
-# chronogit 0.1.0
+# chronogit 0.2.0
 ```
 
 ## Open a repository

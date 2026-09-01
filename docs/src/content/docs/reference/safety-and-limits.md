@@ -20,7 +20,7 @@ The application can only request typed operations for repository discovery, bare
 - Optional Git locks and terminal prompts are disabled.
 - Pagers, color, external diff drivers, textconv, and fsmonitor execution are disabled.
 - Object IDs are accepted for reuse as revisions only after hexadecimal validation.
-- Current file reads use validated relative repository paths, do not follow a selected symlink, and stop after 8 MiB.
+- Current file reads open each component relative to the discovered worktree directory, do not follow symbolic links, and stop after 8 MiB.
 - Keymap files accept only documented action and key names; they cannot run commands.
 
 ChronoGit never stages, restores, commits, resets, checks out, creates branches, or updates references.
@@ -51,9 +51,9 @@ When a text diff reaches the stdout limit, the process is stopped and the availa
 
 ## Supported environment
 
-Version `0.1.0` supports Linux and macOS, non-bare repositories, and interactive terminals. Unix path bytes are preserved internally; Windows is outside the current compatibility boundary.
+Version `0.2.0` supports Linux and macOS, non-bare repositories, and interactive terminals. Unix path bytes are preserved internally; Windows is outside the current compatibility boundary.
 
-## Non-goals in `0.1.0`
+## Non-goals in `0.2.0`
 
 ChronoGit does not provide:
 

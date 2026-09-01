@@ -2,7 +2,6 @@
   "name": "chronogit-docs",
   "private": true,
   "type": "module",
-  "version": "0.1.0",
   "license": "MIT",
   "scripts": {
     "dev": "astro dev --background",
