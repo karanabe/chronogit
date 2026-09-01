@@ -38,6 +38,7 @@ ChronoGitはステージ、復元、コミット、リセット、チェック�
 | Gitコマンド時間 | 30秒 |
 | 同時Git読み取り | 最大2 |
 | 差分要求のdebounce | 75 ms |
+| live repository searchのdebounce | 100 ms |
 | 差分キャッシュ | 16項目、合計16 MiB |
 | 履歴ページ | 200コミット |
 | ファイル履歴 | 200コミット |

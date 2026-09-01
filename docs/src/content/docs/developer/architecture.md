@@ -59,11 +59,11 @@ The repository object format is not assumed to be SHA-1. ChronoGit retains compl
 Owns interactive state and transitions.
 
 - `AppView`, `FocusedPane`, `HistoryPanel`, and `Overlay` model mutually exclusive UI states. Changes, History/body, Graph/details, and file history are views; repository search, complete messages, full diffs, and current file content are overlays.
-- `SearchState` owns search inside a loaded diff. `RepositorySearchState` separately owns the global prompt, mode, results, selection, and return view. `FileViewState` owns the selected path, its history/current content, and whether the lower pane shows content or a historical diff.
+- `SearchState` owns search inside a loaded diff. `RepositorySearchState` separately owns the global prompt, live query, results, selection, and return view. An active prompt represents Search focus; moving to Results retains the query so returning to Search can restore and edit it. Every query edit issues a new typed effect; request IDs prevent an older completion from replacing newer results. `FileViewState` owns the selected path, its history/current content, and whether the lower pane shows content or a historical diff.
 - `LoadState<T>` is idle, loading with a request ID, ready, or failed.
 - `Action` represents user intent, `Event` an asynchronous completion, and `GitEffect` the only Git side-effect description.
 - Every request receives a monotonically increasing `RequestId`. A completion applies only if it still matches the current resource and selected commit.
-- Diff requests have a 75 ms debounce and at most two Git tasks run concurrently.
+- Diff requests have a 75 ms debounce, live repository searches have a 100 ms debounce, and at most two Git tasks run concurrently.
 - The diff cache keeps at most 16 entries and 16 MiB. Refresh clears it.
 - History loads 200 commits per page and file history loads up to 200 commits. Messages, changed files, diffs, current content, searches, and tree directories load on demand.
 
@@ -77,7 +77,7 @@ Owns key translation, terminal lifecycle, layout, rendering, and the event loop.
 - `TerminalSession` enables raw mode and the alternate screen and restores terminal state from `Drop`.
 - A panic hook performs the same restoration before forwarding to the previous hook.
 - `tokio::select!` waits for terminal input, resize/tick events, Ctrl-C, and Git completion events.
-- Standard History renders commits, changed files/tree, and diff as three full-width rows. Its body layout renders the same commit list, commit body, and changed files. Graph renders client-side lanes from loaded parent IDs; Graph details and file history render two rows. Changes renders both panes from 110 columns and gives the focused pane the full width below that threshold.
+- Standard History renders commits, changed files/tree, and diff as three full-width rows. Its body layout renders the same commit list, commit body, and changed files. Graph renders client-side lanes from loaded parent IDs; its two-row details are drawn in a centered window over the graph, while file history uses a two-row view. Changes renders both panes from 110 columns and gives the focused pane the full width below that threshold.
 - Below 80×24, rendering becomes a stable size message and quit remains available.
 
 ## Git comparison contracts

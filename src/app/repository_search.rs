@@ -24,14 +24,19 @@ pub(crate) fn overlay_action(state: &mut AppState, action: Action) -> Vec<GitEff
             Action::InsertSearch(character) => {
                 if let Some(prompt) = &mut state.repository_search.prompt {
                     prompt.push(character);
+                    let query = prompt.clone();
+                    return start_search(state, query);
                 }
             }
             Action::DeleteSearch => {
                 if let Some(prompt) = &mut state.repository_search.prompt {
                     prompt.pop();
+                    let query = prompt.clone();
+                    return start_search(state, query);
                 }
             }
             Action::ConfirmSearch => return confirm(state),
+            Action::FocusRight => return confirm(state),
             Action::CancelSearch | Action::CloseOverlay => {
                 state.overlay = Overlay::None;
                 state.repository_search.prompt = None;
@@ -63,6 +68,10 @@ pub(crate) fn overlay_action(state: &mut AppState, action: Action) -> Vec<GitEff
             if let LoadState::Ready(results) = &state.repository_search.results {
                 state.repository_search.selection.bottom(results.len());
             }
+            Vec::new()
+        }
+        Action::FocusLeft => {
+            state.repository_search.prompt = Some(state.repository_search.query.clone());
             Vec::new()
         }
         Action::Activate => open_selected_file(state),
@@ -98,6 +107,13 @@ fn confirm(state: &mut AppState) -> Vec<GitEffect> {
     let Some(query) = state.repository_search.prompt.take() else {
         return Vec::new();
     };
+    if !matches!(state.repository_search.results, LoadState::Idle) {
+        return Vec::new();
+    }
+    start_search(state, query)
+}
+
+fn start_search(state: &mut AppState, query: String) -> Vec<GitEffect> {
     state.repository_search.query.clone_from(&query);
     let request_id = state.request_id();
     state.repository_search.results = LoadState::Loading { request_id };

@@ -38,6 +38,7 @@ Read-only means ChronoGit does not mutate the repository. Editors, hooks started
 | Git command duration | 30 seconds |
 | Concurrent Git reads | At most 2 |
 | Diff request debounce | 75 ms |
+| Live repository-search debounce | 100 ms |
 | Diff cache | 16 entries and 16 MiB total |
 | History page | 200 commits |
 | File history | 200 commits |

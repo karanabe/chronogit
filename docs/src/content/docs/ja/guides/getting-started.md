@@ -74,7 +74,7 @@ chronogit /path/to/repository --view history
 chronogit /path/to/repository --view graph
 ```
 
-起動後も`1`でChanges、`2`でHistory、`3`でGraphへ移動できます。どのメインビューでも`Space f`でファイル、`Space g`でワークツリー文字列を検索できます。キー一覧は`F1`、終了は`q`または`Ctrl-C`です。
+起動後も`1`でChanges、`2`でHistory、`3`でGraphへ移動できます。どのメインビューでも`Space f`でファイル、`Space g`でワークツリー文字列を検索できます。キー一覧は`F1`、閉じる/戻る操作は`q` / `Esc`、終了は`Q` / `Ctrl-C`です。
 
 ## 次に読む
 

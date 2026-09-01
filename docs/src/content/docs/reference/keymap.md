@@ -16,7 +16,8 @@ ChronoGit uses its built-in bindings when no configuration file exists. To overr
 show_graph = x
 file_search = ctrl-p
 content_search = space s
-quit = q, alt-q
+close = q, esc
+quit = Q
 ```
 
 Each `action = keys` line replaces all defaults for that action. Separate a sequence with spaces and alternatives with commas. Supported names are single characters, `space`, `enter`, `esc`, `backspace`, `up`, `down`, `left`, `right`, `home`, `end`, `f1` through `f255`, and `ctrl-` or `alt-` plus one of those keys. Sequences expire after 750 ms.
@@ -32,4 +33,4 @@ Each `action = keys` line replaces all defaults for that action. Separate a sequ
 | `file_search`, `content_search` | Repository-wide search |
 | `search_forward`, `search_backward`, `next_match`, `previous_match` | Search inside a floating diff |
 
-ChronoGit rejects an unknown action/key, an unreadable explicit file, duplicate keys, and a binding that is a prefix of another binding. These errors are reported before terminal raw mode starts. `Ctrl-C` is always reserved as an emergency safe-exit binding even when `quit` is replaced. Query editing keeps `Enter`, `Esc`, and Backspace fixed while text input is active. In-app help describes the built-in defaults, not custom bindings.
+ChronoGit rejects an unknown action/key, an unreadable explicit file, duplicate keys, and a binding that is a prefix of another binding. These errors are reported before terminal raw mode starts. By default, `close` uses `q` and `Esc`, while `quit` uses uppercase `Q`; `Ctrl-C` is always reserved as an emergency safe-exit binding even when `quit` is replaced. Query editing reserves `Enter`, `Ctrl-j`, `Ctrl-k`, `q`, `Esc`, uppercase `Q`, and Backspace while text input is active so repository-search focus, close/back, and quit remain available. In-app help describes the built-in defaults, not custom bindings.

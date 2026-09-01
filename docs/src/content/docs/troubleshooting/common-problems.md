@@ -53,7 +53,7 @@ Binary changes appear as a summary. ChronoGit does not render binary contents or
 
 ## The terminal is too small
 
-Resize to at least 80 columns by 24 rows. Below that size, ChronoGit replaces the interface with a stable size warning. `q` and `Ctrl-C` still quit safely.
+Resize to at least 80 columns by 24 rows. Below that size, ChronoGit replaces the interface with a stable size warning. `Q` and `Ctrl-C` still quit safely.
 
 Between 80 and 109 columns, Changes uses one full-width pane at a time; use `h` and `l` to move between its file list and diff. History keeps all three full-width rows visible.
 
@@ -63,7 +63,7 @@ The tree shows every entry in the selected commit, not only changed files. Selec
 
 ## The terminal was not restored
 
-ChronoGit restores terminal state on ordinary exit, `q`, `Ctrl-C`, errors, and panics. A force kill (`SIGKILL`), terminal emulator failure, or system interruption cannot run cleanup.
+ChronoGit restores terminal state on ordinary exit, `Q`, `Ctrl-C`, errors, and panics. A force kill (`SIGKILL`), terminal emulator failure, or system interruption cannot run cleanup.
 
 Try the terminal's reset command:
 
@@ -71,4 +71,4 @@ Try the terminal's reset command:
 reset
 ```
 
-If input still does not echo on a Unix shell, run `stty sane`. Reproduce the problem without a force kill and report the OS, terminal application, exit method, and whether `q` or `Ctrl-C` was used.
+If input still does not echo on a Unix shell, run `stty sane`. Reproduce the problem without a force kill and report the OS, terminal application, exit method, and whether `Q` or `Ctrl-C` was used.

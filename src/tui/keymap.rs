@@ -82,6 +82,28 @@ impl KeyMapper {
             return match (key.code, key.modifiers) {
                 (KeyCode::Enter, _) => Some(Action::ConfirmSearch),
                 (KeyCode::Esc, _) => Some(Action::CancelSearch),
+                (KeyCode::Char('j'), modifiers)
+                    if modifiers.contains(KeyModifiers::CONTROL)
+                        && !modifiers.contains(KeyModifiers::ALT) =>
+                {
+                    Some(Action::FocusRight)
+                }
+                (KeyCode::Char('k'), modifiers)
+                    if modifiers.contains(KeyModifiers::CONTROL)
+                        && !modifiers.contains(KeyModifiers::ALT) =>
+                {
+                    Some(Action::FocusLeft)
+                }
+                (KeyCode::Char('q'), modifiers)
+                    if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                {
+                    Some(Action::CancelSearch)
+                }
+                (KeyCode::Char('Q'), modifiers)
+                    if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                {
+                    Some(Action::Quit)
+                }
                 (KeyCode::Backspace, _) => Some(Action::DeleteSearch),
                 (KeyCode::Char(character), modifiers)
                     if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
@@ -205,6 +227,35 @@ mod tests {
     fn maps_navigation_sequences_graph_and_global_search() {
         let mut mapper = KeyMapper::new();
         assert_eq!(
+            mapper.map(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE), false),
+            Some(Action::CloseOverlay)
+        );
+        assert_eq!(
+            mapper.map(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), false),
+            Some(Action::CloseOverlay)
+        );
+        assert_eq!(
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('Q'), KeyModifiers::SHIFT),
+                false
+            ),
+            Some(Action::Quit)
+        );
+        assert_eq!(
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL),
+                false
+            ),
+            Some(Action::FocusRight)
+        );
+        assert_eq!(
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL),
+                false
+            ),
+            Some(Action::FocusLeft)
+        );
+        assert_eq!(
             mapper.map(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE), false),
             Some(Action::MoveDown)
         );
@@ -231,11 +282,15 @@ mod tests {
     }
 
     #[test]
-    fn search_input_captures_commands_as_query_text() {
+    fn search_input_reserves_close_quit_and_editing_keys() {
         let mut mapper = KeyMapper::new();
         assert_eq!(
             mapper.map(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE), true),
-            Some(Action::InsertSearch('q'))
+            Some(Action::CancelSearch)
+        );
+        assert_eq!(
+            mapper.map(KeyEvent::new(KeyCode::Char('Q'), KeyModifiers::SHIFT), true),
+            Some(Action::Quit)
         );
         assert_eq!(
             mapper.map(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE), true),
@@ -244,6 +299,20 @@ mod tests {
         assert_eq!(
             mapper.map(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), true),
             Some(Action::ConfirmSearch)
+        );
+        assert_eq!(
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL),
+                true
+            ),
+            Some(Action::FocusRight)
+        );
+        assert_eq!(
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL),
+                true
+            ),
+            Some(Action::FocusLeft)
         );
         assert_eq!(
             mapper.map(

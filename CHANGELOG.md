@@ -14,6 +14,8 @@ All notable changes to ChronoGit are documented here.
 
 - `Space` is now the repository-search leader; `Enter` remains the activation and floating-view close key.
 - Repository file lists, content matches, file histories, and current file reads share the existing read-only, bounded asynchronous pipeline.
+- Repository searches now refresh after every query edit while stale asynchronous results remain ignored; `Ctrl-j` focuses Results and `Ctrl-k` returns to Search for another live query.
+- `q` and `Esc` now close or go back, while `Q` and Ctrl-C quit; Graph commit details now appear as a floating window over the graph.
 
 ## 0.1.0
 

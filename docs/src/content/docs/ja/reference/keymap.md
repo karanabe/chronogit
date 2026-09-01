@@ -16,7 +16,8 @@ sidebar:
 show_graph = x
 file_search = ctrl-p
 content_search = space s
-quit = q, alt-q
+close = q, esc
+quit = Q
 ```
 
 各`action = keys`行は、そのactionの標準割り当てをすべて置き換えます。連続キーは空白、代替キーはカンマで区切ります。単一文字、`space`、`enter`、`esc`、`backspace`、`up`、`down`、`left`、`right`、`home`、`end`、`f1`〜`f255`と、それらに`ctrl-`または`alt-`を付けた名前を使えます。連続キーは750 msで期限切れになります。
@@ -32,4 +33,4 @@ quit = q, alt-q
 | `file_search`, `content_search` | リポジトリ全体の検索 |
 | `search_forward`, `search_backward`, `next_match`, `previous_match` | 差分フロート内検索 |
 
-未知のaction/キー、読めない明示ファイル、キーの重複、別の割り当てのprefixになる割り当ては拒否し、raw mode開始前にエラーを表示します。`quit`を置き換えても、安全な緊急終了用の`Ctrl-C`は予約されたままです。文字入力中の編集キーは`Enter`、`Esc`、Backspaceで固定です。アプリ内ヘルプはカスタム設定ではなく組み込み標準キーを表示します。
+未知のaction/キー、読めない明示ファイル、キーの重複、別の割り当てのprefixになる割り当ては拒否し、raw mode開始前にエラーを表示します。標準では`close`が`q`と`Esc`、`quit`が大文字の`Q`です。`quit`を置き換えても、安全な緊急終了用の`Ctrl-C`は予約されたままです。文字入力中もrepository searchのフォーカス移動、close/back、終了を使えるよう、`Enter`、`Ctrl-j`、`Ctrl-k`、`q`、`Esc`、大文字`Q`、Backspaceは予約されます。アプリ内ヘルプはカスタム設定ではなく組み込み標準キーを表示します。

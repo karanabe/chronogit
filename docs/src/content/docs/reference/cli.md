@@ -45,7 +45,7 @@ chronogit --version
 
 ## Exit behavior
 
-Successful help, version output, `q`, and `Ctrl-C` return success. Repository, keymap, and terminal startup failures print a `chronogit:` diagnostic and any available cause chain to standard error, then return failure. An explicit `--keymap` file must exist and be valid; an absent default XDG file simply uses built-in bindings.
+Successful help, version output, `Q`, and `Ctrl-C` return success. Repository, keymap, and terminal startup failures print a `chronogit:` diagnostic and any available cause chain to standard error, then return failure. An explicit `--keymap` file must exist and be valid; an absent default XDG file simply uses built-in bindings.
 
 Repository-provided control characters in diagnostics are escaped before printing. Recoverable Git failures after startup appear inside the affected pane or footer instead of terminating the application.
 

@@ -59,11 +59,11 @@ flowchart LR
 対話状態と遷移を所有します。
 
 - `AppView`、`FocusedPane`、`HistoryPanel`、`Overlay`が排他的なUI状態を表します。Changes、History/本文、Graph/詳細、ファイル履歴はview、リポジトリ検索、メッセージ全文、差分全文、現在ファイル内容はoverlayです。
-- `SearchState`は読み込み済み差分内の検索を所有します。`RepositorySearchState`はグローバルprompt、mode、結果、選択、戻り先viewを別に所有します。`FileViewState`は選択パス、履歴/現在内容、下段が内容か履歴差分かを所有します。
+- `SearchState`は読み込み済み差分内の検索を所有します。`RepositorySearchState`はグローバルprompt、live query、結果、選択、戻り先viewを別に所有します。有効なpromptがSearchフォーカスを表し、Resultsへ移ってもクエリを保持するため、Searchへ戻して再編集できます。クエリ編集ごとに新しい型付きeffectを発行し、古い完了が新しい結果を置き換えないようRequestIdで防ぎます。`FileViewState`は選択パス、履歴/現在内容、下段が内容か履歴差分かを所有します。
 - `LoadState<T>`はidle、request ID付きloading、ready、failedのいずれかです。
 - `Action`はユーザーの意図、`Event`は非同期完了、`GitEffect`は唯一のGit副作用記述です。
 - すべての要求に単調増加する`RequestId`を付けます。現在のリソースと選択コミットに一致する完了だけを適用します。
-- 差分要求には75 msのdebounceがあり、Gitタスクは最大2つだけ同時実行します。
+- 差分要求には75 ms、live repository searchには100 msのdebounceがあり、Gitタスクは最大2つだけ同時実行します。
 - 差分キャッシュは最大16項目、16 MiBです。更新時に消去します。
 - 履歴は1ページ200コミット、ファイル履歴は最大200コミットです。メッセージ、変更ファイル、差分、現在内容、検索、ツリーディレクトリは必要時に読み込みます。
 
@@ -77,7 +77,7 @@ flowchart LR
 - `TerminalSession`がraw modeとalternate screenを有効化し、`Drop`でターミナル状態を復元します。
 - panic hookも、以前のhookへ引き渡す前に同じ復元を行います。
 - `tokio::select!`がターミナル入力、resize/tick、Ctrl-C、Git完了イベントを待ちます。
-- 通常のHistoryはコミット、変更ファイル/ツリー、差分を全幅の3段で描画し、本文レイアウトは同じコミット一覧、コミット本文、変更ファイルを描画します。Graphは読み込んだ親IDからクライアント側でレーンを描き、Graph詳細とファイル履歴は2段です。Changesは110列以上で2ペインを表示し、それ未満ではフォーカス中のペインが横幅を使います。
+- 通常のHistoryはコミット、変更ファイル/ツリー、差分を全幅の3段で描画し、本文レイアウトは同じコミット一覧、コミット本文、変更ファイルを描画します。Graphは読み込んだ親IDからクライアント側でレーンを描き、その上の中央ウィンドウへ詳細2段を描画します。ファイル履歴は2段のビューです。Changesは110列以上で2ペインを表示し、それ未満ではフォーカス中のペインが横幅を使います。
 - 80×24未満では安定したサイズ案内に置き換え、終了キーを使えるままにします。
 
 ## Git比較の契約

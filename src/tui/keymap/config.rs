@@ -174,8 +174,9 @@ pub(super) fn default_bindings() -> Vec<Binding> {
     let character = |value| KeyStroke::new(KeyCode::Char(value), KeyModifiers::NONE);
     let control = |value| KeyStroke::new(KeyCode::Char(value), KeyModifiers::CONTROL);
     vec![
-        single(character('q'), Action::Quit),
+        single(character('Q'), Action::Quit),
         single(control('c'), Action::Quit),
+        single(character('q'), Action::CloseOverlay),
         single(character('1'), Action::ShowChanges),
         single(character('2'), Action::ShowHistory),
         single(character('3'), Action::ShowGraph),

@@ -8,6 +8,9 @@ use crate::app::{Event, RequestId, VisibleTreeEntry};
 use crate::domain::{CommitBaseline, DiffTarget, ObjectId, RepoPath};
 use crate::git::{GitError, GitRunner, GitService};
 
+const DIFF_DEBOUNCE: Duration = Duration::from_millis(75);
+const REPOSITORY_SEARCH_DEBOUNCE: Duration = Duration::from_millis(100);
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GitEffect {
     LoadChanges {
@@ -112,8 +115,15 @@ impl<R: GitRunner> EffectExecutor<R> {
         let permits = Arc::clone(&self.permits);
         let latest = Arc::clone(&self.latest);
         tokio::spawn(async move {
-            if matches!(effect, GitEffect::LoadDiff { .. }) {
-                tokio::time::sleep(Duration::from_millis(75)).await;
+            let debounce = match &effect {
+                GitEffect::LoadDiff { .. } => Some(DIFF_DEBOUNCE),
+                GitEffect::SearchFiles { .. } | GitEffect::SearchContent { .. } => {
+                    Some(REPOSITORY_SEARCH_DEBOUNCE)
+                }
+                _ => None,
+            };
+            if let Some(debounce) = debounce {
+                tokio::time::sleep(debounce).await;
             }
             if !effect.is_current(&latest) {
                 return;
@@ -294,7 +304,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     use super::{EffectExecutor, GitEffect};
-    use crate::app::{AppState, AppView, Event};
+    use crate::app::{Action, AppState, AppView, Event};
     use crate::domain::{DiffTarget, RepoPath};
     use crate::git::{CommandOutput, GitCommand, GitError, GitRunner, GitService};
 
@@ -302,6 +312,7 @@ mod tests {
     struct CountingRunner {
         root: PathBuf,
         diff_calls: Arc<AtomicUsize>,
+        repository_file_calls: Arc<AtomicUsize>,
     }
 
     impl GitRunner for CountingRunner {
@@ -331,6 +342,15 @@ mod tests {
                         Vec::new(),
                     ))
                 }
+                GitCommand::RepositoryFiles => {
+                    self.repository_file_calls.fetch_add(1, Ordering::AcqRel);
+                    Ok(CommandOutput::for_test(
+                        true,
+                        Some(0),
+                        Vec::new(),
+                        Vec::new(),
+                    ))
+                }
                 other => Err(GitError::Unsupported(format!(
                     "unexpected fake command: {}",
                     other.kind()
@@ -348,9 +368,11 @@ mod tests {
             .canonicalize()
             .unwrap_or_else(|error| panic!("could not resolve fake repository: {error}"));
         let diff_calls = Arc::new(AtomicUsize::new(0));
+        let repository_file_calls = Arc::new(AtomicUsize::new(0));
         let runner = CountingRunner {
             root,
             diff_calls: Arc::clone(&diff_calls),
+            repository_file_calls,
         };
         let service = Arc::new(
             GitService::discover(runner, Path::new(directory.path()))
@@ -385,6 +407,57 @@ mod tests {
         ));
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         assert_eq!(diff_calls.load(Ordering::Acquire), 1);
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn rapid_live_search_executes_only_the_latest_query() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("could not create fake repository: {error}"));
+        let root = directory
+            .path()
+            .canonicalize()
+            .unwrap_or_else(|error| panic!("could not resolve fake repository: {error}"));
+        let repository_file_calls = Arc::new(AtomicUsize::new(0));
+        let runner = CountingRunner {
+            root,
+            diff_calls: Arc::new(AtomicUsize::new(0)),
+            repository_file_calls: Arc::clone(&repository_file_calls),
+        };
+        let service = Arc::new(
+            GitService::discover(runner, Path::new(directory.path()))
+                .unwrap_or_else(|error| panic!("could not create fake Git service: {error}")),
+        );
+        let mut state = AppState::new(service.root().clone(), AppView::Changes);
+        let _none = state.handle_action(Action::OpenFileSearch);
+        let first = state
+            .handle_action(Action::InsertSearch('a'))
+            .pop()
+            .unwrap_or_else(|| panic!("expected first live-search effect"));
+        let second = state
+            .handle_action(Action::InsertSearch('b'))
+            .pop()
+            .unwrap_or_else(|| panic!("expected second live-search effect"));
+        let second_id = match &second {
+            GitEffect::SearchFiles { request_id, .. } => *request_id,
+            _ => panic!("expected file-search effect"),
+        };
+        let executor = EffectExecutor::new(service);
+        let (sender, mut receiver) = mpsc::channel(8);
+
+        executor.dispatch(first, sender.clone());
+        executor.dispatch(second, sender);
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(1), receiver.recv())
+            .await
+            .unwrap_or_else(|_| panic!("latest live search timed out"))
+            .unwrap_or_else(|| panic!("effect channel closed"));
+        assert!(matches!(
+            event,
+            Event::RepositorySearchLoaded { request_id, .. } if request_id == second_id
+        ));
+        tokio::time::sleep(std::time::Duration::from_millis(125)).await;
+        assert_eq!(repository_file_calls.load(Ordering::Acquire), 1);
         assert!(receiver.try_recv().is_err());
     }
 

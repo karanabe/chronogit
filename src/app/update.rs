@@ -73,6 +73,11 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
             state.focus = FocusedPane::Primary;
             Vec::new()
         }
+        Action::CloseOverlay if state.view == AppView::CommitDetails => {
+            state.view = AppView::History;
+            state.focus = FocusedPane::Primary;
+            Vec::new()
+        }
         Action::CloseOverlay if state.view == AppView::FileHistory => {
             state.view = state.file_view.return_view;
             state.focus = FocusedPane::Primary;
@@ -1646,6 +1651,19 @@ mod tests {
     }
 
     #[test]
+    fn close_action_returns_from_commit_details() {
+        let mut state = state();
+        state.view = AppView::CommitDetails;
+        state.focus = FocusedPane::Diff;
+
+        let effects = apply_action(&mut state, Action::CloseOverlay);
+
+        assert!(effects.is_empty());
+        assert_eq!(state.view, AppView::History);
+        assert_eq!(state.focus, FocusedPane::Primary);
+    }
+
+    #[test]
     fn graph_opens_changed_files_and_diff_then_returns_with_escape() {
         let mut state = state();
         state.view = AppView::Graph;
@@ -1701,19 +1719,51 @@ mod tests {
         let _none = apply_action(&mut state, Action::OpenContentSearch);
         assert_eq!(state.overlay, Overlay::RepositorySearch);
         assert_eq!(state.repository_search.kind, RepositorySearchKind::Content);
-        for character in "needle".chars() {
-            let _none = apply_action(&mut state, Action::InsertSearch(character));
+        let first_search = apply_action(&mut state, Action::InsertSearch('n'));
+        let first_request = match first_search.first() {
+            Some(GitEffect::SearchContent { request_id, query }) => {
+                assert_eq!(query, "n");
+                *request_id
+            }
+            other => panic!("unexpected first live-search effect: {other:?}"),
+        };
+        for character in "eedle".chars() {
+            let _live_search = apply_action(&mut state, Action::InsertSearch(character));
         }
-        let search = apply_action(&mut state, Action::ConfirmSearch);
-        let search_request = match search.first() {
+        let delete_search = apply_action(&mut state, Action::DeleteSearch);
+        assert!(matches!(
+            delete_search.first(),
+            Some(GitEffect::SearchContent { query, .. }) if query == "needl"
+        ));
+        let latest_search = apply_action(&mut state, Action::InsertSearch('e'));
+        let search_request = match latest_search.first() {
             Some(GitEffect::SearchContent { request_id, query }) => {
                 assert_eq!(query, "needle");
                 *request_id
             }
-            other => panic!("unexpected search effect: {other:?}"),
+            other => panic!("unexpected latest live-search effect: {other:?}"),
         };
         let path = RepoPath::from_bytes(b"src/search.rs".to_vec())
             .unwrap_or_else(|error| panic!("{error}"));
+        let _ignored = apply_event(
+            &mut state,
+            Event::RepositorySearchLoaded {
+                request_id: first_request,
+                result: Ok(vec![SearchHit::content(
+                    path.clone(),
+                    1,
+                    "old result".to_owned(),
+                )]),
+            },
+        );
+        assert_eq!(
+            state.repository_search.results.loading_request(),
+            Some(search_request),
+            "a result from an earlier query must not replace the live search"
+        );
+        let confirm = apply_action(&mut state, Action::ConfirmSearch);
+        assert!(confirm.is_empty());
+        assert!(state.repository_search.prompt.is_none());
         let _none = apply_event(
             &mut state,
             Event::RepositorySearchLoaded {
@@ -1786,6 +1836,36 @@ mod tests {
         let _none = apply_action(&mut state, Action::CloseOverlay);
         let _none = apply_action(&mut state, Action::CloseOverlay);
         assert_eq!(state.view, AppView::Changes);
+    }
+
+    #[test]
+    fn repository_search_can_return_to_the_prompt_and_search_again() {
+        let mut state = state();
+        let _none = apply_action(&mut state, Action::OpenFileSearch);
+        let initial = apply_action(&mut state, Action::InsertSearch('R'));
+        assert!(matches!(
+            initial.first(),
+            Some(GitEffect::SearchFiles { query, .. }) if query == "R"
+        ));
+
+        let focus_results = apply_action(&mut state, Action::FocusRight);
+        assert!(focus_results.is_empty());
+        assert!(state.repository_search.prompt.is_none());
+
+        let focus_search = apply_action(&mut state, Action::FocusLeft);
+        assert!(focus_search.is_empty());
+        assert_eq!(state.repository_search.prompt.as_deref(), Some("R"));
+
+        let repeated = apply_action(&mut state, Action::InsertSearch('E'));
+        assert!(matches!(
+            repeated.first(),
+            Some(GitEffect::SearchFiles { query, .. }) if query == "RE"
+        ));
+        assert_eq!(state.repository_search.query, "RE");
+
+        let confirm = apply_action(&mut state, Action::ConfirmSearch);
+        assert!(confirm.is_empty());
+        assert!(state.repository_search.prompt.is_none());
     }
 
     fn commit(value: char, subject: &str) -> CommitSummary {

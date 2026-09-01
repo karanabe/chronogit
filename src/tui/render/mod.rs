@@ -72,15 +72,18 @@ fn render_main(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         }
         AppView::Graph => render_graph(frame, area, state),
         AppView::GraphDetails => {
+            render_graph(frame, area, state);
+            let popup = centered(area, 90, 88);
+            frame.render_widget(Clear, popup);
             let rows = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
-                .split(area);
+                .split(popup);
             render_file_list(
                 frame,
                 rows[0],
                 state,
-                "Changed files [Esc: graph, Enter: full diff]",
+                "Changed files [q/Esc: graph, Enter: full diff]",
                 state.focus == FocusedPane::Secondary,
             );
             render_diff(frame, rows[1], state);
@@ -146,7 +149,7 @@ fn render_file_history(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         .as_ref()
         .map(|path| sanitize_inline(&path.display()))
         .unwrap_or_else(|| "file".to_owned());
-    let title = format!("History — {path} [j/k: show commit diff, Esc: back]");
+    let title = format!("History — {path} [j/k: show commit diff, q/Esc: back]");
     let block = pane_block(&title, state.focus == FocusedPane::Primary);
     let lines = match &state.file_view.commits {
         LoadState::Idle => vec![plain("Not loaded")],
@@ -591,21 +594,21 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let comparison = selected_baseline(state).unwrap_or_else(|| "comparison pending".to_owned());
     let controls = match (state.view, area.width >= WIDE_WIDTH) {
         (AppView::CommitDetails, true) => {
-            "b History  m message  h/l or ^j/^k pane  j/k move  Enter diff  F1 help  q quit"
+            "q/Esc History  m message  h/l or ^j/^k pane  j/k move  Enter diff  Q quit"
         }
-        (AppView::CommitDetails, false) => "b History  m msg  ^j/^k pane  Enter diff  q quit",
+        (AppView::CommitDetails, false) => "q/Esc History  m msg  Enter diff  Q quit",
         (AppView::GraphDetails, true) => {
-            "Esc Graph  m message  h/l pane  j/k move  Enter full diff  Space f/g search  q quit"
+            "q/Esc Graph  m message  h/l pane  j/k move  Enter diff  Space f/g search  Q quit"
         }
-        (AppView::GraphDetails, false) => "Esc Graph  j/k file  Enter diff  q quit",
+        (AppView::GraphDetails, false) => "q/Esc Graph  j/k file  Enter diff  Q quit",
         (AppView::FileHistory, true) => {
-            "Esc back  h/l pane  j/k history  Enter full view  Space f/g search  q quit"
+            "q/Esc back  h/l pane  j/k history  Enter full  Space f/g search  Q quit"
         }
-        (AppView::FileHistory, false) => "Esc back  j/k history  Enter full  q quit",
+        (AppView::FileHistory, false) => "q/Esc back  j/k history  Enter full  Q quit",
         (_, true) => {
-            "1/2/3 view  h/l or ^j/^k pane  j/k move  Enter open  Space f/g search  r refresh  m message  F1 help  q quit"
+            "1/2/3 view  h/l or ^j/^k pane  j/k move  Enter open  Space f/g search  r refresh  m message  F1 help  Q quit"
         }
-        (_, false) => "1/2/3  Space f/g find  Enter open  q quit",
+        (_, false) => "1/2/3  Space f/g find  Enter open  Q quit",
     };
     let root = if area.width >= 180 {
         format!(" | {}", sanitize_inline(&state.root.to_string()))
@@ -651,8 +654,8 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                 plain("/ , ?       Search diff forward / backward"),
                 plain("n / N       Next / previous search match"),
                 plain("F1          Toggle this help"),
-                plain("Esc         Close overlay"),
-                plain("q / Ctrl-C  Quit"),
+                plain("q / Esc     Close or go back"),
+                plain("Q / Ctrl-C  Quit"),
                 plain(""),
                 plain("ChronoGit is read-only and never stages or commits changes."),
             ];
@@ -684,7 +687,7 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                 Paragraph::new(text)
                     .block(
                         Block::default()
-                            .title(" Commit message [m/Esc: close] ")
+                            .title(" Commit message [m/q/Esc: close] ")
                             .borders(Borders::ALL),
                     )
                     .scroll((vertical, 0))
@@ -716,12 +719,15 @@ fn render_repository_search_overlay(frame: &mut Frame<'_>, area: Rect, state: &A
     } else {
         ""
     };
+    let prompt_active = state.repository_search.prompt.is_some();
+    let search_title = if prompt_active {
+        format!("Search {mode} [live; Enter/Ctrl-j: results, q/Esc: close]")
+    } else {
+        format!("Search {mode} [Ctrl-k: edit again, q/Esc: close]")
+    };
     frame.render_widget(
-        Paragraph::new(format!("> {}{cursor}", sanitize_inline(query))).block(
-            Block::default()
-                .title(format!(" Search {mode} [Enter: run, Esc: close] "))
-                .borders(Borders::ALL),
-        ),
+        Paragraph::new(format!("> {}{cursor}", sanitize_inline(query)))
+            .block(pane_block(&search_title, prompt_active)),
         sections[0],
     );
     let lines = match &state.repository_search.results {
@@ -746,13 +752,14 @@ fn render_repository_search_overlay(frame: &mut Frame<'_>, area: Rect, state: &A
             })
             .collect(),
     };
+    let results_title = if prompt_active {
+        "Results [live preview; Enter/Ctrl-j: focus]"
+    } else {
+        "Results [j/k: move, Enter: open, Ctrl-k: search, q/Esc: close]"
+    };
     frame.render_widget(
         Paragraph::new(lines)
-            .block(
-                Block::default()
-                    .title(" Results [j/k: move, Enter: open file] ")
-                    .borders(Borders::ALL),
-            )
+            .block(pane_block(results_title, !prompt_active))
             .scroll((
                 list_scroll(state.repository_search.selection.index(), sections[1]),
                 0,
@@ -775,7 +782,7 @@ fn render_file_content_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppSta
         .as_ref()
         .map(|path| sanitize_inline(&path.display()))
         .unwrap_or_else(|| "file".to_owned());
-    render_file_content(frame, popup, state, &format!("{path} [Enter/Esc: close]"));
+    render_file_content(frame, popup, state, &format!("{path} [Enter/q/Esc: close]"));
 }
 
 fn render_diff_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
@@ -792,8 +799,8 @@ fn render_diff_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         .split(popup);
     let baseline = selected_baseline(state);
     let title = baseline.map_or_else(
-        || "Diff [Enter/Esc: close]".to_owned(),
-        |value| format!("Diff — {value} [Enter/Esc: close]"),
+        || "Diff [Enter/q/Esc: close]".to_owned(),
+        |value| format!("Diff — {value} [Enter/q/Esc: close]"),
     );
     render_diff_pane(frame, sections[0], state, &title, true);
     render_search_bar(frame, sections[1], state);
@@ -851,7 +858,7 @@ fn selected_baseline(state: &AppState) -> Option<String> {
 
 fn render_too_small(frame: &mut Frame<'_>, area: Rect) {
     let message = format!(
-        "Terminal too small: {}x{}. ChronoGit needs at least {MIN_WIDTH}x{MIN_HEIGHT}. Press q to quit.",
+        "Terminal too small: {}x{}. ChronoGit needs at least {MIN_WIDTH}x{MIN_HEIGHT}. Press Q to quit.",
         area.width, area.height
     );
     frame.render_widget(
@@ -1075,7 +1082,7 @@ mod tests {
             "the footer must make the root-commit comparison explicit"
         );
         assert!(
-            text.contains("q quit"),
+            text.contains("Q quit"),
             "the minimum-width footer needs a quit hint"
         );
     }
@@ -1296,7 +1303,9 @@ mod tests {
             ChangeKind::Modified,
         )]);
         graph.file_selection.reset(1);
-        assert!(rendered_text(&graph, 100, 30).contains("Esc: graph"));
+        let details = rendered_text(&graph, 100, 30);
+        assert!(details.contains("q/Esc: graph"));
+        assert!(details.contains("Changed files"));
 
         graph.view = AppView::FileHistory;
         graph.focus = FocusedPane::Primary;
@@ -1332,8 +1341,14 @@ mod tests {
 
         let text = rendered_text(&state, 100, 30);
         assert!(text.contains("Search content"));
+        assert!(text.contains("Ctrl-k: edit again"));
         assert!(text.contains("src/lib.rs:42"));
         assert!(text.contains("let needle = true"));
+
+        state.repository_search.prompt = Some("needle".to_owned());
+        let prompt_text = rendered_text(&state, 100, 30);
+        assert!(prompt_text.contains("Enter/Ctrl-j: results"));
+        assert!(prompt_text.contains("Enter/Ctrl-j: focus"));
     }
 
     fn buffer_text(backend: &TestBackend) -> String {

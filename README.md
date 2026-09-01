@@ -63,29 +63,30 @@ The active comparison is shown in both the diff pane title and the footer.
 
 ### Read a commit message or tree
 
-- Press `m` to open the selected commit's complete message in a floating overlay. Press `m` again or `Esc` to close it.
+- Press `m` to open the selected commit's complete message in a floating overlay. Press `m` again, `q`, or `Esc` to close it.
 - Press `b` to switch History to a three-row body layout: the same commit list, commit body, and changed files. Press `b` again to return to the diff layout.
 - Press `t` to switch between changed files and the selected commit's tree.
 - Press `Enter` to expand a directory or open a selected file in the floating diff. An unchanged tree file reports that it has no change in the selected commit.
-- In the floating diff, use `j` / `k` to move the highlighted current line down / up and `Ctrl-d` / `Ctrl-u` to move half a page. Navigation entered while the diff is loading is applied as soon as it appears. Use `/` for forward search, `?` for backward search, and `n` / `N` for the next / previous match. Search wraps at the ends; lowercase queries ignore case, while a query containing uppercase is case-sensitive. Press `Enter` again, or `Esc`, to close the diff.
+- In the floating diff, use `j` / `k` to move the highlighted current line down / up and `Ctrl-d` / `Ctrl-u` to move half a page. Navigation entered while the diff is loading is applied as soon as it appears. Use `/` for forward search, `?` for backward search, and `n` / `N` for the next / previous match. Search wraps at the ends; lowercase queries ignore case, while a query containing uppercase is case-sensitive. Press `Enter` again, `q`, or `Esc` to close the diff.
 
 Symlinks and submodules are identified in the tree. ChronoGit does not enter a submodule repository.
 
 ### Follow the Git graph
 
-Press `3`, or start with `chronogit --view graph`. The graph uses commit parent relationships to display active branch lanes. `m` opens the selected commit message. `Enter` opens a two-row commit detail view with changed files above the selected file's diff; another `Enter` opens the complete diff. Press `Esc` to return to the graph.
+Press `3`, or start with `chronogit --view graph`. The graph uses commit parent relationships to display active branch lanes. `m` opens the selected commit message. `Enter` opens a floating two-row detail window over the graph, with changed files above the selected file's diff; another `Enter` opens the complete diff. Press `q` or `Esc` to return one level at a time.
 
 ### Search files or working-tree text
 
-Press `Space f` from any main view to find tracked and untracked file names. Press `Space g` for a fixed-text search across non-binary working-tree content. Type the query, press `Enter`, choose a result with `j` / `k`, and press `Enter` again.
+Press `Space f` from any main view to find tracked and untracked file names. Press `Space g` for a fixed-text search across non-binary working-tree content. Results update after every inserted or deleted query character. Press `Enter` or `Ctrl-j` to focus Results, choose a result with `j` / `k`, and press `Enter` again to open it. Press `Ctrl-k` from Results to return to Search, edit the current query, and run another live search.
 
-The file view shows its commit history above its current working-tree content. Changing the selected history commit replaces the lower pane with that commit's first-parent diff. `Enter` opens the current content or diff full-screen; `Esc` returns to the originating view.
+The file view shows its commit history above its current working-tree content. Changing the selected history commit replaces the lower pane with that commit's first-parent diff. `Enter` opens the current content or diff full-screen; `q` or `Esc` closes the float and then returns to the originating view.
 
 ## Keys
 
 | Key | Action |
 |---|---|
-| `q` / `Ctrl-C` | Quit |
+| `q` / `Esc` | Close the current float or go back |
+| `Q` / `Ctrl-C` | Quit |
 | `1` / `2` / `3` | Changes / History / Graph |
 | `Space f` / `Space g` | Search repository files / working-tree text |
 | `h` / `l` | Focus the previous / next pane |
@@ -101,7 +102,6 @@ The file view shows its commit history above its current working-tree content. C
 | `Enter` | Select/open the current item, or close a floating full view |
 | `/` / `?` | Search a floating diff forward / backward |
 | `n` / `N` | Go to the next / previous search match |
-| `Esc` | Close an overlay |
 | `F1` | Toggle in-app help |
 
 History always stacks its three panes vertically at the supported terminal sizes. In Changes, widths below 110 columns show the focused pane at full width; use `h` and `l` to move between panes.
@@ -115,6 +115,8 @@ ChronoGit loads `$XDG_CONFIG_HOME/chronogit/keymap.conf`, falling back to `~/.co
 show_graph = x
 file_search = ctrl-p
 content_search = space s
+close = q, esc
+quit = Q
 ```
 
 Key sequences are space-separated and alternatives are comma-separated. Invalid, duplicate, or ambiguous bindings fail before raw terminal mode starts. `Ctrl-C` always remains available for safe exit. The complete action and key syntax is in the [keymap reference](docs/src/content/docs/reference/keymap.md).
@@ -135,7 +137,7 @@ ChronoGit does not stage, restore, commit, reset, check out, or otherwise mutate
 
 - `an interactive TTY is required`: run `chronogit` directly in a terminal, not in a pipe, background task, or captured command.
 - `repository path is not a directory` or repository discovery fails: pass an existing non-bare Git repository or a directory below it.
-- `Terminal too small`: resize to at least 80 columns by 24 rows. `q` and `Ctrl-C` still quit safely.
+- `Terminal too small`: resize to at least 80 columns by 24 rows. `Q` and `Ctrl-C` still quit safely.
 - A pane shows a Git error: correct the repository or permission problem, then press `r` to retry the current view.
 - A diff is truncated or a command times out: inspect a smaller target; the 8 MiB output and 30-second process limits are intentional safety boundaries.
 
@@ -156,7 +158,7 @@ cp -R integrations/codex/chronogit ~/.agents/skills/
 
 Use `~/.claude/skills/` for Claude Code or `~/.grok/skills/` for Grok Build. Invoke it explicitly as `$chronogit` in Codex or `/chronogit` in Claude Code and Grok Build. It also matches natural-language requests to let the user inspect current changes or commit history interactively; it does not prepare a command merely because an agent edited a file or needs to summarize a diff.
 
-Open another terminal window, tab, split, or `tmux` pane and run the command there. The agent cannot see or operate the TUI. Switch between the agent and that terminal with the terminal application's normal controls, press `q` to close ChronoGit, and rerun the command to open it again. See the complete [coding-agent setup and switching guide](docs/src/content/docs/guides/agents.md).
+Open another terminal window, tab, split, or `tmux` pane and run the command there. The agent cannot see or operate the TUI. Switch between the agent and that terminal with the terminal application's normal controls, press `Q` or `Ctrl-C` to close ChronoGit, and rerun the command to open it again. See the complete [coding-agent setup and switching guide](docs/src/content/docs/guides/agents.md).
 
 The skill grants no additional permissions and does not turn the TUI into a machine-readable protocol. The separate terminal must provide an interactive TTY.
 

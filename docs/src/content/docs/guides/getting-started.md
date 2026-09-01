@@ -74,7 +74,7 @@ chronogit /path/to/repository --view history
 chronogit /path/to/repository --view graph
 ```
 
-Press `1` for Changes, `2` for History, or `3` for Graph at any time. `Space f` searches files and `Space g` searches working-tree text from any main view. Press `F1` for the in-app key guide and `q` or `Ctrl-C` to exit.
+Press `1` for Changes, `2` for History, or `3` for Graph at any time. `Space f` searches files and `Space g` searches working-tree text from any main view. Press `F1` for the in-app key guide, `q` / `Esc` to close or go back, and `Q` / `Ctrl-C` to exit.
 
 ## Next steps
 
