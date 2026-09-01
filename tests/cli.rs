@@ -71,3 +71,22 @@ fn permission_denied_git_executable_has_a_contextual_error_chain() {
     assert!(stderr.contains("Git operation failed"));
     assert!(stderr.contains("could not discover repository"));
 }
+
+#[test]
+fn invalid_explicit_keymap_is_reported_before_terminal_setup() {
+    let directory = tempfile::tempdir()
+        .unwrap_or_else(|error| panic!("could not create temporary directory: {error}"));
+    let keymap = directory.path().join("keymap.conf");
+    std::fs::write(&keymap, "not_an_action = x\n")
+        .unwrap_or_else(|error| panic!("could not write keymap: {error}"));
+    let output = Command::new(env!("CARGO_BIN_EXE_chronogit"))
+        .arg(env!("CARGO_MANIFEST_DIR"))
+        .arg("--keymap")
+        .arg(&keymap)
+        .output()
+        .unwrap_or_else(|error| panic!("could not run chronogit: {error}"));
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("keymap configuration failed"));
+    assert!(stderr.contains("unknown action"));
+}

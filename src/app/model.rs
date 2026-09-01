@@ -2,8 +2,8 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::app::{Action, Event, GitEffect, SearchState};
 use crate::domain::{
-    ChangedFile, CommitMessage, CommitSummary, DiffDocument, DiffTarget, ObjectId, RepoPath,
-    RepositoryRoot, TreeEntry, WorktreeChange,
+    ChangedFile, CommitMessage, CommitSummary, DiffDocument, DiffTarget, FileDocument, ObjectId,
+    RepoPath, RepositoryRoot, SearchHit, TreeEntry, WorktreeChange,
 };
 
 const MAX_DIFF_CACHE_ENTRIES: usize = 16;
@@ -14,6 +14,9 @@ pub enum AppView {
     Changes,
     History,
     CommitDetails,
+    Graph,
+    GraphDetails,
+    FileHistory,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -35,6 +38,24 @@ pub enum Overlay {
     Help,
     CommitMessage,
     Diff,
+    RepositorySearch,
+    FileContent,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RepositorySearchKind {
+    Files,
+    Content,
+}
+
+impl RepositorySearchKind {
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Files => "files",
+            Self::Content => "content",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -214,6 +235,56 @@ pub(crate) struct TreeState {
 }
 
 #[derive(Debug)]
+pub(crate) struct RepositorySearchState {
+    pub(crate) kind: RepositorySearchKind,
+    pub(crate) prompt: Option<String>,
+    pub(crate) query: String,
+    pub(crate) results: LoadState<Vec<SearchHit>>,
+    pub(crate) selection: Selection,
+    pub(crate) return_view: AppView,
+}
+
+impl RepositorySearchState {
+    fn new(view: AppView) -> Self {
+        Self {
+            kind: RepositorySearchKind::Files,
+            prompt: None,
+            query: String::new(),
+            results: LoadState::Idle,
+            selection: Selection::new(),
+            return_view: view,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct FileViewState {
+    pub(crate) path: Option<RepoPath>,
+    pub(crate) commits: LoadState<Vec<CommitSummary>>,
+    pub(crate) selection: Selection,
+    pub(crate) content: LoadState<FileDocument>,
+    pub(crate) showing_history_diff: bool,
+    pub(crate) vertical: usize,
+    pub(crate) horizontal: usize,
+    pub(crate) return_view: AppView,
+}
+
+impl FileViewState {
+    fn new(view: AppView) -> Self {
+        Self {
+            path: None,
+            commits: LoadState::Idle,
+            selection: Selection::new(),
+            content: LoadState::Idle,
+            showing_history_diff: false,
+            vertical: 0,
+            horizontal: 0,
+            return_view: view,
+        }
+    }
+}
+
+#[derive(Debug)]
 struct DiffCache {
     entries: VecDeque<(DiffTarget, DiffDocument, usize)>,
     bytes: usize,
@@ -281,6 +352,8 @@ pub struct AppState {
     pub(crate) message: MessageState,
     pub(crate) tree: TreeState,
     pub(crate) search: SearchState,
+    pub(crate) repository_search: RepositorySearchState,
+    pub(crate) file_view: FileViewState,
     pub(crate) notice: Option<ErrorNotice>,
     pub(crate) preferred_change: Option<RepoPath>,
     pub(crate) preferred_commit: Option<ObjectId>,
@@ -327,6 +400,8 @@ impl AppState {
                 pending: None,
             },
             search: SearchState::new(),
+            repository_search: RepositorySearchState::new(view),
+            file_view: FileViewState::new(view),
             notice: None,
             preferred_change: None,
             preferred_commit: None,
@@ -338,7 +413,10 @@ impl AppState {
     pub fn start(&mut self) -> Vec<GitEffect> {
         match self.view {
             AppView::Changes => self.request_changes(),
-            AppView::History | AppView::CommitDetails => self.request_commits(false),
+            AppView::History | AppView::CommitDetails | AppView::Graph | AppView::GraphDetails => {
+                self.request_commits(false)
+            }
+            AppView::FileHistory => Vec::new(),
         }
     }
 
@@ -373,6 +451,8 @@ impl AppState {
     #[must_use]
     pub fn is_search_input_active(&self) -> bool {
         self.search.is_input_active()
+            || (self.overlay == Overlay::RepositorySearch
+                && self.repository_search.prompt.is_some())
     }
 
     pub(crate) fn request_id(&mut self) -> RequestId {

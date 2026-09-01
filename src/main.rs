@@ -9,6 +9,7 @@ use chronogit::cli::Cli;
 use chronogit::error::AppError;
 use chronogit::git::{GitService, SystemGitRunner};
 use chronogit::tui;
+use chronogit::tui::keymap::KeyMapper;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> ExitCode {
@@ -45,6 +46,7 @@ async fn run() -> Result<(), AppError> {
     let cli = Cli::parse();
     let runner = SystemGitRunner;
     let service = Arc::new(GitService::discover(runner, cli.path())?);
+    let keymap = KeyMapper::load(cli.keymap())?;
 
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return Err(AppError::NonInteractiveTerminal);
@@ -53,7 +55,7 @@ async fn run() -> Result<(), AppError> {
     tui::terminal::install_panic_hook();
     let state = AppState::new(service.root().clone(), cli.initial_view());
     let executor = EffectExecutor::new(service);
-    tui::run(state, executor).await
+    tui::run(state, executor, keymap).await
 }
 
 #[cfg(test)]

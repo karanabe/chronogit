@@ -1,4 +1,6 @@
 use std::ffi::OsString;
+use std::fs::{self, File};
+use std::io::Read;
 use std::path::Path;
 
 #[cfg(unix)]
@@ -7,11 +9,12 @@ use std::os::unix::ffi::OsStringExt;
 use bstr::ByteSlice;
 
 use crate::domain::{
-    ChangedFile, CommitBaseline, CommitMessage, CommitSummary, DiffDocument, DiffTarget, ObjectId,
-    RepositoryRoot, TreeEntry, WorktreeChange,
+    ChangedFile, CommitBaseline, CommitMessage, CommitSummary, DiffDocument, DiffTarget,
+    FileDocument, ObjectId, RepoPath, RepositoryRoot, SearchHit, TreeEntry, WorktreeChange,
 };
 use crate::git::parse::{
-    parse_changed_files, parse_commits, parse_patch, parse_status, parse_tree_entries,
+    parse_changed_files, parse_commits, parse_file_paths, parse_grep_matches, parse_patch,
+    parse_status, parse_tree_entries,
 };
 use crate::git::{CommandOutput, GitCommand, GitError, GitRunner};
 
@@ -86,6 +89,126 @@ impl<R: GitRunner> GitService<R> {
         ensure_complete(&output, "read commit history")?;
         ensure_success(&output, "read commit history")?;
         parse_commits(output.stdout())
+    }
+
+    pub fn search_files(&self, query: &str) -> Result<Vec<SearchHit>, GitError> {
+        let output = self
+            .runner
+            .run(Some(&self.root), &GitCommand::RepositoryFiles)?;
+        ensure_complete(&output, "list repository files")?;
+        ensure_success(&output, "list repository files")?;
+        let mut files = parse_file_paths(output.stdout())?;
+        let case_sensitive = query.chars().any(char::is_uppercase);
+        let folded_query = (!case_sensitive).then(|| query.to_lowercase());
+        files.retain(|hit| {
+            let path = hit.path().display();
+            if case_sensitive {
+                path.contains(query)
+            } else {
+                path.to_lowercase()
+                    .contains(folded_query.as_deref().unwrap_or_default())
+            }
+        });
+        Ok(files)
+    }
+
+    pub fn search_content(&self, query: &str) -> Result<Vec<SearchHit>, GitError> {
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let output = self.runner.run(
+            Some(&self.root),
+            &GitCommand::Grep {
+                query: query.to_owned(),
+            },
+        )?;
+        ensure_complete(&output, "search repository content")?;
+        if !output.success() && output.code() == Some(1) && output.stderr().is_empty() {
+            return Ok(Vec::new());
+        }
+        ensure_success(&output, "search repository content")?;
+        parse_grep_matches(output.stdout())
+    }
+
+    pub fn file_history(
+        &self,
+        path: &RepoPath,
+        limit: usize,
+    ) -> Result<Vec<CommitSummary>, GitError> {
+        let output = self.runner.run(
+            Some(&self.root),
+            &GitCommand::FileHistory {
+                path: path.clone(),
+                limit,
+            },
+        )?;
+        ensure_complete(&output, "read file history")?;
+        ensure_success(&output, "read file history")?;
+        parse_commits(output.stdout())
+    }
+
+    pub fn file_content(&self, path: &RepoPath) -> Result<FileDocument, GitError> {
+        const MAX_FILE_BYTES: usize = 8 * 1024 * 1024;
+        let absolute = self.root.as_path().join(path.to_os_string());
+        let metadata = match fs::symlink_metadata(&absolute) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(FileDocument::Unavailable {
+                    summary: format!(
+                        "File does not exist in the current working tree: {}",
+                        path.display()
+                    ),
+                });
+            }
+            Err(source) => {
+                return Err(GitError::Io {
+                    operation: "read working tree file metadata",
+                    source,
+                });
+            }
+        };
+        if metadata.file_type().is_symlink() {
+            let target = fs::read_link(&absolute).map_err(|source| GitError::Io {
+                operation: "read working tree symlink",
+                source,
+            })?;
+            return Ok(FileDocument::Symlink {
+                target: format!("symlink → {}", target.display()),
+            });
+        }
+        if !metadata.is_file() {
+            return Ok(FileDocument::Unavailable {
+                summary: format!("Not a regular working-tree file: {}", path.display()),
+            });
+        }
+        let mut file = File::open(&absolute).map_err(|source| GitError::Io {
+            operation: "open working tree file",
+            source,
+        })?;
+        let mut bytes = Vec::with_capacity(
+            usize::try_from(metadata.len())
+                .unwrap_or(MAX_FILE_BYTES)
+                .min(MAX_FILE_BYTES),
+        );
+        file.by_ref()
+            .take((MAX_FILE_BYTES + 1) as u64)
+            .read_to_end(&mut bytes)
+            .map_err(|source| GitError::Io {
+                operation: "read working tree file",
+                source,
+            })?;
+        let truncated = bytes.len() > MAX_FILE_BYTES;
+        bytes.truncate(MAX_FILE_BYTES);
+        if bytes.contains(&0) {
+            return Ok(FileDocument::Binary {
+                summary: format!("Binary file: {}", path.display()),
+            });
+        }
+        let text = bytes.to_str_lossy();
+        Ok(FileDocument::Text {
+            lines: text.lines().map(ToOwned::to_owned).collect(),
+            truncated,
+        })
     }
 
     pub fn commit_message(&self, commit: &ObjectId) -> Result<CommitMessage, GitError> {

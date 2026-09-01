@@ -12,6 +12,7 @@ categories = ["command-line-utilities", "development-tools"]
 include = [
     "/src/**",
     "/tests/**",
+    "/config/**",
     "/CHANGELOG.md",
     "/LICENSE-APACHE",
     "/LICENSE-MIT",

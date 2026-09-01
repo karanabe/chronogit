@@ -3,12 +3,14 @@ use std::fmt::{self, Display, Formatter};
 use std::io;
 
 use crate::git::GitError;
+use crate::tui::keymap::KeyMapError;
 
 #[derive(Debug)]
 pub enum AppError {
     Git(GitError),
     Io(io::Error),
     NonInteractiveTerminal,
+    KeyMap(KeyMapError),
 }
 
 impl Display for AppError {
@@ -19,6 +21,7 @@ impl Display for AppError {
             Self::NonInteractiveTerminal => {
                 formatter.write_str("an interactive TTY is required; run chronogit in a terminal")
             }
+            Self::KeyMap(_) => formatter.write_str("keymap configuration failed"),
         }
     }
 }
@@ -28,6 +31,7 @@ impl Error for AppError {
         match self {
             Self::Git(source) => Some(source),
             Self::Io(source) => Some(source),
+            Self::KeyMap(source) => Some(source),
             Self::NonInteractiveTerminal => None,
         }
     }
@@ -42,5 +46,11 @@ impl From<GitError> for AppError {
 impl From<io::Error> for AppError {
     fn from(value: io::Error) -> Self {
         Self::Io(value)
+    }
+}
+
+impl From<KeyMapError> for AppError {
+    fn from(value: KeyMapError) -> Self {
+        Self::KeyMap(value)
     }
 }

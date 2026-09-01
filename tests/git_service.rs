@@ -6,7 +6,9 @@ use std::process::{Command, Output};
 #[cfg(unix)]
 use std::os::unix::ffi::OsStringExt;
 
-use chronogit::domain::{ChangeKind, CommitBaseline, DiffDocument, DiffTarget, TreeKind};
+use chronogit::domain::{
+    ChangeKind, CommitBaseline, DiffDocument, DiffTarget, FileDocument, TreeKind,
+};
 use chronogit::git::{GitService, SystemGitRunner};
 use tempfile::TempDir;
 
@@ -213,6 +215,22 @@ fn all_read_operations_preserve_head_status_and_worktree() {
     let _tree = service
         .tree_entries(commit.id())
         .unwrap_or_else(|error| panic!("could not read tree: {error}"));
+    let search_files = service
+        .search_files("tracked")
+        .unwrap_or_else(|error| panic!("could not search files: {error}"));
+    let tracked_path = search_files
+        .first()
+        .map(|hit| hit.path().clone())
+        .unwrap_or_else(|| panic!("tracked file should be searchable"));
+    let _content_matches = service
+        .search_content("after")
+        .unwrap_or_else(|error| panic!("could not search content: {error}"));
+    let _file_history = service
+        .file_history(&tracked_path, 20)
+        .unwrap_or_else(|error| panic!("could not read file history: {error}"));
+    let _file_content = service
+        .file_content(&tracked_path)
+        .unwrap_or_else(|error| panic!("could not read file content: {error}"));
     let _worktree_diff = service
         .diff(&DiffTarget::Worktree {
             path: changes[0].path().clone(),
@@ -237,6 +255,66 @@ fn all_read_operations_preserve_head_status_and_worktree() {
             .unwrap_or_else(|error| panic!("could not re-read worktree: {error}")),
         before_file
     );
+}
+
+#[test]
+fn searches_files_and_content_and_reads_file_history_and_current_content() {
+    let repository = TestRepository::new();
+    repository.write("src/needle.rs", b"fn first() { /* searchable needle */ }\n");
+    repository.write("notes.txt", b"unrelated\n");
+    repository.commit_all("add searchable file");
+    repository.write(
+        "src/needle.rs",
+        b"fn second() { /* searchable needle */ }\n",
+    );
+    repository.commit_all("update searchable file");
+    repository.write("untracked-needle.txt", b"searchable needle in worktree\n");
+
+    let service = repository.service();
+    let files = service
+        .search_files("Needle")
+        .unwrap_or_else(|error| panic!("could not search files: {error}"));
+    assert!(
+        files.is_empty(),
+        "uppercase file search must be case-sensitive"
+    );
+    let files = service
+        .search_files("needle")
+        .unwrap_or_else(|error| panic!("could not search files: {error}"));
+    assert_eq!(files.len(), 2);
+    assert!(
+        files
+            .iter()
+            .any(|hit| hit.path().display() == "untracked-needle.txt")
+    );
+
+    let matches = service
+        .search_content("searchable needle")
+        .unwrap_or_else(|error| panic!("could not grep repository: {error}"));
+    assert_eq!(matches.len(), 2);
+    assert!(matches.iter().all(|hit| hit.line() == Some(1)));
+
+    let path = chronogit::domain::RepoPath::from_bytes(b"src/needle.rs".to_vec())
+        .unwrap_or_else(|error| panic!("invalid path: {error}"));
+    let history = service
+        .file_history(&path, 20)
+        .unwrap_or_else(|error| panic!("could not read file history: {error}"));
+    assert_eq!(history.len(), 2);
+    assert_eq!(history[0].subject(), "update searchable file");
+
+    let content = service
+        .file_content(&path)
+        .unwrap_or_else(|error| panic!("could not read current content: {error}"));
+    assert_eq!(content.lines(), ["fn second() { /* searchable needle */ }"]);
+
+    fs::remove_file(repository.path().join("notes.txt"))
+        .unwrap_or_else(|error| panic!("could not remove fixture file: {error}"));
+    let deleted = chronogit::domain::RepoPath::from_bytes(b"notes.txt".to_vec())
+        .unwrap_or_else(|error| panic!("invalid path: {error}"));
+    assert!(matches!(
+        service.file_content(&deleted),
+        Ok(FileDocument::Unavailable { .. })
+    ));
 }
 
 #[test]
@@ -652,6 +730,20 @@ fn reads_unborn_repository_and_preserves_semantic_state() {
         .changes()
         .unwrap_or_else(|error| panic!("could not read unborn changes: {error}"));
     assert_eq!(changes.len(), 1);
+    assert_eq!(
+        service
+            .search_files("untracked")
+            .unwrap_or_else(|error| panic!("could not search unborn files: {error}"))
+            .len(),
+        1
+    );
+    assert_eq!(
+        service
+            .search_content("content")
+            .unwrap_or_else(|error| panic!("could not search unborn content: {error}"))
+            .len(),
+        1
+    );
     let _diff = service
         .diff(&DiffTarget::Worktree {
             path: changes[0].path().clone(),

@@ -5,9 +5,11 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 use crate::app::{
-    AppState, AppView, FocusedPane, HistoryPanel, LoadState, Overlay, VisibleTreeEntry,
+    AppState, AppView, FocusedPane, HistoryPanel, LoadState, Overlay, RepositorySearchKind,
+    VisibleTreeEntry,
 };
-use crate::domain::{DiffDocument, DiffLine, DiffLineKind, TreeKind};
+use crate::domain::{DiffDocument, DiffLine, DiffLineKind, FileDocument, TreeKind};
+use crate::tui::graph::graph_prefixes;
 
 const MIN_WIDTH: u16 = 80;
 const MIN_HEIGHT: u16 = 24;
@@ -68,7 +70,115 @@ fn render_main(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             render_commit_body(frame, rows[1], state);
             render_detail_files(frame, rows[2], state);
         }
+        AppView::Graph => render_graph(frame, area, state),
+        AppView::GraphDetails => {
+            let rows = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
+                .split(area);
+            render_file_list(
+                frame,
+                rows[0],
+                state,
+                "Changed files [Esc: graph, Enter: full diff]",
+                state.focus == FocusedPane::Secondary,
+            );
+            render_diff(frame, rows[1], state);
+        }
+        AppView::FileHistory => {
+            let rows = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
+                .split(area);
+            render_file_history(frame, rows[0], state);
+            if state.file_view.showing_history_diff {
+                render_diff(frame, rows[1], state);
+            } else {
+                render_file_content(frame, rows[1], state, "Current working tree content");
+            }
+        }
     }
+}
+
+fn render_graph(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
+    let block = pane_block("Git graph [Enter: commit details]", true);
+    let mut lines = match &state.commits {
+        LoadState::Idle => vec![plain("Not loaded")],
+        LoadState::Loading { .. } => vec![plain("Loading graph…")],
+        LoadState::Failed(error) => vec![error_line(error.message())],
+        LoadState::Ready(commits) if commits.is_empty() => vec![plain("No commits yet.")],
+        LoadState::Ready(commits) => graph_prefixes(commits)
+            .into_iter()
+            .zip(commits)
+            .enumerate()
+            .map(|(index, (prefix, commit))| {
+                let date = commit
+                    .authored_at()
+                    .get(..10)
+                    .unwrap_or(commit.authored_at());
+                selected_line(
+                    state.commit_selection.index() == Some(index),
+                    format!(
+                        "{prefix}{} {date} {} — {}",
+                        commit.id().short(),
+                        sanitize_inline(commit.author()),
+                        sanitize_inline(commit.subject())
+                    ),
+                )
+            })
+            .collect(),
+    };
+    if state.history_page.loading_more.is_some() {
+        lines.push(plain("Loading more…"));
+    }
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .scroll((list_scroll(state.commit_selection.index(), area), 0)),
+        area,
+    );
+}
+
+fn render_file_history(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
+    let path = state
+        .file_view
+        .path
+        .as_ref()
+        .map(|path| sanitize_inline(&path.display()))
+        .unwrap_or_else(|| "file".to_owned());
+    let title = format!("History — {path} [j/k: show commit diff, Esc: back]");
+    let block = pane_block(&title, state.focus == FocusedPane::Primary);
+    let lines = match &state.file_view.commits {
+        LoadState::Idle => vec![plain("Not loaded")],
+        LoadState::Loading { .. } => vec![plain("Loading file history…")],
+        LoadState::Failed(error) => vec![error_line(error.message())],
+        LoadState::Ready(commits) if commits.is_empty() => vec![plain("No committed history.")],
+        LoadState::Ready(commits) => commits
+            .iter()
+            .enumerate()
+            .map(|(index, commit)| {
+                let date = commit
+                    .authored_at()
+                    .get(..10)
+                    .unwrap_or(commit.authored_at());
+                selected_line(
+                    state.file_view.selection.index() == Some(index),
+                    format!(
+                        "{} {date} {} — {}",
+                        commit.id().short(),
+                        sanitize_inline(commit.author()),
+                        sanitize_inline(commit.subject())
+                    ),
+                )
+            })
+            .collect(),
+    };
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .scroll((list_scroll(state.file_view.selection.index(), area), 0)),
+        area,
+    );
 }
 
 fn render_changes(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
@@ -314,6 +424,79 @@ fn render_diff_pane(
     );
 }
 
+fn render_file_content(frame: &mut Frame<'_>, area: Rect, state: &AppState, title: &str) {
+    let block = pane_block(
+        title,
+        state.focus == FocusedPane::Diff || state.overlay == Overlay::FileContent,
+    );
+    let lines = match &state.file_view.content {
+        LoadState::Idle => vec![plain("Select a file to view its current content.")],
+        LoadState::Loading { .. } => vec![plain("Loading current content…")],
+        LoadState::Failed(error) => vec![error_line(error.message())],
+        LoadState::Ready(document) => file_document_lines(document, state),
+    };
+    let visible = usize::from(area.height.saturating_sub(2)).max(1);
+    let cursor = state.file_view.vertical.min(lines.len().saturating_sub(1));
+    let vertical = cursor
+        .saturating_sub(visible.saturating_sub(1))
+        .min(u16::MAX as usize) as u16;
+    let horizontal = state.file_view.horizontal.min(u16::MAX as usize) as u16;
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .scroll((vertical, horizontal)),
+        area,
+    );
+}
+
+fn file_document_lines(document: &FileDocument, state: &AppState) -> Vec<Line<'static>> {
+    if let Some(message) = document.message() {
+        return vec![current_file_line(plain(sanitize_inline(message)), 0, state)];
+    }
+    let mut lines = document
+        .lines()
+        .iter()
+        .enumerate()
+        .map(|(index, line)| {
+            current_file_line(
+                Line::raw(format!("{:>6} {}", index + 1, sanitize_inline(line))),
+                index,
+                state,
+            )
+        })
+        .collect::<Vec<_>>();
+    if document.is_truncated() {
+        let index = lines.len();
+        lines.push(current_file_line(
+            Line::styled(
+                "… file truncated at the safe output limit …",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            index,
+            state,
+        ));
+    }
+    if lines.is_empty() {
+        lines.push(current_file_line(plain("Empty file."), 0, state));
+    }
+    lines
+}
+
+fn current_file_line(mut line: Line<'static>, index: usize, state: &AppState) -> Line<'static> {
+    if state.file_view.vertical == index
+        && (state.overlay == Overlay::FileContent || state.focus == FocusedPane::Diff)
+    {
+        line.style = line.style.patch(
+            Style::default()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        );
+    }
+    line
+}
+
 fn diff_lines(document: &DiffDocument, state: &AppState) -> Vec<Line<'static>> {
     if let Some(message) = document.message() {
         return vec![highlight_diff_line(
@@ -396,6 +579,9 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         AppView::Changes => "CHANGES",
         AppView::History => "HISTORY",
         AppView::CommitDetails => "DETAILS",
+        AppView::Graph => "GRAPH",
+        AppView::GraphDetails => "GRAPH DETAILS",
+        AppView::FileHistory => "FILE HISTORY",
     };
     let notice = state
         .notice
@@ -408,10 +594,18 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             "b History  m message  h/l or ^j/^k pane  j/k move  Enter diff  F1 help  q quit"
         }
         (AppView::CommitDetails, false) => "b History  m msg  ^j/^k pane  Enter diff  q quit",
-        (_, true) => {
-            "1/2 view  h/l or ^j/^k pane  j/k move  Enter diff  r refresh  m message  b body  F1 help  q quit"
+        (AppView::GraphDetails, true) => {
+            "Esc Graph  m message  h/l pane  j/k move  Enter full diff  Space f/g search  q quit"
         }
-        (_, false) => "1/2  h/l  Enter diff  F1 help  q quit",
+        (AppView::GraphDetails, false) => "Esc Graph  j/k file  Enter diff  q quit",
+        (AppView::FileHistory, true) => {
+            "Esc back  h/l pane  j/k history  Enter full view  Space f/g search  q quit"
+        }
+        (AppView::FileHistory, false) => "Esc back  j/k history  Enter full  q quit",
+        (_, true) => {
+            "1/2/3 view  h/l or ^j/^k pane  j/k move  Enter open  Space f/g search  r refresh  m message  F1 help  q quit"
+        }
+        (_, false) => "1/2/3  Space f/g find  Enter open  q quit",
     };
     let root = if area.width >= 180 {
         format!(" | {}", sanitize_inline(&state.root.to_string()))
@@ -441,6 +635,8 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                 plain("ChronoGit keys"),
                 plain(""),
                 plain("1 / 2       Changes / History"),
+                plain("3           Git graph"),
+                plain("Space f/g   Search files / repository content"),
                 plain("h / l       Focus previous / next pane"),
                 plain("Ctrl-j / k  Focus next / previous pane"),
                 plain("j / k       Move or scroll"),
@@ -451,7 +647,7 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                 plain("m           Toggle full commit message"),
                 plain("b           History diff / body layout"),
                 plain("t           Changed files / commit tree"),
-                plain("Enter/Space Open diff or tree; close an opened diff"),
+                plain("Enter       Open details/full view; close an opened view"),
                 plain("/ , ?       Search diff forward / backward"),
                 plain("n / N       Next / previous search match"),
                 plain("F1          Toggle this help"),
@@ -497,7 +693,89 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             );
         }
         Overlay::Diff => render_diff_overlay(frame, area, state),
+        Overlay::RepositorySearch => render_repository_search_overlay(frame, area, state),
+        Overlay::FileContent => render_file_content_overlay(frame, area, state),
     }
+}
+
+fn render_repository_search_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
+    let popup = centered(area, 86, 82);
+    frame.render_widget(Clear, popup);
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(1)])
+        .split(popup);
+    let mode = state.repository_search.kind.label();
+    let query = state
+        .repository_search
+        .prompt
+        .as_deref()
+        .unwrap_or(&state.repository_search.query);
+    let cursor = if state.repository_search.prompt.is_some() {
+        "█"
+    } else {
+        ""
+    };
+    frame.render_widget(
+        Paragraph::new(format!("> {}{cursor}", sanitize_inline(query))).block(
+            Block::default()
+                .title(format!(" Search {mode} [Enter: run, Esc: close] "))
+                .borders(Borders::ALL),
+        ),
+        sections[0],
+    );
+    let lines = match &state.repository_search.results {
+        LoadState::Idle => vec![plain(match state.repository_search.kind {
+            RepositorySearchKind::Files => "Type part of a path; an empty query lists all files.",
+            RepositorySearchKind::Content => "Type a fixed text string to grep the working tree.",
+        })],
+        LoadState::Loading { .. } => vec![plain("Searching…")],
+        LoadState::Failed(error) => vec![error_line(error.message())],
+        LoadState::Ready(results) if results.is_empty() => vec![plain("No matches.")],
+        LoadState::Ready(results) => results
+            .iter()
+            .enumerate()
+            .map(|(index, hit)| {
+                let suffix = hit.line().map_or_else(String::new, |line| {
+                    format!(":{line}: {}", sanitize_inline(hit.preview()))
+                });
+                selected_line(
+                    state.repository_search.selection.index() == Some(index),
+                    format!("{}{suffix}", sanitize_inline(&hit.path().display())),
+                )
+            })
+            .collect(),
+    };
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title(" Results [j/k: move, Enter: open file] ")
+                    .borders(Borders::ALL),
+            )
+            .scroll((
+                list_scroll(state.repository_search.selection.index(), sections[1]),
+                0,
+            )),
+        sections[1],
+    );
+}
+
+fn render_file_content_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
+    let popup = Rect {
+        x: area.x.saturating_add(1),
+        y: area.y.saturating_add(1),
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(2),
+    };
+    frame.render_widget(Clear, popup);
+    let path = state
+        .file_view
+        .path
+        .as_ref()
+        .map(|path| sanitize_inline(&path.display()))
+        .unwrap_or_else(|| "file".to_owned());
+    render_file_content(frame, popup, state, &format!("{path} [Enter/Esc: close]"));
 }
 
 fn render_diff_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
@@ -514,8 +792,8 @@ fn render_diff_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         .split(popup);
     let baseline = selected_baseline(state);
     let title = baseline.map_or_else(
-        || "Diff [Enter/Space/Esc: close]".to_owned(),
-        |value| format!("Diff — {value} [Enter/Space/Esc: close]"),
+        || "Diff [Enter/Esc: close]".to_owned(),
+        |value| format!("Diff — {value} [Enter/Esc: close]"),
     );
     render_diff_pane(frame, sections[0], state, &title, true);
     render_search_bar(frame, sections[1], state);
@@ -550,7 +828,18 @@ fn render_search_bar(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
 fn selected_baseline(state: &AppState) -> Option<String> {
     match state.view {
         AppView::Changes => return Some("index → working tree".to_owned()),
-        AppView::History | AppView::CommitDetails => {}
+        AppView::FileHistory if !state.file_view.showing_history_diff => {
+            return Some("current working tree file".to_owned());
+        }
+        AppView::FileHistory => {
+            return match (&state.file_view.commits, state.file_view.selection.index()) {
+                (LoadState::Ready(commits), Some(index)) => commits
+                    .get(index)
+                    .map(|commit| commit.baseline().to_string()),
+                _ => None,
+            };
+        }
+        AppView::History | AppView::CommitDetails | AppView::Graph | AppView::GraphDetails => {}
     }
     match (&state.commits, state.commit_selection.index()) {
         (LoadState::Ready(commits), Some(index)) => commits
@@ -669,10 +958,14 @@ mod tests {
     use ratatui::style::Color;
 
     use super::{diff_line, diff_lines, render, sanitize_inline, sanitize_multiline};
-    use crate::app::{Action, AppState, AppView, ErrorNotice, FocusedPane, LoadState, Overlay};
+    use crate::app::{
+        Action, AppState, AppView, ErrorNotice, FocusedPane, LoadState, Overlay,
+        RepositorySearchKind,
+    };
     use crate::domain::{
         ChangeKind, ChangedFile, CommitBaseline, CommitMessage, CommitSummary, DiffDocument,
-        DiffLine, DiffLineKind, DiffTarget, ObjectId, RepoPath, RepositoryRoot, WorktreeChange,
+        DiffLine, DiffLineKind, DiffTarget, FileDocument, ObjectId, RepoPath, RepositoryRoot,
+        SearchHit, WorktreeChange,
     };
 
     fn state() -> AppState {
@@ -971,6 +1264,76 @@ mod tests {
             sanitize_multiline("line one\nline\u{7} two"),
             "line one\nline\\u{7} two"
         );
+    }
+
+    #[test]
+    fn renders_graph_graph_details_and_file_history_views() {
+        let first = CommitSummary::new(
+            ObjectId::parse("a".repeat(40)).unwrap_or_else(|error| panic!("{error}")),
+            vec![ObjectId::parse("b".repeat(40)).unwrap_or_else(|error| panic!("{error}"))],
+            "Ada".to_owned(),
+            "2026-09-01T00:00:00Z".to_owned(),
+            "graph subject".to_owned(),
+        );
+        let mut graph = AppState::new(
+            RepositoryRoot::new(PathBuf::from("/tmp/repo"))
+                .unwrap_or_else(|error| panic!("{error}")),
+            AppView::Graph,
+        );
+        graph.commits = LoadState::Ready(vec![first.clone()]);
+        graph.commit_selection.reset(1);
+        let graph_text = rendered_text(&graph, 100, 30);
+        assert!(graph_text.contains("Git graph"));
+        assert!(graph_text.contains("●"));
+        assert!(graph_text.contains("graph subject"));
+
+        graph.view = AppView::GraphDetails;
+        graph.focus = FocusedPane::Secondary;
+        graph.files = LoadState::Ready(vec![ChangedFile::new(
+            RepoPath::from_bytes(b"src/graph.rs".to_vec())
+                .unwrap_or_else(|error| panic!("{error}")),
+            None,
+            ChangeKind::Modified,
+        )]);
+        graph.file_selection.reset(1);
+        assert!(rendered_text(&graph, 100, 30).contains("Esc: graph"));
+
+        graph.view = AppView::FileHistory;
+        graph.focus = FocusedPane::Primary;
+        graph.file_view.path = Some(
+            RepoPath::from_bytes(b"src/search.rs".to_vec())
+                .unwrap_or_else(|error| panic!("{error}")),
+        );
+        graph.file_view.commits = LoadState::Ready(vec![first]);
+        graph.file_view.selection.reset(1);
+        graph.file_view.content = LoadState::Ready(FileDocument::Text {
+            lines: vec!["current source line".to_owned()],
+            truncated: false,
+        });
+        let file_text = rendered_text(&graph, 100, 30);
+        assert!(file_text.contains("History"));
+        assert!(file_text.contains("Current working tree content"));
+        assert!(file_text.contains("current source line"));
+    }
+
+    #[test]
+    fn renders_repository_search_prompt_and_results() {
+        let mut state = state();
+        state.overlay = Overlay::RepositorySearch;
+        state.repository_search.kind = RepositorySearchKind::Content;
+        state.repository_search.prompt = None;
+        state.repository_search.query = "needle".to_owned();
+        state.repository_search.results = LoadState::Ready(vec![SearchHit::content(
+            RepoPath::from_bytes(b"src/lib.rs".to_vec()).unwrap_or_else(|error| panic!("{error}")),
+            42,
+            "let needle = true;".to_owned(),
+        )]);
+        state.repository_search.selection.reset(1);
+
+        let text = rendered_text(&state, 100, 30);
+        assert!(text.contains("Search content"));
+        assert!(text.contains("src/lib.rs:42"));
+        assert!(text.contains("let needle = true"));
     }
 
     fn buffer_text(backend: &TestBackend) -> String {

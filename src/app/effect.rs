@@ -5,7 +5,7 @@ use std::time::Duration;
 use tokio::sync::{Semaphore, mpsc, watch};
 
 use crate::app::{Event, RequestId, VisibleTreeEntry};
-use crate::domain::{CommitBaseline, DiffTarget, ObjectId};
+use crate::domain::{CommitBaseline, DiffTarget, ObjectId, RepoPath};
 use crate::git::{GitError, GitRunner, GitService};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -38,6 +38,23 @@ pub enum GitEffect {
         treeish: ObjectId,
         parent: Option<VisibleTreeEntry>,
     },
+    SearchFiles {
+        request_id: RequestId,
+        query: String,
+    },
+    SearchContent {
+        request_id: RequestId,
+        query: String,
+    },
+    LoadFileHistory {
+        request_id: RequestId,
+        path: RepoPath,
+        limit: usize,
+    },
+    LoadFileContent {
+        request_id: RequestId,
+        path: RepoPath,
+    },
 }
 
 #[derive(Debug)]
@@ -56,6 +73,9 @@ struct LatestRequests {
     diff: AtomicU64,
     message: AtomicU64,
     tree: AtomicU64,
+    repository_search: AtomicU64,
+    file_history: AtomicU64,
+    file_content: AtomicU64,
 }
 
 impl<R> Clone for EffectExecutor<R> {
@@ -133,7 +153,11 @@ impl GitEffect {
             | Self::LoadFiles { request_id, .. }
             | Self::LoadDiff { request_id, .. }
             | Self::LoadMessage { request_id, .. }
-            | Self::LoadTree { request_id, .. } => *request_id,
+            | Self::LoadTree { request_id, .. }
+            | Self::SearchFiles { request_id, .. }
+            | Self::SearchContent { request_id, .. }
+            | Self::LoadFileHistory { request_id, .. }
+            | Self::LoadFileContent { request_id, .. } => *request_id,
         }
     }
 
@@ -145,6 +169,9 @@ impl GitEffect {
             Self::LoadDiff { .. } => &latest.diff,
             Self::LoadMessage { .. } => &latest.message,
             Self::LoadTree { .. } => &latest.tree,
+            Self::SearchFiles { .. } | Self::SearchContent { .. } => &latest.repository_search,
+            Self::LoadFileHistory { .. } => &latest.file_history,
+            Self::LoadFileContent { .. } => &latest.file_content,
         }
     }
 
@@ -211,6 +238,36 @@ async fn execute<R: GitRunner>(service: Arc<GitService<R>>, effect: GitEffect) -
                 request_id,
                 commit: event_commit,
                 parent,
+                result,
+            }
+        }
+        GitEffect::SearchFiles { request_id, query } => {
+            let result = run_blocking(move || service.search_files(&query)).await;
+            Event::RepositorySearchLoaded { request_id, result }
+        }
+        GitEffect::SearchContent { request_id, query } => {
+            let result = run_blocking(move || service.search_content(&query)).await;
+            Event::RepositorySearchLoaded { request_id, result }
+        }
+        GitEffect::LoadFileHistory {
+            request_id,
+            path,
+            limit,
+        } => {
+            let event_path = path.clone();
+            let result = run_blocking(move || service.file_history(&path, limit)).await;
+            Event::FileHistoryLoaded {
+                request_id,
+                path: event_path,
+                result,
+            }
+        }
+        GitEffect::LoadFileContent { request_id, path } => {
+            let event_path = path.clone();
+            let result = run_blocking(move || service.file_content(&path)).await;
+            Event::FileContentLoaded {
+                request_id,
+                path: event_path,
                 result,
             }
         }

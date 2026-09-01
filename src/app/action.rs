@@ -1,6 +1,7 @@
 use crate::app::{RequestId, SearchDirection, VisibleTreeEntry};
 use crate::domain::{
-    ChangedFile, CommitMessage, CommitSummary, DiffDocument, ObjectId, TreeEntry, WorktreeChange,
+    ChangedFile, CommitMessage, CommitSummary, DiffDocument, FileDocument, ObjectId, RepoPath,
+    SearchHit, TreeEntry, WorktreeChange,
 };
 use crate::git::GitError;
 
@@ -9,6 +10,7 @@ pub enum Action {
     Quit,
     ShowChanges,
     ShowHistory,
+    ShowGraph,
     FocusLeft,
     FocusRight,
     MoveUp,
@@ -23,6 +25,8 @@ pub enum Action {
     ToggleMessage,
     ToggleDetails,
     ToggleTree,
+    OpenFileSearch,
+    OpenContentSearch,
     Activate,
     StartSearch(SearchDirection),
     InsertSearch(char),
@@ -67,5 +71,19 @@ pub enum Event {
         commit: ObjectId,
         parent: Option<VisibleTreeEntry>,
         result: Result<Vec<TreeEntry>, GitError>,
+    },
+    RepositorySearchLoaded {
+        request_id: RequestId,
+        result: Result<Vec<SearchHit>, GitError>,
+    },
+    FileHistoryLoaded {
+        request_id: RequestId,
+        path: RepoPath,
+        result: Result<Vec<CommitSummary>, GitError>,
+    },
+    FileContentLoaded {
+        request_id: RequestId,
+        path: RepoPath,
+        result: Result<FileDocument, GitError>,
     },
 }

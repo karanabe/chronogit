@@ -1,6 +1,10 @@
+use crate::app::repository_search::{
+    file_content_last_line, file_content_overlay_action, load_file_view, move_file_content_cursor,
+    overlay_action as repository_search_overlay_action, selected_file_history_diff,
+};
 use crate::app::{
     Action, AppState, AppView, ErrorNotice, Event, FocusedPane, GitEffect, HistoryPanel, LoadState,
-    Overlay, VisibleTreeEntry,
+    Overlay, RepositorySearchKind, VisibleTreeEntry,
 };
 use crate::domain::{CommitSummary, DiffTarget, RepoPath, TreeKind};
 
@@ -9,12 +13,22 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
         state.should_quit = true;
         return Vec::new();
     }
+    if matches!(action, Action::OpenFileSearch | Action::OpenContentSearch) {
+        let kind = if action == Action::OpenFileSearch {
+            RepositorySearchKind::Files
+        } else {
+            RepositorySearchKind::Content
+        };
+        crate::app::repository_search::open(state, kind);
+        return Vec::new();
+    }
     if state.overlay != Overlay::None {
         return overlay_action(state, action);
     }
     match action {
         Action::ShowChanges => switch_view(state, AppView::Changes),
         Action::ShowHistory => switch_view(state, AppView::History),
+        Action::ShowGraph => switch_view(state, AppView::Graph),
         Action::FocusLeft => {
             state.focus = previous_pane(state.view, state.focus);
             Vec::new()
@@ -30,11 +44,19 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
         Action::HalfPageUp => move_half_page(state, -10),
         Action::HalfPageDown => move_half_page(state, 10),
         Action::ScrollLeft => {
-            state.diff.horizontal = state.diff.horizontal.saturating_sub(4);
+            if state.view == AppView::FileHistory && !state.file_view.showing_history_diff {
+                state.file_view.horizontal = state.file_view.horizontal.saturating_sub(4);
+            } else {
+                state.diff.horizontal = state.diff.horizontal.saturating_sub(4);
+            }
             Vec::new()
         }
         Action::ScrollRight => {
-            state.diff.horizontal = state.diff.horizontal.saturating_add(4);
+            if state.view == AppView::FileHistory && !state.file_view.showing_history_diff {
+                state.file_view.horizontal = state.file_view.horizontal.saturating_add(4);
+            } else {
+                state.diff.horizontal = state.diff.horizontal.saturating_add(4);
+            }
             Vec::new()
         }
         Action::Refresh => refresh(state),
@@ -46,6 +68,16 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
             state.overlay = Overlay::Help;
             Vec::new()
         }
+        Action::CloseOverlay if state.view == AppView::GraphDetails => {
+            state.view = AppView::Graph;
+            state.focus = FocusedPane::Primary;
+            Vec::new()
+        }
+        Action::CloseOverlay if state.view == AppView::FileHistory => {
+            state.view = state.file_view.return_view;
+            state.focus = FocusedPane::Primary;
+            Vec::new()
+        }
         Action::StartSearch(_)
         | Action::InsertSearch(_)
         | Action::DeleteSearch
@@ -55,7 +87,9 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
         | Action::PreviousMatch
         | Action::CloseOverlay
         | Action::Tick
-        | Action::Quit => Vec::new(),
+        | Action::Quit
+        | Action::OpenFileSearch
+        | Action::OpenContentSearch => Vec::new(),
     }
 }
 
@@ -179,6 +213,54 @@ pub(crate) fn apply_event(state: &mut AppState, event: Event) -> Vec<GitEffect> 
             state.tree.pending = None;
             tree_loaded(state, parent, result)
         }
+        Event::RepositorySearchLoaded { request_id, result }
+            if state.repository_search.results.loading_request() == Some(request_id) =>
+        {
+            match result {
+                Ok(results) => {
+                    state.repository_search.selection.reset(results.len());
+                    state.repository_search.results = LoadState::Ready(results);
+                }
+                Err(error) => {
+                    state.repository_search.results =
+                        LoadState::Failed(ErrorNotice::new(error.to_string()));
+                }
+            }
+            Vec::new()
+        }
+        Event::FileHistoryLoaded {
+            request_id,
+            path,
+            result,
+        } if state.file_view.commits.loading_request() == Some(request_id)
+            && state.file_view.path.as_ref() == Some(&path) =>
+        {
+            match result {
+                Ok(commits) => {
+                    state.file_view.selection.reset(commits.len());
+                    state.file_view.commits = LoadState::Ready(commits);
+                }
+                Err(error) => {
+                    state.file_view.commits =
+                        LoadState::Failed(ErrorNotice::new(error.to_string()));
+                }
+            }
+            Vec::new()
+        }
+        Event::FileContentLoaded {
+            request_id,
+            path,
+            result,
+        } if state.file_view.content.loading_request() == Some(request_id)
+            && state.file_view.path.as_ref() == Some(&path) =>
+        {
+            state.file_view.content = match result {
+                Ok(document) => LoadState::Ready(document),
+                Err(error) => LoadState::Failed(ErrorNotice::new(error.to_string())),
+            };
+            state.file_view.vertical = state.file_view.vertical.min(file_content_last_line(state));
+            Vec::new()
+        }
         _ => Vec::new(),
     }
 }
@@ -187,6 +269,8 @@ fn overlay_action(state: &mut AppState, action: Action) -> Vec<GitEffect> {
     match state.overlay {
         Overlay::Diff => diff_overlay_action(state, action),
         Overlay::CommitMessage => message_overlay_action(state, action),
+        Overlay::RepositorySearch => repository_search_overlay_action(state, action),
+        Overlay::FileContent => file_content_overlay_action(state, action),
         Overlay::Help => {
             if matches!(action, Action::CloseOverlay | Action::ToggleHelp) {
                 state.overlay = Overlay::None;
@@ -347,6 +431,15 @@ fn previous_pane(view: AppView, focus: FocusedPane) -> FocusedPane {
         (AppView::History | AppView::CommitDetails, FocusedPane::Primary) => FocusedPane::Primary,
         (AppView::History | AppView::CommitDetails, FocusedPane::Secondary) => FocusedPane::Primary,
         (AppView::History | AppView::CommitDetails, FocusedPane::Diff) => FocusedPane::Secondary,
+        (AppView::Graph, _) => FocusedPane::Primary,
+        (AppView::GraphDetails, FocusedPane::Diff) => FocusedPane::Secondary,
+        (AppView::GraphDetails, FocusedPane::Primary | FocusedPane::Secondary) => {
+            FocusedPane::Secondary
+        }
+        (AppView::FileHistory, FocusedPane::Diff) => FocusedPane::Primary,
+        (AppView::FileHistory, FocusedPane::Primary | FocusedPane::Secondary) => {
+            FocusedPane::Primary
+        }
     }
 }
 
@@ -358,6 +451,9 @@ fn next_pane(view: AppView, focus: FocusedPane) -> FocusedPane {
         (AppView::History | AppView::CommitDetails, FocusedPane::Secondary | FocusedPane::Diff) => {
             FocusedPane::Diff
         }
+        (AppView::Graph, _) => FocusedPane::Primary,
+        (AppView::GraphDetails, _) => FocusedPane::Diff,
+        (AppView::FileHistory, _) => FocusedPane::Diff,
     }
 }
 
@@ -366,7 +462,9 @@ fn switch_view(state: &mut AppState, view: AppView) -> Vec<GitEffect> {
     state.focus = FocusedPane::Primary;
     match view {
         AppView::Changes if matches!(state.changes, LoadState::Idle) => state.request_changes(),
-        AppView::History | AppView::CommitDetails if matches!(state.commits, LoadState::Idle) => {
+        AppView::History | AppView::CommitDetails | AppView::Graph | AppView::GraphDetails
+            if matches!(state.commits, LoadState::Idle) =>
+        {
             state.request_commits(false)
         }
         _ => Vec::new(),
@@ -374,6 +472,14 @@ fn switch_view(state: &mut AppState, view: AppView) -> Vec<GitEffect> {
 }
 
 fn move_selection(state: &mut AppState, delta: isize) -> Vec<GitEffect> {
+    if state.view == AppView::FileHistory && state.focus == FocusedPane::Diff {
+        if state.file_view.showing_history_diff {
+            move_diff_cursor(state, delta);
+        } else {
+            move_file_content_cursor(state, delta);
+        }
+        return Vec::new();
+    }
     if state.view != AppView::CommitDetails && state.focus == FocusedPane::Diff {
         move_diff_cursor(state, delta);
         return Vec::new();
@@ -390,7 +496,7 @@ fn move_selection(state: &mut AppState, delta: isize) -> Vec<GitEffect> {
                 Vec::new()
             }
         }
-        (AppView::History | AppView::CommitDetails, FocusedPane::Primary, _) => {
+        (AppView::History | AppView::CommitDetails | AppView::Graph, FocusedPane::Primary, _) => {
             let changed = match &state.commits {
                 LoadState::Ready(items) => state.commit_selection.move_by(delta, items.len()),
                 _ => false,
@@ -435,11 +541,49 @@ fn move_selection(state: &mut AppState, delta: isize) -> Vec<GitEffect> {
                 Vec::new()
             }
         }
+        (AppView::GraphDetails, FocusedPane::Secondary, _) => {
+            let changed = match &state.files {
+                LoadState::Ready(items) => state.file_selection.move_by(delta, items.len()),
+                _ => false,
+            };
+            if changed {
+                selected_file_diff(state)
+            } else {
+                Vec::new()
+            }
+        }
+        (AppView::GraphDetails, FocusedPane::Diff, _) => {
+            move_diff_cursor(state, delta);
+            Vec::new()
+        }
+        (AppView::FileHistory, FocusedPane::Primary, _) => {
+            let changed = match &state.file_view.commits {
+                LoadState::Ready(items) => state.file_view.selection.move_by(delta, items.len()),
+                _ => false,
+            };
+            if changed {
+                selected_file_history_diff(state)
+            } else {
+                Vec::new()
+            }
+        }
         _ => Vec::new(),
     }
 }
 
 fn move_to_edge(state: &mut AppState, bottom: bool) -> Vec<GitEffect> {
+    if state.view == AppView::FileHistory && state.focus == FocusedPane::Diff {
+        if state.file_view.showing_history_diff {
+            state.diff.vertical = if bottom { diff_last_line(state) } else { 0 };
+        } else {
+            state.file_view.vertical = if bottom {
+                file_content_last_line(state)
+            } else {
+                0
+            };
+        }
+        return Vec::new();
+    }
     if state.view != AppView::CommitDetails && state.focus == FocusedPane::Diff {
         state.diff.vertical = if bottom { diff_last_line(state) } else { 0 };
         return Vec::new();
@@ -453,7 +597,7 @@ fn move_to_edge(state: &mut AppState, bottom: bool) -> Vec<GitEffect> {
             LoadState::Ready(items) => edge(&mut state.change_selection, items.len(), bottom),
             _ => false,
         },
-        (AppView::History | AppView::CommitDetails, FocusedPane::Primary, _) => {
+        (AppView::History | AppView::CommitDetails | AppView::Graph, FocusedPane::Primary, _) => {
             match &state.commits {
                 LoadState::Ready(items) => edge(&mut state.commit_selection, items.len(), bottom),
                 _ => false,
@@ -475,6 +619,14 @@ fn move_to_edge(state: &mut AppState, bottom: bool) -> Vec<GitEffect> {
             LoadState::Ready(items) => edge(&mut state.file_selection, items.len(), bottom),
             _ => false,
         },
+        (AppView::GraphDetails, FocusedPane::Secondary, _) => match &state.files {
+            LoadState::Ready(items) => edge(&mut state.file_selection, items.len(), bottom),
+            _ => false,
+        },
+        (AppView::FileHistory, FocusedPane::Primary, _) => match &state.file_view.commits {
+            LoadState::Ready(items) => edge(&mut state.file_view.selection, items.len(), bottom),
+            _ => false,
+        },
         _ => false,
     };
     if !moved {
@@ -482,13 +634,15 @@ fn move_to_edge(state: &mut AppState, bottom: bool) -> Vec<GitEffect> {
     }
     match (state.view, state.focus, state.history_panel) {
         (AppView::Changes, _, _) => selected_change_diff(state),
-        (AppView::History | AppView::CommitDetails, FocusedPane::Primary, _) => {
+        (AppView::History | AppView::CommitDetails | AppView::Graph, FocusedPane::Primary, _) => {
             let mut effects = selected_commit_context(state);
             effects.extend(maybe_load_more(state));
             effects
         }
         (AppView::History, _, HistoryPanel::ChangedFiles) => selected_file_diff(state),
         (AppView::CommitDetails, FocusedPane::Diff, _) => selected_file_diff(state),
+        (AppView::GraphDetails, FocusedPane::Secondary, _) => selected_file_diff(state),
+        (AppView::FileHistory, FocusedPane::Primary, _) => selected_file_history_diff(state),
         _ => Vec::new(),
     }
 }
@@ -504,6 +658,13 @@ fn edge(selection: &mut crate::app::model::Selection, len: usize, bottom: bool) 
 fn move_half_page(state: &mut AppState, delta: isize) -> Vec<GitEffect> {
     if state.view == AppView::CommitDetails && state.focus == FocusedPane::Secondary {
         move_message_cursor(state, delta);
+        Vec::new()
+    } else if state.view == AppView::FileHistory && state.focus == FocusedPane::Diff {
+        if state.file_view.showing_history_diff {
+            move_diff_cursor(state, delta);
+        } else {
+            move_file_content_cursor(state, delta);
+        }
         Vec::new()
     } else if state.view != AppView::CommitDetails && state.focus == FocusedPane::Diff {
         move_diff_cursor(state, delta);
@@ -523,10 +684,19 @@ fn refresh(state: &mut AppState) -> Vec<GitEffect> {
                 state.preferred_change = Some(change.path().clone());
             }
         }
-        AppView::History | AppView::CommitDetails => {
+        AppView::History | AppView::CommitDetails | AppView::Graph | AppView::GraphDetails => {
             if let Some(commit) = selected_commit(state) {
                 state.preferred_commit = Some(commit.id().clone());
             }
+        }
+        AppView::FileHistory => {
+            state.clear_cache();
+            return state
+                .file_view
+                .path
+                .clone()
+                .map(|path| load_file_view(state, path))
+                .unwrap_or_default();
         }
     }
     state.clear_cache();
@@ -538,7 +708,10 @@ fn refresh(state: &mut AppState) -> Vec<GitEffect> {
     };
     match state.view {
         AppView::Changes => state.request_changes(),
-        AppView::History | AppView::CommitDetails => state.request_commits(false),
+        AppView::History | AppView::CommitDetails | AppView::Graph | AppView::GraphDetails => {
+            state.request_commits(false)
+        }
+        AppView::FileHistory => Vec::new(),
     }
 }
 
@@ -565,7 +738,10 @@ fn toggle_details(state: &mut AppState) -> Vec<GitEffect> {
 }
 
 fn toggle_message(state: &mut AppState) -> Vec<GitEffect> {
-    if !matches!(state.view, AppView::History | AppView::CommitDetails) {
+    if !matches!(
+        state.view,
+        AppView::History | AppView::CommitDetails | AppView::Graph | AppView::GraphDetails
+    ) {
         return Vec::new();
     }
     let Some(commit) = selected_commit(state).map(|summary| summary.id().clone()) else {
@@ -617,6 +793,11 @@ fn activate(state: &mut AppState) -> Vec<GitEffect> {
             state.focus = FocusedPane::Diff;
             Vec::new()
         }
+        (AppView::Graph, FocusedPane::Primary, _) => {
+            state.view = AppView::GraphDetails;
+            state.focus = FocusedPane::Secondary;
+            selected_commit_context(state)
+        }
         (AppView::History, FocusedPane::Secondary, HistoryPanel::Tree) => activate_tree(state),
         (AppView::Changes, FocusedPane::Primary | FocusedPane::Diff, _)
         | (AppView::History, FocusedPane::Secondary | FocusedPane::Diff, _) => {
@@ -625,6 +806,20 @@ fn activate(state: &mut AppState) -> Vec<GitEffect> {
         }
         (AppView::CommitDetails, FocusedPane::Diff, _) => {
             open_diff_overlay(state);
+            Vec::new()
+        }
+        (AppView::GraphDetails, FocusedPane::Secondary | FocusedPane::Diff, _) => {
+            open_diff_overlay(state);
+            Vec::new()
+        }
+        (AppView::FileHistory, _, _) if state.file_view.showing_history_diff => {
+            open_diff_overlay(state);
+            Vec::new()
+        }
+        (AppView::FileHistory, _, _) => {
+            if state.file_view.path.is_some() {
+                state.overlay = Overlay::FileContent;
+            }
             Vec::new()
         }
         _ => Vec::new(),
@@ -679,7 +874,7 @@ fn selected_commit_context(state: &mut AppState) -> Vec<GitEffect> {
     if state.view == AppView::History && state.history_panel == HistoryPanel::Tree {
         effects.extend(reset_and_load_tree(state, &commit));
     }
-    if state.view == AppView::CommitDetails {
+    if matches!(state.view, AppView::CommitDetails | AppView::GraphDetails) {
         effects.extend(request_message(state, commit.id().clone()));
     }
     effects
@@ -866,8 +1061,10 @@ fn tree_loaded(
 }
 
 fn maybe_load_more(state: &mut AppState) -> Vec<GitEffect> {
-    if !matches!(state.view, AppView::History | AppView::CommitDetails)
-        || state.focus != FocusedPane::Primary
+    if !matches!(
+        state.view,
+        AppView::History | AppView::CommitDetails | AppView::Graph | AppView::GraphDetails
+    ) || state.focus != FocusedPane::Primary
         || !state.history_page.has_more
         || state.history_page.loading_more.is_some()
     {
@@ -891,12 +1088,12 @@ mod tests {
     use super::{apply_action, apply_event};
     use crate::app::{
         Action, AppState, AppView, Event, FocusedPane, GitEffect, HistoryPanel, LoadState, Overlay,
-        SearchDirection,
+        RepositorySearchKind, SearchDirection,
     };
     use crate::domain::{
         ChangeKind, ChangedFile, CommitMessage, CommitSummary, DiffDocument, DiffLine,
-        DiffLineKind, DiffTarget, ObjectId, RepoPath, RepositoryRoot, TreeEntry, TreeKind,
-        WorktreeChange,
+        DiffLineKind, DiffTarget, FileDocument, ObjectId, RepoPath, RepositoryRoot, SearchHit,
+        TreeEntry, TreeKind, WorktreeChange,
     };
 
     fn state() -> AppState {
@@ -1446,6 +1643,149 @@ mod tests {
 
         let _none = apply_action(&mut state, Action::Activate);
         assert_eq!(state.overlay, Overlay::Diff);
+    }
+
+    #[test]
+    fn graph_opens_changed_files_and_diff_then_returns_with_escape() {
+        let mut state = state();
+        state.view = AppView::Graph;
+        let selected = commit('a', "graph commit");
+        state.commits = LoadState::Ready(vec![selected.clone()]);
+        state.commit_selection.reset(1);
+
+        let effects = apply_action(&mut state, Action::Activate);
+        assert_eq!(state.view, AppView::GraphDetails);
+        assert_eq!(state.focus, FocusedPane::Secondary);
+        let files_request = effects
+            .iter()
+            .find_map(|effect| match effect {
+                GitEffect::LoadFiles { request_id, .. } => Some(*request_id),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("graph details must request changed files"));
+        let path = RepoPath::from_bytes(b"src/graph.rs".to_vec())
+            .unwrap_or_else(|error| panic!("{error}"));
+        let diff_effects = apply_event(
+            &mut state,
+            Event::FilesLoaded {
+                request_id: files_request,
+                commit: selected.id().clone(),
+                result: Ok(vec![ChangedFile::new(path, None, ChangeKind::Modified)]),
+            },
+        );
+        assert!(
+            diff_effects
+                .iter()
+                .any(|effect| matches!(effect, GitEffect::LoadDiff { .. }))
+        );
+
+        let _none = apply_action(&mut state, Action::Activate);
+        assert_eq!(state.overlay, Overlay::Diff);
+        let _none = apply_action(&mut state, Action::CloseOverlay);
+        assert_eq!(state.overlay, Overlay::None);
+        let _none = apply_action(&mut state, Action::CloseOverlay);
+        assert_eq!(state.view, AppView::Graph);
+
+        let message = apply_action(&mut state, Action::ToggleMessage);
+        assert_eq!(state.overlay, Overlay::CommitMessage);
+        assert!(
+            message
+                .iter()
+                .any(|effect| matches!(effect, GitEffect::LoadMessage { .. }))
+        );
+    }
+
+    #[test]
+    fn global_content_search_opens_current_file_then_history_diff() {
+        let mut state = state();
+        let _none = apply_action(&mut state, Action::OpenContentSearch);
+        assert_eq!(state.overlay, Overlay::RepositorySearch);
+        assert_eq!(state.repository_search.kind, RepositorySearchKind::Content);
+        for character in "needle".chars() {
+            let _none = apply_action(&mut state, Action::InsertSearch(character));
+        }
+        let search = apply_action(&mut state, Action::ConfirmSearch);
+        let search_request = match search.first() {
+            Some(GitEffect::SearchContent { request_id, query }) => {
+                assert_eq!(query, "needle");
+                *request_id
+            }
+            other => panic!("unexpected search effect: {other:?}"),
+        };
+        let path = RepoPath::from_bytes(b"src/search.rs".to_vec())
+            .unwrap_or_else(|error| panic!("{error}"));
+        let _none = apply_event(
+            &mut state,
+            Event::RepositorySearchLoaded {
+                request_id: search_request,
+                result: Ok(vec![SearchHit::content(
+                    path.clone(),
+                    2,
+                    "needle".to_owned(),
+                )]),
+            },
+        );
+        let file_effects = apply_action(&mut state, Action::Activate);
+        assert_eq!(state.view, AppView::FileHistory);
+        assert_eq!(state.overlay, Overlay::None);
+        assert_eq!(state.file_view.vertical, 1);
+
+        let history_request = file_effects
+            .iter()
+            .find_map(|effect| match effect {
+                GitEffect::LoadFileHistory { request_id, .. } => Some(*request_id),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("file history must load"));
+        let content_request = file_effects
+            .iter()
+            .find_map(|effect| match effect {
+                GitEffect::LoadFileContent { request_id, .. } => Some(*request_id),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("file content must load"));
+        let first = commit('a', "newer");
+        let second = commit('b', "older");
+        let _none = apply_event(
+            &mut state,
+            Event::FileHistoryLoaded {
+                request_id: history_request,
+                path: path.clone(),
+                result: Ok(vec![first, second.clone()]),
+            },
+        );
+        let _none = apply_event(
+            &mut state,
+            Event::FileContentLoaded {
+                request_id: content_request,
+                path,
+                result: Ok(FileDocument::Text {
+                    lines: vec!["one".to_owned(), "needle".to_owned()],
+                    truncated: false,
+                }),
+            },
+        );
+        assert!(!state.file_view.showing_history_diff);
+        let _none = apply_action(&mut state, Action::Activate);
+        assert_eq!(state.overlay, Overlay::FileContent);
+        let _none = apply_action(&mut state, Action::CloseOverlay);
+
+        let diff = apply_action(&mut state, Action::MoveDown);
+        assert!(state.file_view.showing_history_diff);
+        assert!(diff.iter().any(|effect| {
+            matches!(
+                effect,
+                GitEffect::LoadDiff {
+                    target: DiffTarget::Commit { commit, .. },
+                    ..
+                } if commit == second.id()
+            )
+        }));
+        let _none = apply_action(&mut state, Action::Activate);
+        assert_eq!(state.overlay, Overlay::Diff);
+        let _none = apply_action(&mut state, Action::CloseOverlay);
+        let _none = apply_action(&mut state, Action::CloseOverlay);
+        assert_eq!(state.view, AppView::Changes);
     }
 
     fn commit(value: char, subject: &str) -> CommitSummary {

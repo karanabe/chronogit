@@ -298,9 +298,43 @@ fn build_process(root: Option<&RepositoryRoot>, command: &GitCommand) -> Command
                 .arg("log")
                 .arg("-z")
                 .arg("--date=iso-strict")
+                .arg("--topo-order")
                 .arg("--format=%H%x00%P%x00%an%x00%aI%x00%s")
                 .arg(format!("--skip={skip}"))
                 .arg(format!("--max-count={limit}"));
+        }
+        GitCommand::RepositoryFiles => {
+            process.args([
+                "ls-files",
+                "-z",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "--",
+            ]);
+        }
+        GitCommand::Grep { query } => {
+            process.args([
+                "grep",
+                "--untracked",
+                "--exclude-standard",
+                "-z",
+                "-n",
+                "-I",
+                "-F",
+                "-e",
+            ]);
+            process.arg(query).arg("--");
+        }
+        GitCommand::FileHistory { path, limit } => {
+            process
+                .arg("log")
+                .arg("-z")
+                .arg("--date=iso-strict")
+                .arg("--format=%H%x00%P%x00%an%x00%aI%x00%s")
+                .arg(format!("--max-count={limit}"))
+                .arg("--")
+                .arg(path.to_os_string());
         }
         GitCommand::CommitMessage { commit } => {
             process.args(["show", "-s", "--format=%B", commit.as_str()]);

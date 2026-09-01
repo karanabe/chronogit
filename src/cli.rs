@@ -15,6 +15,10 @@ pub struct Cli {
     /// View to open first.
     #[arg(long, value_enum, default_value_t = InitialView::Changes)]
     view: InitialView,
+
+    /// Keymap file. Defaults to $XDG_CONFIG_HOME/chronogit/keymap.conf when present.
+    #[arg(long, value_name = "PATH")]
+    keymap: Option<PathBuf>,
 }
 
 impl Cli {
@@ -27,6 +31,11 @@ impl Cli {
     pub fn initial_view(&self) -> AppView {
         self.view.into()
     }
+
+    #[must_use]
+    pub fn keymap(&self) -> Option<&Path> {
+        self.keymap.as_deref()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
@@ -34,6 +43,7 @@ pub enum InitialView {
     #[default]
     Changes,
     History,
+    Graph,
 }
 
 impl From<InitialView> for AppView {
@@ -41,6 +51,7 @@ impl From<InitialView> for AppView {
         match value {
             InitialView::Changes => Self::Changes,
             InitialView::History => Self::History,
+            InitialView::Graph => Self::Graph,
         }
     }
 }

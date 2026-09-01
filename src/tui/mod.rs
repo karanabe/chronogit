@@ -1,3 +1,4 @@
+mod graph;
 pub mod keymap;
 pub mod render;
 pub mod terminal;
@@ -17,10 +18,10 @@ use crate::tui::terminal::TerminalSession;
 pub async fn run<R: GitRunner>(
     mut state: AppState,
     executor: EffectExecutor<R>,
+    mut keymap: KeyMapper,
 ) -> Result<(), AppError> {
     let mut terminal = TerminalSession::enter()?;
     let mut events = EventStream::new();
-    let mut keymap = KeyMapper::new();
     let (sender, mut receiver) = mpsc::channel(64);
     dispatch_all(&executor, &sender, state.start());
     let mut tick = tokio::time::interval(std::time::Duration::from_millis(100));

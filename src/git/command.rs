@@ -20,6 +20,14 @@ pub enum GitCommand {
         skip: usize,
         limit: usize,
     },
+    RepositoryFiles,
+    Grep {
+        query: String,
+    },
+    FileHistory {
+        path: RepoPath,
+        limit: usize,
+    },
     CommitMessage {
         commit: ObjectId,
     },
@@ -48,6 +56,9 @@ impl GitCommand {
             Self::WorktreeDiff { .. } => "read worktree diff",
             Self::UntrackedDiff { .. } => "read untracked diff",
             Self::Commits { .. } => "read commit history",
+            Self::RepositoryFiles => "list repository files",
+            Self::Grep { .. } => "search repository content",
+            Self::FileHistory { .. } => "read file history",
             Self::CommitMessage { .. } => "read commit message",
             Self::ChangedFiles { .. } => "read changed files",
             Self::CommitDiff { .. } => "read commit diff",
