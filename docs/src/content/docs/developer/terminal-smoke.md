@@ -56,13 +56,22 @@ Confirm typed input echoes normally, the cursor is visible, mouse selection work
 2. At both 140×40 and 80×24, confirm commits, changed files/tree, and diff are visible as three full-width rows and long subjects/paths remain readable.
 3. Visit root, normal, and merge commits. Confirm the footer and diff title describe `empty tree`, `parent`, or `first parent` as appropriate.
 4. With Commits focused, press `Enter` and confirm focus moves directly to Changed files for the selected commit.
-5. Select changed text and binary files, press `Enter`, and confirm a large floating patch or binary summary opens. Press `Enter` again and confirm it closes; repeat with `Space`.
+5. Select changed text and binary files, press `Enter`, and confirm a large floating patch or binary summary opens. Press `Enter` again and confirm it closes.
 6. While opening an uncached long text diff, immediately press `Ctrl-d` and confirm the highlighted current line moves half a page as soon as the diff appears. Confirm `j` / `k` visibly move the highlight one line and `Ctrl-u` moves it up without a delay.
 7. Reach the first and last diff lines with `g` / `G`. Search forward with `/`, backward with `?`, and confirm `n` / `N` wrap between highlighted matches.
 8. Press `m`, scroll the complete commit-message overlay with `j` / `k`, and close it with `m` and then with `Esc`.
 9. Press `b` and confirm the rows are the same commit list, commit body, and changed files. Use `Ctrl-j` / `Ctrl-k` to move focus, change the top-row commit and confirm the other rows update, scroll the body, and open a bottom-row file diff. Press `b` again to return to standard History.
 10. Press `t`, expand and collapse two directory levels, and open a blob diff.
 11. Exit with `Ctrl-C`, then repeat the `stty` comparison and shell checks.
+
+## Graph and repository search
+
+1. Press `3`; confirm parent lanes and commit subjects are visible. Press `m` and close the complete message.
+2. Press `Enter`; confirm changed files are above the selected diff. Press `Enter` for the full diff, close it, then press `Esc` to return to Graph.
+3. From Changes, History, and Graph, run `Space f`, search a known path, and open it. Confirm file history is above current content.
+4. Change the history selection and confirm the lower pane becomes that commit's diff. Open and close the full diff, then press `Esc` back to the originating view.
+5. Run `Space g`, search known text, open a result, and confirm the matching current-content line is highlighted.
+6. Start once with the default XDG keymap and once with `--keymap` pointing to a valid custom binding. Confirm an invalid explicit file fails before the alternate screen opens.
 
 ## Sign-off
 

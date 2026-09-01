@@ -16,7 +16,8 @@ ChronoGit is operated entirely from the keyboard. Press `F1` inside the applicat
 | Key | Action |
 | --- | --- |
 | `q` / `Ctrl-C` | Quit |
-| `1` / `2` | Open Changes / History |
+| `1` / `2` / `3` | Open Changes / History / Graph |
+| `Space f` / `Space g` | Search repository file names / working-tree content |
 | `h` / `l` | Focus the previous / next pane |
 | `Ctrl-k` / `Ctrl-j` | Focus the previous / next pane |
 | `j` / `k` or `↓` / `↑` | Move selection or scroll down / up |
@@ -27,17 +28,17 @@ ChronoGit is operated entirely from the keyboard. Press `F1` inside the applicat
 | `m` | Toggle the complete commit-message overlay |
 | `b` | Toggle History's diff / body layout |
 | `t` | Toggle changed files / commit tree |
-| `Enter` / `Space` | Confirm a History commit, open/close a selected file's floating diff, or expand/collapse a tree directory |
+| `Enter` | Confirm or open the selected item, or close a floating full view |
 | `/` / `?` | Search a floating diff forward / backward |
 | `n` / `N` | Go to the next / previous search match |
 | `Esc` | Close the active overlay |
 | `F1` | Toggle the in-app help overlay |
 
-The `zh` and `zl` sequences must be completed within 750 ms. An unrelated key after `z` is handled normally.
+The `zh`, `zl`, `Space f`, and `Space g` sequences must be completed within 750 ms. An unrelated key after a sequence prefix is handled normally. These are the built-in defaults; see [Keymap configuration](/reference/keymap/) to replace them.
 
 ## Pane behavior
 
-Changes contains a file pane and a diff pane. Standard History stacks three full-width rows: commits, changed files/tree, and diff. Press `b` for the alternative History layout, which stacks the same interactive commit list, commit body, and changed files.
+Changes contains a file pane and a diff pane. Standard History stacks three full-width rows: commits, changed files/tree, and diff. Press `b` for the alternative History layout, which stacks the same interactive commit list, commit body, and changed files. Graph is a full-height parent-lane list; its detail view and file search results use two rows for a list/history above content or diff.
 
 - At 110 columns or wider, Changes shows its two panes together.
 - From 80 through 109 columns, Changes gives the available width to its focused pane. History retains its three-row layout.
@@ -48,7 +49,7 @@ The highlighted border identifies the focused pane. Selection and scrolling comm
 
 ## Overlays
 
-Help, complete commit messages, and selected-file diffs open above the main panes. Press `m` again to close a message. Navigation keys scroll message and diff overlays; `Enter` or `Space` closes a diff with the same key that opened it, and `Esc` closes either overlay. In a floating diff, `j` / `k` move the highlighted current line down / up and the viewport follows it. `Ctrl-d` / `Ctrl-u` move it half a page, including when entered while the diff is still loading. `/` starts a forward search, and `?` a backward search. Type a query and press `Enter`; `Esc` cancels the prompt, and `n` / `N` move through highlighted matches with wraparound. Lowercase queries ignore case, while any uppercase character makes the query case-sensitive.
+Help, repository search, complete commit messages, current file content, and selected-file diffs open above the main panes. Press `m` again to close a message. Navigation keys scroll message, content, and diff overlays; `Enter` closes a full content or diff view with the same key that opened it, and `Esc` closes any overlay. In a floating diff, `j` / `k` move the highlighted current line down / up and the viewport follows it. `Ctrl-d` / `Ctrl-u` move it half a page, including when entered while the diff is still loading. `/` starts a forward search, and `?` a backward search. Type a query and press `Enter`; `Esc` cancels the prompt, and `n` / `N` move through highlighted matches with wraparound. Lowercase queries ignore case, while any uppercase character makes the query case-sensitive.
 
 ## Exit and terminal restoration
 

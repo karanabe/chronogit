@@ -13,13 +13,15 @@ ChronoGit treats repository contents and configuration as untrusted input. Its G
 
 ## Read-only contract
 
-The application can only request typed operations for repository discovery, bare/`HEAD` checks, worktree status, history, messages, changed files, diffs, and tree entries. It contains no generic “run Git arguments” path.
+The application can only request typed operations for repository discovery, bare/`HEAD` checks, worktree status, history, messages, changed files, diffs, tree entries, repository file lists, and fixed-text grep. It contains no generic “run Git arguments” path.
 
 - Git runs directly without a shell.
 - Repository paths and pathspecs are separate process arguments placed after `--` where applicable.
 - Optional Git locks and terminal prompts are disabled.
 - Pagers, color, external diff drivers, textconv, and fsmonitor execution are disabled.
 - Object IDs are accepted for reuse as revisions only after hexadecimal validation.
+- Current file reads use validated relative repository paths, do not follow a selected symlink, and stop after 8 MiB.
+- Keymap files accept only documented action and key names; they cannot run commands.
 
 ChronoGit never stages, restores, commits, resets, checks out, creates branches, or updates references.
 
@@ -38,7 +40,9 @@ Read-only means ChronoGit does not mutate the repository. Editors, hooks started
 | Diff request debounce | 75 ms |
 | Diff cache | 16 entries and 16 MiB total |
 | History page | 200 commits |
-| `zh` / `zl` sequence | 750 ms |
+| File history | 200 commits |
+| Current file content | 8 MiB |
+| Key sequence | 750 ms |
 | Minimum terminal | 80×24 |
 | Changes multi-pane threshold | 110 columns (History always uses three rows) |
 
@@ -55,7 +59,7 @@ ChronoGit does not provide:
 - staged-change inspection;
 - repository mutation of any kind;
 - remotes, pull requests, blame, or stash workflows;
-- an editor, configuration file, or plugin runtime;
+- an editor or plugin runtime;
 - combined or selectable-parent merge diffs;
 - machine-readable export, batch mode, or a non-interactive UI;
 - traversal into submodule repositories.

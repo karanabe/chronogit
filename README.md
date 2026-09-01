@@ -7,7 +7,7 @@
 <br />
 <br />
 
-ChronoGit is a read-only terminal UI for exploring Git history and diffs. It keeps unstaged changes, commit history, full commit messages, and commit trees in one Vim-oriented interface.
+ChronoGit is a read-only terminal UI for exploring Git history and diffs. It keeps unstaged changes, commit history and graph, repository search, full commit messages, and commit trees in one Vim-oriented interface.
 
 ## Status
 
@@ -38,10 +38,10 @@ cargo install --path . --locked
 The `chronogit` binary can then be launched from any directory:
 
 ```bash
-chronogit [PATH] [--view changes|history]
+chronogit [PATH] [--view changes|history|graph] [--keymap PATH]
 ```
 
-`PATH` may be a repository root or any directory below it. It defaults to the current directory. `--view` defaults to `changes`.
+`PATH` may be a repository root or any directory below it. It defaults to the current directory. `--view` defaults to `changes`; `--keymap` overrides the optional XDG keymap path.
 
 ## Workflows
 
@@ -53,7 +53,7 @@ Staged-only files are intentionally hidden. A file with both staged and unstaged
 
 ### Read commit history
 
-Press `2`, or start with `chronogit --view history`. History uses three full-width rows—commits, changed files/tree, then diff—so commit subjects and paths retain the terminal width. Select a commit and press `Enter` to focus Changed files, select a file, then press `Enter` or `Space` to open its patch in a large floating diff.
+Press `2`, or start with `chronogit --view history`. History uses three full-width rows—commits, changed files/tree, then diff—so commit subjects and paths retain the terminal width. Select a commit and press `Enter` to focus Changed files, select a file, then press `Enter` to open its patch in a large floating diff.
 
 - A root commit is compared with the empty tree.
 - A normal commit is compared with its parent.
@@ -66,17 +66,28 @@ The active comparison is shown in both the diff pane title and the footer.
 - Press `m` to open the selected commit's complete message in a floating overlay. Press `m` again or `Esc` to close it.
 - Press `b` to switch History to a three-row body layout: the same commit list, commit body, and changed files. Press `b` again to return to the diff layout.
 - Press `t` to switch between changed files and the selected commit's tree.
-- Press `Enter` or `Space` to expand a directory or open a selected file in the floating diff. An unchanged tree file reports that it has no change in the selected commit.
-- In the floating diff, use `j` / `k` to move the highlighted current line down / up and `Ctrl-d` / `Ctrl-u` to move half a page. Navigation entered while the diff is loading is applied as soon as it appears. Use `/` for forward search, `?` for backward search, and `n` / `N` for the next / previous match. Search wraps at the ends; lowercase queries ignore case, while a query containing uppercase is case-sensitive. Press `Enter` or `Space` again, or `Esc`, to close the diff.
+- Press `Enter` to expand a directory or open a selected file in the floating diff. An unchanged tree file reports that it has no change in the selected commit.
+- In the floating diff, use `j` / `k` to move the highlighted current line down / up and `Ctrl-d` / `Ctrl-u` to move half a page. Navigation entered while the diff is loading is applied as soon as it appears. Use `/` for forward search, `?` for backward search, and `n` / `N` for the next / previous match. Search wraps at the ends; lowercase queries ignore case, while a query containing uppercase is case-sensitive. Press `Enter` again, or `Esc`, to close the diff.
 
 Symlinks and submodules are identified in the tree. ChronoGit does not enter a submodule repository.
+
+### Follow the Git graph
+
+Press `3`, or start with `chronogit --view graph`. The graph uses commit parent relationships to display active branch lanes. `m` opens the selected commit message. `Enter` opens a two-row commit detail view with changed files above the selected file's diff; another `Enter` opens the complete diff. Press `Esc` to return to the graph.
+
+### Search files or working-tree text
+
+Press `Space f` from any main view to find tracked and untracked file names. Press `Space g` for a fixed-text search across non-binary working-tree content. Type the query, press `Enter`, choose a result with `j` / `k`, and press `Enter` again.
+
+The file view shows its commit history above its current working-tree content. Changing the selected history commit replaces the lower pane with that commit's first-parent diff. `Enter` opens the current content or diff full-screen; `Esc` returns to the originating view.
 
 ## Keys
 
 | Key | Action |
 |---|---|
 | `q` / `Ctrl-C` | Quit |
-| `1` / `2` | Changes / History |
+| `1` / `2` / `3` | Changes / History / Graph |
+| `Space f` / `Space g` | Search repository files / working-tree text |
 | `h` / `l` | Focus the previous / next pane |
 | `Ctrl-k` / `Ctrl-j` | Focus the previous / next pane |
 | `j` / `k` | Move or scroll down / up |
@@ -87,7 +98,7 @@ Symlinks and submodules are identified in the tree. ChronoGit does not enter a s
 | `m` | Toggle the full commit-message overlay |
 | `b` | Toggle History's diff / body layout |
 | `t` | Toggle changed files / commit tree |
-| `Enter` / `Space` | Select a History commit, open/close a file diff, or expand a tree directory |
+| `Enter` | Select/open the current item, or close a floating full view |
 | `/` / `?` | Search a floating diff forward / backward |
 | `n` / `N` | Go to the next / previous search match |
 | `Esc` | Close an overlay |
@@ -95,17 +106,30 @@ Symlinks and submodules are identified in the tree. ChronoGit does not enter a s
 
 History always stacks its three panes vertically at the supported terminal sizes. In Changes, widths below 110 columns show the focused pane at full width; use `h` and `l` to move between panes.
 
+## Keymap configuration
+
+ChronoGit loads `$XDG_CONFIG_HOME/chronogit/keymap.conf`, falling back to `~/.config/chronogit/keymap.conf`, when that file exists. Copy [`config/keymap.conf`](config/keymap.conf) and uncomment only the actions you want to replace, or pass another file with `--keymap PATH`. For example:
+
+```ini
+[bindings]
+show_graph = x
+file_search = ctrl-p
+content_search = space s
+```
+
+Key sequences are space-separated and alternatives are comma-separated. Invalid, duplicate, or ambiguous bindings fail before raw terminal mode starts. `Ctrl-C` always remains available for safe exit. The complete action and key syntax is in the [keymap reference](docs/src/content/docs/reference/keymap.md).
+
 ## Read-only and failure behavior
 
 ChronoGit only invokes an allowlisted set of Git read commands. It never stages, restores, commits, checks out, resets, or updates references. Commands are executed without a shell, paths are passed after `--`, optional Git locks are disabled, and external diff, textconv, pager, and fsmonitor programs are disabled.
 
-Git output is bounded. A text diff larger than 8 MiB is terminated and displayed as truncated instead of growing memory without limit. A Git command that runs longer than 30 seconds is terminated with a recoverable error. Binary changes are shown as a summary.
+Git output is bounded. A text diff larger than 8 MiB is terminated and displayed as truncated instead of growing memory without limit; current file reads are also capped at 8 MiB. A Git command that runs longer than 30 seconds is terminated with a recoverable error. Binary changes and files are shown as a summary.
 
 Startup errors are printed before raw terminal mode is enabled. During the TUI, recoverable Git errors are shown in the affected pane. Normal exit, errors, Ctrl-C, and panics restore the alternate screen, cursor, mouse capture, and raw mode.
 
 ## Non-goals
 
-ChronoGit does not stage, restore, commit, reset, check out, or otherwise mutate a repository. Version `0.1.0` also does not provide staged-change, remote, pull-request, blame, stash, editor, configuration-file, plugin, or machine-readable export features.
+ChronoGit does not stage, restore, commit, reset, check out, or otherwise mutate a repository. Version `0.1.0` also does not provide staged-change, remote, pull-request, blame, stash, editor, plugin, or machine-readable export features.
 
 ## Troubleshooting
 

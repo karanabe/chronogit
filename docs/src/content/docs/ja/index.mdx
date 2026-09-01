@@ -8,7 +8,7 @@ tags:
 template: splash
 hero:
   title: リポジトリを変えずに、変更を見渡す。
-  tagline: 未ステージの変更、コミット履歴、メッセージ全文、コミットツリーを、Vim指向の軽快なターミナルUIにまとめます。
+  tagline: 未ステージの変更、コミット履歴とGraph、リポジトリ検索、メッセージ全文、コミットツリーを、Vim指向の軽快なターミナルUIにまとめます。
   actions:
     - text: はじめる
       link: /ja/guides/getting-started/
@@ -32,7 +32,7 @@ import logo from '../../../assets/ChronoGitLogo.png';
   <section class="landing-intro" aria-labelledby="landing-intro-title">
     <p class="landing-eyebrow">設計から読み取り専用</p>
     <h2 id="landing-intro-title">ターミナルを離れずに、リポジトリをレビュー。</h2>
-    <p>ワークツリーからコミット、メッセージ全文、変更ファイル、ツリーまでを、複数のGitコマンドを組み立てずにたどれます。ChronoGitが実行するのは閉じた一覧の読み取りコマンドだけで、ステージ、復元、コミット、チェックアウトは行いません。</p>
+    <p>ワークツリーやリポジトリ検索からコミット、メッセージ全文、変更ファイル、ツリーまでを、複数のGitコマンドを組み立てずにたどれます。ChronoGitが実行するのは閉じた一覧の読み取りコマンドだけで、ステージ、復元、コミット、チェックアウトは行いません。</p>
   </section>
 
   <div class="landing-principles" aria-label="ChronoGitでできること">
@@ -44,7 +44,7 @@ import logo from '../../../assets/ChronoGitLogo.png';
     <section>
       <span aria-hidden="true">02</span>
       <h3>コミットをたどる</h3>
-      <p>first-parent差分、メッセージ全文、必要なときだけ読み込むツリーを開けます。</p>
+      <p>親レーンをたどり、first-parent差分、メッセージ全文、ファイル単位の履歴を開けます。</p>
     </section>
     <section>
       <span aria-hidden="true">03</span>
@@ -63,7 +63,7 @@ import logo from '../../../assets/ChronoGitLogo.png';
     <pre aria-label="ChronoGitのインストールと起動コマンド"><code>{`$ cargo install chronogit --locked
 $ chronogit /path/to/repository
 
-1  Changes    2  History
-F1 ヘルプ     q  終了`}</code></pre>
+1 Changes  2 History  3 Graph
+Space f/g 検索        q 終了`}</code></pre>
   </section>
 </div>

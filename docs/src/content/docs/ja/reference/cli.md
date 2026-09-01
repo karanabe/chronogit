@@ -19,7 +19,8 @@ chronogit [OPTIONS] [PATH]
 | 入力 | デフォルト | 意味 |
 | --- | --- | --- |
 | `[PATH]` | `.` | リポジトリルートまたはその下のディレクトリ |
-| `--view changes\|history` | `changes` | 最初に開くビュー |
+| `--view changes\|history\|graph` | `changes` | 最初に開くビュー |
+| `--keymap PATH` | 存在する場合はXDGパス | 明示するキーマップ設定ファイル |
 | `-h`, `--help` | — | ヘルプを出力して終了 |
 | `-V`, `--version` | — | バージョンを出力して終了 |
 
@@ -34,6 +35,9 @@ chronogit
 # 明示したリポジトリをHistoryで開く
 chronogit /srv/project --view history
 
+# Graphとプロジェクト固有キーマップで開く
+chronogit /srv/project --view graph --keymap ./keymap.conf
+
 # ヘルプとバージョンには対話型TTYが不要
 chronogit --help
 chronogit --version
@@ -41,7 +45,7 @@ chronogit --version
 
 ## 終了時の動作
 
-ヘルプ、バージョン、`q`、`Ctrl-C`による正常終了は成功を返します。起動またはターミナルの失敗は、`chronogit:`で始まる診断と取得できた原因チェーンを標準エラーへ出力し、失敗を返します。
+ヘルプ、バージョン、`q`、`Ctrl-C`による正常終了は成功を返します。リポジトリ、キーマップ、ターミナルの起動失敗は、`chronogit:`で始まる診断と取得できた原因チェーンを標準エラーへ出力し、失敗を返します。明示した`--keymap`は存在し有効である必要があります。標準XDGファイルがなければ組み込みキーを使います。
 
 リポジトリ由来の制御文字は、診断に出す前にエスケープします。起動後の復旧可能なGitエラーはアプリを終了せず、影響するペインまたはフッターに表示します。
 

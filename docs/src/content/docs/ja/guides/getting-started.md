@@ -67,18 +67,20 @@ ChronoGitはGitにワークツリーのルートを問い合わせるため、�
 
 ## 最初のビューを選ぶ
 
-標準の**Changes**ビューは未ステージの作業を表示します。コミットから見たい場合は**History**で起動します。
+標準の**Changes**ビューは未ステージの作業を表示します。コミットから見たい場合は**History**または**Graph**で起動します。
 
 ```sh title="ターミナル"
 chronogit /path/to/repository --view history
+chronogit /path/to/repository --view graph
 ```
 
-起動後も`1`でChanges、`2`でHistoryへ移動できます。キー一覧は`F1`、終了は`q`または`Ctrl-C`です。
+起動後も`1`でChanges、`2`でHistory、`3`でGraphへ移動できます。どのメインビューでも`Space f`でファイル、`Space g`でワークツリー文字列を検索できます。キー一覧は`F1`、終了は`q`または`Ctrl-C`です。
 
 ## 次に読む
 
 - [未ステージの変更を調べる](/ja/guides/changes/)
 - [コミット履歴、メッセージ、ツリーをたどる](/ja/guides/history/)
+- [ファイル、内容、ファイル単位の履歴を検索する](/ja/guides/search/)
 - [キー操作と画面レイアウトを覚える](/ja/guides/navigation/)
 - [読み取り専用の保証とリソース上限を確認する](/ja/reference/safety-and-limits/)
 

@@ -67,18 +67,20 @@ ChronoGit asks Git for the worktree root, so the interface always covers the com
 
 ## Choose the initial view
 
-The default **Changes** view shows unstaged work. Start directly in **History** when you want to inspect commits:
+The default **Changes** view shows unstaged work. Start directly in **History** or **Graph** when you want to inspect commits:
 
 ```sh title="Terminal"
 chronogit /path/to/repository --view history
+chronogit /path/to/repository --view graph
 ```
 
-Press `1` for Changes or `2` for History at any time. Press `F1` for the in-app key guide and `q` or `Ctrl-C` to exit.
+Press `1` for Changes, `2` for History, or `3` for Graph at any time. `Space f` searches files and `Space g` searches working-tree text from any main view. Press `F1` for the in-app key guide and `q` or `Ctrl-C` to exit.
 
 ## Next steps
 
 - [Inspect unstaged changes](/guides/changes/)
 - [Explore commit history, messages, and trees](/guides/history/)
+- [Search files, content, and per-file history](/guides/search/)
 - [Learn the keyboard and responsive layout](/guides/navigation/)
 - [Review the read-only contract and resource limits](/reference/safety-and-limits/)
 

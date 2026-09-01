@@ -19,7 +19,8 @@ chronogit [OPTIONS] [PATH]
 | Input | Default | Meaning |
 | --- | --- | --- |
 | `[PATH]` | `.` | Repository root or any directory below it |
-| `--view changes\|history` | `changes` | View to open first |
+| `--view changes\|history\|graph` | `changes` | View to open first |
+| `--keymap PATH` | XDG path when present | Explicit keymap configuration file |
 | `-h`, `--help` | — | Print help and exit |
 | `-V`, `--version` | — | Print the version and exit |
 
@@ -34,6 +35,9 @@ chronogit
 # Explicit repository, History first
 chronogit /srv/project --view history
 
+# Graph first with a project-specific keymap
+chronogit /srv/project --view graph --keymap ./keymap.conf
+
 # Help and version do not require an interactive TTY
 chronogit --help
 chronogit --version
@@ -41,7 +45,7 @@ chronogit --version
 
 ## Exit behavior
 
-Successful help, version output, `q`, and `Ctrl-C` return success. Startup and terminal failures print a `chronogit:` diagnostic and any available cause chain to standard error, then return failure.
+Successful help, version output, `q`, and `Ctrl-C` return success. Repository, keymap, and terminal startup failures print a `chronogit:` diagnostic and any available cause chain to standard error, then return failure. An explicit `--keymap` file must exist and be valid; an absent default XDG file simply uses built-in bindings.
 
 Repository-provided control characters in diagnostics are escaped before printing. Recoverable Git failures after startup appear inside the affected pane or footer instead of terminating the application.
 

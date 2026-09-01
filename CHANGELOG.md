@@ -2,6 +2,19 @@
 
 All notable changes to ChronoGit are documented here.
 
+## Unreleased
+
+### Added
+
+- Parent-lane Git graph view with commit messages, changed-file/diff details, and a full-diff overlay.
+- Global `Space f` file-path search and `Space g` fixed-text working-tree search with per-file history and current-content browsing.
+- Optional XDG or `--keymap` configuration with validated action names, key sequences, alternatives, and ambiguity checks.
+
+### Changed
+
+- `Space` is now the repository-search leader; `Enter` remains the activation and floating-view close key.
+- Repository file lists, content matches, file histories, and current file reads share the existing read-only, bounded asynchronous pipeline.
+
 ## 0.1.0
 
 ### Added

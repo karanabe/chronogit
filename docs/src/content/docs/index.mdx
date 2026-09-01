@@ -8,7 +8,7 @@ tags:
 template: splash
 hero:
   title: See what changed. Never change the repository.
-  tagline: ChronoGit keeps unstaged changes, commit history, complete messages, and commit trees in one fast, Vim-oriented terminal interface.
+  tagline: ChronoGit keeps unstaged changes, commit history and graph, repository search, complete messages, and commit trees in one fast, Vim-oriented terminal interface.
   actions:
     - text: Get started
       link: /guides/getting-started/
@@ -32,7 +32,7 @@ import logo from '../../assets/ChronoGitLogo.png';
   <section class="landing-intro" aria-labelledby="landing-intro-title">
     <p class="landing-eyebrow">Read-only by design</p>
     <h2 id="landing-intro-title">Review a repository without leaving your terminal.</h2>
-    <p>Move from the working tree to a commit, its complete message, changed files, and tree without assembling several Git commands. ChronoGit only issues a closed set of read commands and never stages, restores, commits, or checks out.</p>
+    <p>Move from the working tree or repository search to a commit, its complete message, changed files, and tree without assembling several Git commands. ChronoGit only issues a closed set of read commands and never stages, restores, commits, or checks out.</p>
   </section>
 
   <div class="landing-principles" aria-label="ChronoGit capabilities">
@@ -44,7 +44,7 @@ import logo from '../../assets/ChronoGitLogo.png';
     <section>
       <span aria-hidden="true">02</span>
       <h3>Walk commit history</h3>
-      <p>Open first-parent patches, full messages, and lazily loaded repository trees.</p>
+      <p>Follow parent lanes, open first-parent patches and full messages, and inspect per-file history.</p>
     </section>
     <section>
       <span aria-hidden="true">03</span>
@@ -63,7 +63,7 @@ import logo from '../../assets/ChronoGitLogo.png';
     <pre aria-label="ChronoGit installation and launch commands"><code>{`$ cargo install chronogit --locked
 $ chronogit /path/to/repository
 
-1  Changes    2  History
-F1 Help       q  Quit`}</code></pre>
+1 Changes  2 History  3 Graph
+Space f/g Search      q Quit`}</code></pre>
   </section>
 </div>

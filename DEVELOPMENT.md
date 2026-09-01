@@ -12,7 +12,10 @@ The current implementation covers the `0.1.0` scope described in
 
 - unstaged tracked and untracked worktree changes
 - paged commit history with root and first-parent merge comparisons
+- parent-lane Git graph with changed-file/diff details
+- repository file/content search with per-file history and current content
 - full commit messages, changed-file lists, and lazy commit trees
+- optional validated XDG or explicit keymap configuration
 - bounded, asynchronous Git reads through a typed command allowlist
 - Vim-oriented navigation and responsive terminal layouts
 - terminal restoration on normal exit, errors, Ctrl-C, and panics
@@ -21,10 +24,10 @@ The current implementation covers the `0.1.0` scope described in
 
 | Module | Role | Notes |
 | --- | --- | --- |
-| [`src/domain`](src/domain) | Domain model | Owns validated repository paths, object IDs, changes, commits, diffs, and tree entries without Git or terminal I/O. |
-| [`src/git`](src/git) | Git adapter | Owns the read-only command allowlist, bounded process execution, machine-output parsing, and domain-level Git operations. |
+| [`src/domain`](src/domain) | Domain model | Owns validated repository paths, object IDs, changes, commits, diffs, search hits, file documents, and tree entries without Git or terminal I/O. |
+| [`src/git`](src/git) | Repository adapter | Owns the read-only Git command allowlist, bounded process/current-file reads, machine-output parsing, and domain-level repository operations. |
 | [`src/app`](src/app) | Application state | Owns actions, events, effects, asynchronous load state, selection, caching, and stale-response rejection. |
-| [`src/tui`](src/tui) | Terminal presentation | Owns key mapping, terminal lifecycle, layout, rendering, and the interactive event loop. |
+| [`src/tui`](src/tui) | Terminal presentation | Owns configurable key mapping, graph lanes, terminal lifecycle, layout, rendering, and the interactive event loop. |
 | [`src/cli.rs`](src/cli.rs) | CLI boundary | Owns command-line parsing, repository discovery input, and startup validation. |
 | [`src/error.rs`](src/error.rs) | Top-level errors | Owns contextual application errors and source chaining. |
 

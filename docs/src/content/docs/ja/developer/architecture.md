@@ -32,7 +32,7 @@ flowchart LR
 
 ### `src/domain`
 
-リポジトリパス、object ID、変更、コミット、差分、ツリー項目を所有します。サブプロセスやターミナルへの依存はありません。
+リポジトリパス、object ID、変更、コミット、差分、ツリー項目、検索一致、上限付きの現在ファイル文書を所有します。サブプロセスやターミナルへの依存はありません。
 
 - `RepositoryRoot`、`RepoPath`、`ObjectId`、`RequestId`により、意味の異なる値の混同を防ぎます。
 - `CommitBaseline`は空ツリーとfirst-parentの比較を明示します。
@@ -49,7 +49,7 @@ flowchart LR
 - `GitCommand`は閉じた許可リストで、呼び出し側は任意の引数を渡せません。
 - `GitRunner`は唯一の差し替え用traitです。遅く状態を持つサブプロセスI/Oが実際のテスト境界であるためです。
 - `SystemGitRunner`はシェルなしで実行し、上限付きのバイト出力を取得し、任意のロック、プロンプト、pager、色、外部diff、textconv、fsmonitor実行を無効にします。
-- `GitService`は検出、status、履歴、メッセージ、変更ファイル、差分、ツリー子要素というドメイン操作を提供します。
+- `GitService`は検出、status、履歴、メッセージ、変更ファイル、差分、ツリー子要素、ファイル/内容検索、ファイル単位履歴、上限付き現在内容というドメイン操作を提供します。
 - `git::parse`はNUL区切りの機械出力とunified patchを解析します。
 
 リポジトリのobject formatをSHA-1と仮定しません。Gitが返した完全な16進object IDを保持します。
@@ -58,14 +58,14 @@ flowchart LR
 
 対話状態と遷移を所有します。
 
-- `AppView`、`FocusedPane`、`HistoryPanel`、`Overlay`が排他的なUI状態を表します。本文指向のHistoryレイアウトは独立したviewで、コミットメッセージ全文は引き続きoverlayです。
-- `SearchState`は、検索対象のcollectionから独立してprompt編集、検索方向、順序付きの一致、折り返し選択を所有します。将来の一覧/ファイル検索も同じ動作を再利用できます。
+- `AppView`、`FocusedPane`、`HistoryPanel`、`Overlay`が排他的なUI状態を表します。Changes、History/本文、Graph/詳細、ファイル履歴はview、リポジトリ検索、メッセージ全文、差分全文、現在ファイル内容はoverlayです。
+- `SearchState`は読み込み済み差分内の検索を所有します。`RepositorySearchState`はグローバルprompt、mode、結果、選択、戻り先viewを別に所有します。`FileViewState`は選択パス、履歴/現在内容、下段が内容か履歴差分かを所有します。
 - `LoadState<T>`はidle、request ID付きloading、ready、failedのいずれかです。
 - `Action`はユーザーの意図、`Event`は非同期完了、`GitEffect`は唯一のGit副作用記述です。
 - すべての要求に単調増加する`RequestId`を付けます。現在のリソースと選択コミットに一致する完了だけを適用します。
 - 差分要求には75 msのdebounceがあり、Gitタスクは最大2つだけ同時実行します。
 - 差分キャッシュは最大16項目、16 MiBです。更新時に消去します。
-- 履歴は1ページ200コミットです。メッセージ、変更ファイル、差分、ツリーディレクトリは必要時に読み込みます。
+- 履歴は1ページ200コミット、ファイル履歴は最大200コミットです。メッセージ、変更ファイル、差分、現在内容、検索、ツリーディレクトリは必要時に読み込みます。
 
 ツリーディレクトリはobject IDで展開します。読み込んだ子要素は選択コミットについてキャッシュし、画面用の平坦化ツリーは完全なリポジトリパスと深さを保持します。
 
@@ -73,11 +73,11 @@ flowchart LR
 
 キー変換、ターミナルライフサイクル、レイアウト、描画、イベントループを所有します。
 
-- `KeyMapper`がVim指向のキーイベントをactionへ変換します。`h`/`l`と`Ctrl-k`/`Ctrl-j`は同じ前/次ペインactionを使います。`zh`/`zl`は750 msで期限切れになります。
+- `KeyMapper`が組み込みまたはXDG/`--keymap`設定を使い、Vim指向のキーイベントをactionへ変換します。parserは名前付きaction/キーだけを受け付け、曖昧なprefixを拒否し、連続キーは750 msで期限切れになります。Ctrl-Cは安全な終了用に予約します。
 - `TerminalSession`がraw modeとalternate screenを有効化し、`Drop`でターミナル状態を復元します。
 - panic hookも、以前のhookへ引き渡す前に同じ復元を行います。
 - `tokio::select!`がターミナル入力、resize/tick、Ctrl-C、Git完了イベントを待ちます。
-- 通常のHistoryはコミット、変更ファイル/ツリー、差分を全幅の3段で描画します。本文レイアウトは同じコミット一覧、コミット本文、変更ファイルを描画し、上段の選択変更時に残りの段を再読み込みします。Changesは110列以上で2ペインを表示し、それ未満ではフォーカス中のペインが横幅を使います。
+- 通常のHistoryはコミット、変更ファイル/ツリー、差分を全幅の3段で描画し、本文レイアウトは同じコミット一覧、コミット本文、変更ファイルを描画します。Graphは読み込んだ親IDからクライアント側でレーンを描き、Graph詳細とファイル履歴は2段です。Changesは110列以上で2ペインを表示し、それ未満ではフォーカス中のペインが横幅を使います。
 - 80×24未満では安定したサイズ案内に置き換え、終了キーを使えるままにします。
 
 ## Git比較の契約
@@ -94,7 +94,7 @@ flowchart LR
 
 ## エラーと終了の方針
 
-`AppError`と`GitError`は、`anyhow`や`thiserror`を使わずに`Display`、`Error`、原因チェーンを実装します。起動時エラーはターミナルに触れません。復旧可能な実行時エラーは`LoadState::Failed`または画面上のnoticeになります。
+`AppError`、`GitError`、`KeyMapError`は、`anyhow`や`thiserror`を使わずに`Display`、`Error`、原因チェーンを実装します。起動時エラーはターミナルに触れません。復旧可能な実行時エラーは`LoadState::Failed`または画面上のnoticeになります。
 
 Git標準出力は8 MiB、標準エラーは64 KiB、コマンド時間は30秒に制限します。上限を超えると子プロセスを停止します。途中までのテキストパッチは`DiffDocument::Truncated`とし、機械可読な応答は途中まで解析せず失敗にします。
 
@@ -119,7 +119,7 @@ Git標準出力は8 MiB、標準エラーは64 KiB、コマンド時間は30秒�
 | ドメイン不変条件、値型 | `src/domain` | parser、app state、integration fixture |
 | Git操作 | `src/git/command.rs`、`runner.rs`、`service.rs` | 読み取り専用方針、出力上限、parser test |
 | 非同期読み込み、選択 | `src/app/model.rs`、`update.rs`、`effect.rs` | request ID、古い応答、cache上限 |
-| キー、操作 | `src/tui/keymap.rs` | reducer動作、help/footer、ドキュメント |
+| キー、操作 | `src/tui/keymap.rs`、`keymap/config.rs` | 設定例、reducer動作、help/footer、ドキュメント |
 | レイアウト、ターミナルライフサイクル | `src/tui/render`、`terminal.rs`、`tui/mod.rs` | 最小サイズ、PTY smoke、復元 |
 
 不変条件を変える前に実装と最も近いテストを読んでください。必要な検証層は[検証ガイド](/ja/developer/validation/)で説明します。

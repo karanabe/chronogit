@@ -32,7 +32,7 @@ The shorter module map is in the repository's `DEVELOPMENT.md`. This page record
 
 ### `src/domain`
 
-Owns repository paths, object IDs, changes, commits, diffs, and tree entries. It has no subprocess or terminal dependency.
+Owns repository paths, object IDs, changes, commits, diffs, tree entries, search hits, and bounded current-file documents. It has no subprocess or terminal dependency.
 
 - `RepositoryRoot`, `RepoPath`, `ObjectId`, and `RequestId` prevent values with different meanings from being mixed.
 - `CommitBaseline` makes empty-tree and first-parent comparisons explicit.
@@ -49,7 +49,7 @@ Owns all communication with the installed Git executable.
 - `GitCommand` is a closed allowlist; callers cannot pass arbitrary arguments.
 - `GitRunner` is the only substitution trait because subprocess I/O is a real slow and stateful test boundary.
 - `SystemGitRunner` executes without a shell, captures bounded byte output, and disables optional locks, prompts, pager, color, external diff, textconv, and fsmonitor execution.
-- `GitService` exposes domain use cases: discovery, status, history, message, changed files, diff, and tree children.
+- `GitService` exposes domain use cases: discovery, status, history, message, changed files, diff, tree children, file/content search, per-file history, and bounded current-file content.
 - `git::parse` modules decode NUL-delimited machine output and unified patches.
 
 The repository object format is not assumed to be SHA-1. ChronoGit retains complete hexadecimal IDs returned by Git.
@@ -58,14 +58,14 @@ The repository object format is not assumed to be SHA-1. ChronoGit retains compl
 
 Owns interactive state and transitions.
 
-- `AppView`, `FocusedPane`, `HistoryPanel`, and `Overlay` model mutually exclusive UI states. The body-oriented History layout is a first-class view, while the complete commit message remains an overlay.
-- `SearchState` owns prompt editing, query direction, ordered matches, and wraparound selection independently of the searched collection, so later list/file search can reuse the same behavior.
+- `AppView`, `FocusedPane`, `HistoryPanel`, and `Overlay` model mutually exclusive UI states. Changes, History/body, Graph/details, and file history are views; repository search, complete messages, full diffs, and current file content are overlays.
+- `SearchState` owns search inside a loaded diff. `RepositorySearchState` separately owns the global prompt, mode, results, selection, and return view. `FileViewState` owns the selected path, its history/current content, and whether the lower pane shows content or a historical diff.
 - `LoadState<T>` is idle, loading with a request ID, ready, or failed.
 - `Action` represents user intent, `Event` an asynchronous completion, and `GitEffect` the only Git side-effect description.
 - Every request receives a monotonically increasing `RequestId`. A completion applies only if it still matches the current resource and selected commit.
 - Diff requests have a 75 ms debounce and at most two Git tasks run concurrently.
 - The diff cache keeps at most 16 entries and 16 MiB. Refresh clears it.
-- History loads 200 commits per page. Messages, changed files, diffs, and tree directories load on demand.
+- History loads 200 commits per page and file history loads up to 200 commits. Messages, changed files, diffs, current content, searches, and tree directories load on demand.
 
 Tree directories are expanded by object ID. Loaded children are cached for the selected commit; the flattened visible tree stores complete repository paths and depth.
 
@@ -73,11 +73,11 @@ Tree directories are expanded by object ID. Loaded children are cached for the s
 
 Owns key translation, terminal lifecycle, layout, rendering, and the event loop.
 
-- `KeyMapper` converts Vim-oriented key events to actions. `h`/`l` and `Ctrl-k`/`Ctrl-j` share the previous/next-pane actions. The `zh`/`zl` sequence expires after 750 ms.
+- `KeyMapper` converts Vim-oriented key events to actions through built-in or XDG/`--keymap` bindings. The parser accepts only named actions and keys, rejects ambiguous prefixes, and uses a 750 ms sequence timeout. Ctrl-C remains reserved for safe exit.
 - `TerminalSession` enables raw mode and the alternate screen and restores terminal state from `Drop`.
 - A panic hook performs the same restoration before forwarding to the previous hook.
 - `tokio::select!` waits for terminal input, resize/tick events, Ctrl-C, and Git completion events.
-- Standard History renders commits, changed files/tree, and diff as three full-width rows. Its body layout renders the same commit list, commit body, and changed files; changing the top-row selection reloads the other rows. Changes renders both panes from 110 columns and gives the focused pane the full width below that threshold.
+- Standard History renders commits, changed files/tree, and diff as three full-width rows. Its body layout renders the same commit list, commit body, and changed files. Graph renders client-side lanes from loaded parent IDs; Graph details and file history render two rows. Changes renders both panes from 110 columns and gives the focused pane the full width below that threshold.
 - Below 80×24, rendering becomes a stable size message and quit remains available.
 
 ## Git comparison contracts
@@ -94,7 +94,7 @@ Owns key translation, terminal lifecycle, layout, rendering, and the event loop.
 
 ## Error and shutdown policy
 
-`AppError` and `GitError` implement `Display`, `Error`, and source chaining without `anyhow` or `thiserror`. Startup errors leave the terminal untouched. Recoverable runtime failures become `LoadState::Failed` or a visible notice.
+`AppError`, `GitError`, and `KeyMapError` implement `Display`, `Error`, and source chaining without `anyhow` or `thiserror`. Startup errors leave the terminal untouched. Recoverable runtime failures become `LoadState::Failed` or a visible notice.
 
 Git stdout is limited to 8 MiB, stderr to 64 KiB, and command duration to 30 seconds. Crossing a limit kills the child. A partial text patch becomes `DiffDocument::Truncated`; partial machine-readable responses fail instead of being parsed.
 
@@ -119,7 +119,7 @@ Future features should add a domain variant and a typed command/effect path inst
 | Domain invariant or value type | `src/domain` | Parsers, app state, integration fixtures |
 | Git operation | `src/git/command.rs`, `runner.rs`, `service.rs` | Read-only policy, output bounds, parser tests |
 | Async loading or selection | `src/app/model.rs`, `update.rs`, `effect.rs` | Request IDs, stale responses, cache bounds |
-| Key or interaction | `src/tui/keymap.rs` | Reducer behavior, help/footer text, docs |
+| Key or interaction | `src/tui/keymap.rs`, `keymap/config.rs` | Example config, reducer behavior, help/footer text, docs |
 | Layout or terminal lifecycle | `src/tui/render`, `terminal.rs`, `tui/mod.rs` | Minimum sizes, PTY smoke checks, restoration |
 
 Read the implementation and the nearest tests before changing any invariant. The [validation guide](/developer/validation/) explains the required verification layers.

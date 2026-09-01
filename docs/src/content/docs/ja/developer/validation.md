@@ -35,18 +35,18 @@ pnpm --dir docs build
 ## カバレッジの構成
 
 - domainとparserのunit testが、値の不変条件、バイト解析、行番号、不正出力を扱います。
-- reducerとeffectのtestが、Historyの全panel、commitから変更ファイルへの確定操作、全文message overlay、本文レイアウトの遷移/選択/scroll、pagination、tree展開、差分フロートのopen/scroll/検索/close遷移、差分読み込み中の移動入力、message読み込み、古い応答の拒否、差分要求の集約を扱います。
-- renderとkeyのtestが、loading、empty、failure、truncation、最小幅のHistory 3段レイアウト、message overlay、差分の現在行強調、差分全体のscroll、比較ラベル、`Ctrl-j`/`Ctrl-k`、`m`/`b`、検索/helpキー、意味色、キーシーケンスを扱います。
-- 一時リポジトリのintegration testが、root/merge commit、detached/unborn repository、linked worktree、staged-only/mixed change、conflict、rename、delete、type change、symlink、submodule、binary/oversized diff、非UTF-8/先頭dash pathを扱います。
-- CLI testが、help/version、非repository診断、Git未検出、権限エラー、非TTY拒否を扱います。
+- reducerとeffectのtestが、Historyの全panel、Graph詳細と戻る操作、repository searchの入力と選択、file history/current contentの遷移、全文message/content overlay、本文レイアウトの遷移/選択/scroll、pagination、tree展開、差分フロートのopen/scroll/検索/close遷移、差分読み込み中の移動入力、message読み込み、古い応答の拒否、差分要求の集約を扱います。
+- renderとkeyのtestが、loading、empty、failure、truncation、最小幅のHistoryレイアウト、Graphのlaneと詳細、repository search結果、file historyとcurrent content、message overlay、差分の現在行強調、差分全体のscroll、比較ラベル、既定/設定済みbinding、leader sequence、意味色、曖昧なキー設定の拒否を扱います。
+- 一時リポジトリのintegration testが、root/merge commit、detached/unborn repository、linked worktree、staged-only/mixed change、file/fixed-text search、現在/過去のfile content、conflict、rename、delete、type change、symlink、submodule、binary/oversized diff、非UTF-8/先頭dash pathを扱います。
+- CLI testが、help/version、非repository診断、Git未検出、権限エラー、非TTY拒否、ターミナル設定前の不正な明示keymap fileを扱います。
 - 読み取り専用integration checkが、Git service操作の前後で`HEAD`、porcelain status、worktree bytesを比較します。
 - ターミナルライフサイクルtestが、復元シーケンスと意図的にpanicするchild processを検査します。
 
 ## 現在の変更の検証
 
-現在のworking treeでは、上記のRust完全ゲートがunit、CLI、Git serviceの計77 testとlock済みrelease buildを含めて成功しました。`cargo package --allow-dirty --locked`は40ファイルのcrate（271.4 KiB、圧縮後58.1 KiB）を生成・再buildし、crates.io公開のdry-runは想定どおり中止される前のupload stepまで到達しました。ドキュメントbuildも29ページを生成して成功しました。release対象をcommitした正確なrevisionでは、`--allow-dirty`を付けずに再実行してください。
+このrevisionでは、上記のRust完全ゲートがunit、binary、CLI、Git serviceの計85 testとlock済みrelease buildを含めて成功しました。clean treeでの`cargo package --locked`は46ファイルのcrate（342.6 KiB、圧縮後69.7 KiB）を生成・再buildしました。ドキュメントbuildも33ページを生成して成功しました。
 
-release binaryを別のcoreutilsリポジトリに対する実80×24 PTYでも操作しました。通常のHistoryでcommitペインの`Enter`により変更ファイルへフォーカスが移り、2回目の`Enter`で選択diffが開きました。`j`と`k`で強調中の現在行が目に見えて移動しました。別の未cacheファイルでは`Loading diff…`の表示中に`Ctrl-d`を入力し、完了直後に10行先が強調され、`Ctrl-u`で先頭行へ戻りました。`q`はターミナル復元シーケンスを出して正常終了しました。直前revisionで実施したmessage全文とbodyレイアウトの確認は、下の履歴記録に残しています。
+release binaryをこのリポジトリに対する実80×24 PTYでも操作しました。Graphはparent lane付きで表示され、`m`でmessage全文、`Enter`を続けて押すと変更ファイル/diff詳細、さらにdiff全文が開きました。`Space f`、`README` query、`Enter`で、上段にcommit history、下段に現在内容を持つFile Historyが開き、history選択を移動すると下段がそのcommitのdiffへ切り替わりました。`q`は正常終了し、PTY sessionも閉じました。fixed-text searchはintegration、reducer、keymap、rendering testで検証しています。以前coreutilsで実施したHistory確認は下の履歴記録に残しています。
 
 ## `0.1.0`リリース候補の履歴記録
 
