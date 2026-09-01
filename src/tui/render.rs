@@ -1,3 +1,11 @@
+//! Pure rendering of application state into ratatui frames.
+//!
+//! Rendering never initiates repository work or mutates [`AppState`]. Layouts
+//! adapt at 110 columns, and terminals smaller than 80 by 24 cells receive a
+//! stable resize message instead of partially rendered panes.
+//!
+//! [`AppState`]: crate::app::AppState
+
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -15,6 +23,10 @@ const MIN_WIDTH: u16 = 80;
 const MIN_HEIGHT: u16 = 24;
 const WIDE_WIDTH: u16 = 110;
 
+/// Renders one complete frame from an immutable application-state snapshot.
+///
+/// The function sanitizes repository-provided text before placing it in terminal
+/// cells and replaces unsupported terminal sizes with a resize message.
 pub fn render(frame: &mut Frame<'_>, state: &AppState) {
     let area = frame.area();
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {

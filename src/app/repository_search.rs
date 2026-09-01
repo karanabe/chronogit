@@ -1,3 +1,9 @@
+//! Repository-search overlay navigation and per-file content/history loading.
+//!
+//! Repository search is separate from in-document diff search. It owns a live
+//! query and results, then transitions into a file view whose lower pane can
+//! switch between current content and a selected historical diff.
+
 use crate::app::{
     Action, AppState, AppView, FocusedPane, GitEffect, LoadState, Overlay, RepositorySearchKind,
 };

@@ -1,3 +1,5 @@
+//! Domain-level repository reads built on the typed Git runner boundary.
+
 use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io::Read;
@@ -18,6 +20,11 @@ use crate::git::parse::{
 };
 use crate::git::{CommandOutput, GitCommand, GitError, GitRunner};
 
+/// A discovered, non-bare repository accessed through a [`GitRunner`].
+///
+/// The service owns the absolute worktree root and is the only component that
+/// combines typed commands, bounded output, parsers, and domain comparison
+/// policy. It exposes no operation that mutates the repository.
 #[derive(Debug)]
 pub struct GitService<R> {
     runner: R,
@@ -25,6 +32,15 @@ pub struct GitService<R> {
 }
 
 impl<R: GitRunner> GitService<R> {
+    /// Resolves `start` to a non-bare worktree and constructs its service.
+    ///
+    /// `start` may be the worktree root or any directory beneath it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the path cannot be canonicalized, is not a
+    /// directory, is outside a Git worktree, is bare, or when Git returns
+    /// malformed, truncated, or unsuccessful discovery output.
     pub fn discover(runner: R, start: &Path) -> Result<Self, GitError> {
         let start = start.canonicalize().map_err(|source| GitError::Io {
             operation: "resolve repository path",
@@ -64,11 +80,21 @@ impl<R: GitRunner> GitService<R> {
         Ok(service)
     }
 
+    /// Returns the absolute root of the discovered working tree.
     #[must_use]
     pub fn root(&self) -> &RepositoryRoot {
         &self.root
     }
 
+    /// Reads unstaged tracked and untracked worktree changes.
+    ///
+    /// Inclusion follows the worktree side of porcelain-v2 XY status, so a
+    /// staged-only path is intentionally omitted.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when Git cannot read status, bounded output is
+    /// incomplete, or a porcelain record is malformed.
     pub fn changes(&self) -> Result<Vec<WorktreeChange>, GitError> {
         let output = self.runner.run(Some(&self.root), &GitCommand::Status)?;
         ensure_complete(&output, "read worktree status")?;
@@ -76,6 +102,15 @@ impl<R: GitRunner> GitService<R> {
         parse_status(output.stdout())
     }
 
+    /// Reads at most `limit` commit summaries after skipping `skip` commits.
+    ///
+    /// An unborn `HEAD` is a valid empty history. Parent order and complete
+    /// object IDs are retained for graph rendering and baseline selection.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when Git execution fails, bounded output is incomplete,
+    /// or a commit record is malformed.
     pub fn commits(&self, skip: usize, limit: usize) -> Result<Vec<CommitSummary>, GitError> {
         let head = self.runner.run(Some(&self.root), &GitCommand::HasHead)?;
         ensure_complete(&head, "check HEAD")?;
@@ -91,6 +126,15 @@ impl<R: GitRunner> GitService<R> {
         parse_commits(output.stdout())
     }
 
+    /// Searches tracked and untracked path names using smart-case substring matching.
+    ///
+    /// Queries containing an uppercase character are case-sensitive; all other
+    /// queries use Unicode lowercase matching. An empty query returns every path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when Git cannot enumerate files, output crosses its
+    /// limit, or the NUL-delimited path list is malformed.
     pub fn search_files(&self, query: &str) -> Result<Vec<SearchHit>, GitError> {
         let output = self
             .runner
@@ -112,6 +156,16 @@ impl<R: GitRunner> GitService<R> {
         Ok(files)
     }
 
+    /// Searches non-binary working-tree contents for literal `query` text.
+    ///
+    /// An empty query or Git's no-match status returns an empty result rather
+    /// than an error. Matches include repository path, one-based line, and a
+    /// bounded preview supplied by Git.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for Git execution failures other than no-match,
+    /// truncated output, or malformed match records.
     pub fn search_content(&self, query: &str) -> Result<Vec<SearchHit>, GitError> {
         if query.is_empty() {
             return Ok(Vec::new());
@@ -130,6 +184,12 @@ impl<R: GitRunner> GitService<R> {
         parse_grep_matches(output.stdout())
     }
 
+    /// Reads at most `limit` commits that touched `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when Git execution fails, output is incomplete, or a
+    /// commit record is malformed.
     pub fn file_history(
         &self,
         path: &RepoPath,
@@ -147,6 +207,16 @@ impl<R: GitRunner> GitService<R> {
         parse_commits(output.stdout())
     }
 
+    /// Reads current working-tree content without following symbolic links.
+    ///
+    /// Regular-file reads are capped at 8 MiB. A NUL byte classifies the result
+    /// as binary, missing or special files become an unavailable document, and
+    /// a symbolic link returns its target instead of opening the target.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when metadata, link-target, open, or read operations fail
+    /// for reasons other than a missing path.
     pub fn file_content(&self, path: &RepoPath) -> Result<FileDocument, GitError> {
         const MAX_FILE_BYTES: usize = 8 * 1024 * 1024;
         let absolute = self.root.as_path().join(path.to_os_string());
@@ -211,6 +281,15 @@ impl<R: GitRunner> GitService<R> {
         })
     }
 
+    /// Reads the complete subject and body of `commit`.
+    ///
+    /// Invalid UTF-8 is replaced only at this presentation-oriented text
+    /// boundary; object identifiers remain validated full hexadecimal values.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when Git execution fails or either output stream is
+    /// incomplete.
     pub fn commit_message(&self, commit: &ObjectId) -> Result<CommitMessage, GitError> {
         let output = self.runner.run(
             Some(&self.root),
@@ -225,6 +304,12 @@ impl<R: GitRunner> GitService<R> {
         ))
     }
 
+    /// Lists paths changed by `commit` relative to `baseline`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when Git execution fails, output is incomplete, or a
+    /// NUL-delimited name-status record is malformed.
     pub fn changed_files(
         &self,
         commit: &ObjectId,
@@ -242,6 +327,17 @@ impl<R: GitRunner> GitService<R> {
         parse_changed_files(output.stdout())
     }
 
+    /// Reads and parses a bounded patch for a worktree or commit target.
+    ///
+    /// Text standard output that crosses 8 MiB becomes
+    /// [`DiffDocument::Truncated`] so a useful prefix remains visible. Truncated
+    /// standard error and unsuccessful commands remain failures.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the runner or Git fails, or when diagnostic output
+    /// is incomplete. Exit status 1 is accepted only for the expected
+    /// `--no-index` difference produced for an untracked path.
     pub fn diff(&self, target: &DiffTarget) -> Result<DiffDocument, GitError> {
         let command = match target {
             DiffTarget::Worktree { path, untracked } if *untracked => {
@@ -273,6 +369,15 @@ impl<R: GitRunner> GitService<R> {
         Ok(parse_patch(output.stdout(), output.stdout_truncated()))
     }
 
+    /// Reads the direct children of one commit or tree object.
+    ///
+    /// Recursion is deliberately left to the application so directories can be
+    /// expanded lazily.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when Git execution fails, output is incomplete, or an
+    /// `ls-tree` record is malformed.
     pub fn tree_entries(&self, treeish: &ObjectId) -> Result<Vec<TreeEntry>, GitError> {
         let output = self.runner.run(
             Some(&self.root),

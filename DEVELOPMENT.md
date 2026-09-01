@@ -24,16 +24,21 @@ The current implementation covers the `0.1.0` scope described in
 
 | Module | Role | Notes |
 | --- | --- | --- |
-| [`src/domain`](src/domain) | Domain model | Owns validated repository paths, object IDs, changes, commits, diffs, search hits, file documents, and tree entries without Git or terminal I/O. |
-| [`src/git`](src/git) | Repository adapter | Owns the read-only Git command allowlist, bounded process/current-file reads, machine-output parsing, and domain-level repository operations. |
-| [`src/app`](src/app) | Application state | Owns actions, events, effects, asynchronous load state, selection, caching, and stale-response rejection. |
-| [`src/tui`](src/tui) | Terminal presentation | Owns configurable key mapping, graph lanes, terminal lifecycle, layout, rendering, and the interactive event loop. |
+| [`src/domain.rs`](src/domain.rs) + [`src/domain/`](src/domain) | Domain model | Owns validated repository paths, object IDs, changes, commits, diffs, search hits, file documents, and tree entries without Git or terminal I/O. |
+| [`src/git.rs`](src/git.rs) + [`src/git/`](src/git) | Repository adapter | Owns the read-only Git command allowlist, bounded process/current-file reads, machine-output parsing, and domain-level repository operations. |
+| [`src/app.rs`](src/app.rs) + [`src/app/`](src/app) | Application state | Owns actions, events, effects, asynchronous load state, selection, caching, and stale-response rejection. |
+| [`src/tui.rs`](src/tui.rs) + [`src/tui/`](src/tui) | Terminal presentation | Owns configurable key mapping, graph lanes, terminal lifecycle, layout, rendering, and the interactive event loop. |
 | [`src/cli.rs`](src/cli.rs) | CLI boundary | Owns command-line parsing, repository discovery input, and startup validation. |
 | [`src/error.rs`](src/error.rs) | Top-level errors | Owns contextual application errors and source chaining. |
 
 The detailed architecture, comparison contracts, resource limits, and security
 invariants are documented in
 [`docs/src/content/docs/developer/architecture.md`](docs/src/content/docs/developer/architecture.md).
+
+Layered modules use Rust's `module.rs` plus `module/child.rs` layout. Module
+roots hold responsibility documentation, declarations, and deliberate
+re-exports; child files own individual concepts. Keep this non-`mod.rs` layout
+when adding or splitting modules.
 
 ## Runtime Shape
 

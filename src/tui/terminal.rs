@@ -1,3 +1,5 @@
+//! RAII ownership of raw mode, the alternate screen, and panic restoration.
+
 use std::io::{self, Stdout, Write, stdout};
 use std::panic;
 
@@ -10,11 +12,23 @@ use crossterm::terminal::{
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
+/// An active ratatui terminal session that restores process terminal state on drop.
+///
+/// Construction enables raw mode, enters the alternate screen, enables mouse
+/// capture, and hides the cursor. Every construction failure and [`Drop`] runs
+/// the same best-effort restoration sequence.
 pub struct TerminalSession {
     terminal: Terminal<CrosstermBackend<Stdout>>,
 }
 
 impl TerminalSession {
+    /// Enters raw alternate-screen mode and creates the terminal backend.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error when raw mode, terminal control sequences, or the
+    /// ratatui backend cannot be initialized. Partial setup is restored before
+    /// returning the error.
     pub fn enter() -> io::Result<Self> {
         enable_raw_mode()?;
         let mut output = stdout();
@@ -33,6 +47,11 @@ impl TerminalSession {
         Ok(Self { terminal })
     }
 
+    /// Draws one frame using ratatui's buffered terminal backend.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error when the frame cannot be flushed to standard output.
     pub fn draw<F>(&mut self, render: F) -> io::Result<()>
     where
         F: FnOnce(&mut ratatui::Frame<'_>),
@@ -47,6 +66,11 @@ impl Drop for TerminalSession {
     }
 }
 
+/// Installs a panic hook that restores terminal state before reporting a panic.
+///
+/// The previously installed hook is retained and invoked after restoration.
+/// Install this immediately before [`TerminalSession::enter`] so startup errors
+/// printed earlier do not need terminal cleanup.
 pub fn install_panic_hook() {
     install_panic_hook_with(restore_terminal);
 }

@@ -28,9 +28,13 @@ flowchart LR
 
 The shorter module map is in the repository's `DEVELOPMENT.md`. This page records the deeper constraints to preserve when changing those modules.
 
+Each layered module uses Rust's non-`mod.rs` layout: `src/<module>.rs` documents
+and declares the boundary, while `src/<module>/*.rs` owns its cohesive child
+concepts. Preserve this layout when adding or splitting modules.
+
 ## Module ownership
 
-### `src/domain`
+### `src/domain.rs` and `src/domain/`
 
 Owns repository paths, object IDs, changes, commits, diffs, tree entries, search hits, and bounded current-file documents. It has no subprocess or terminal dependency.
 
@@ -42,7 +46,7 @@ Owns repository paths, object IDs, changes, commits, diffs, tree entries, search
 
 Fields stay private. Constructors enforce absolute repository roots, relative repository paths, no NUL path bytes, and hexadecimal object IDs.
 
-### `src/git`
+### `src/git.rs` and `src/git/`
 
 Owns all communication with the installed Git executable.
 
@@ -54,7 +58,7 @@ Owns all communication with the installed Git executable.
 
 The repository object format is not assumed to be SHA-1. ChronoGit retains complete hexadecimal IDs returned by Git.
 
-### `src/app`
+### `src/app.rs` and `src/app/`
 
 Owns interactive state and transitions.
 
@@ -69,7 +73,7 @@ Owns interactive state and transitions.
 
 Tree directories are expanded by object ID. Loaded children are cached for the selected commit; the flattened visible tree stores complete repository paths and depth.
 
-### `src/tui`
+### `src/tui.rs` and `src/tui/`
 
 Owns key translation, terminal lifecycle, layout, rendering, and the event loop.
 
@@ -120,6 +124,6 @@ Future features should add a domain variant and a typed command/effect path inst
 | Git operation | `src/git/command.rs`, `runner.rs`, `service.rs` | Read-only policy, output bounds, parser tests |
 | Async loading or selection | `src/app/model.rs`, `update.rs`, `effect.rs` | Request IDs, stale responses, cache bounds |
 | Key or interaction | `src/tui/keymap.rs`, `keymap/config.rs` | Example config, reducer behavior, help/footer text, docs |
-| Layout or terminal lifecycle | `src/tui/render`, `terminal.rs`, `tui/mod.rs` | Minimum sizes, PTY smoke checks, restoration |
+| Layout or terminal lifecycle | `src/tui/render.rs`, `tui/terminal.rs`, `src/tui.rs` | Minimum sizes, PTY smoke checks, restoration |
 
 Read the implementation and the nearest tests before changing any invariant. The [validation guide](/developer/validation/) explains the required verification layers.

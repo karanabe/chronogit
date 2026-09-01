@@ -1,3 +1,5 @@
+//! Parsing NUL-delimited repository file and fixed-text match records.
+
 use bstr::ByteSlice;
 
 use crate::domain::{RepoPath, SearchHit};

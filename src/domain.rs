@@ -1,3 +1,9 @@
+//! Validated, I/O-free values shared by the application and Git adapter.
+//!
+//! Domain types keep repository paths as bytes where the platform permits,
+//! distinguish commit baselines explicitly, and represent diff/file outcomes
+//! as enums so callers cannot confuse text, binary, empty, and truncated data.
+
 mod change;
 mod commit;
 mod diff;

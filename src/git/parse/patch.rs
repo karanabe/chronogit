@@ -1,3 +1,5 @@
+//! Parsing unified patches into display lines and tracked hunk positions.
+
 use bstr::ByteSlice;
 
 use crate::domain::{DiffDocument, DiffLine, DiffLineKind, LineNumber};

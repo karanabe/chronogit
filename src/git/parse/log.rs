@@ -1,3 +1,5 @@
+//! Parsing fixed-field commit records while retaining parent order.
+
 use bstr::ByteSlice;
 
 use crate::domain::{CommitSummary, ObjectId};

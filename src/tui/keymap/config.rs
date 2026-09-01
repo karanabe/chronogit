@@ -1,3 +1,5 @@
+//! Loading, parsing, and validating the optional keymap configuration file.
+
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::fs;
@@ -8,6 +10,7 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use super::{Binding, KeyStroke, action_for_name};
 use crate::app::{Action, SearchDirection};
 
+/// A path-qualified keymap read or validation failure.
 #[derive(Debug)]
 pub struct KeyMapError {
     path: PathBuf,

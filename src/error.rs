@@ -1,3 +1,5 @@
+//! Errors returned by top-level application startup and the terminal loop.
+
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::io;
@@ -5,11 +7,20 @@ use std::io;
 use crate::git::GitError;
 use crate::tui::keymap::KeyMapError;
 
+/// A failure that prevents startup or terminates the interactive application.
+///
+/// Recoverable Git failures inside the TUI are stored in application load state
+/// instead. This error is reserved for boundary failures that the binary must
+/// report after restoring terminal state.
 #[derive(Debug)]
 pub enum AppError {
+    /// Repository discovery or Git execution failed.
     Git(GitError),
+    /// Terminal input, output, or signal handling failed.
     Io(io::Error),
+    /// Standard input or output is not attached to an interactive terminal.
     NonInteractiveTerminal,
+    /// The optional or explicit keymap could not be loaded or validated.
     KeyMap(KeyMapError),
 }
 

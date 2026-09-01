@@ -1,3 +1,5 @@
+//! Binary composition root and top-level error reporting for ChronoGit.
+
 use std::io::{self, IsTerminal};
 use std::process::ExitCode;
 use std::sync::Arc;

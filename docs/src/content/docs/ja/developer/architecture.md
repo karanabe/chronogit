@@ -28,9 +28,13 @@ flowchart LR
 
 簡潔なモジュール一覧はリポジトリの`DEVELOPMENT.md`にあります。このページは、各モジュールを変更するときに保つべき詳しい制約を記録します。
 
+各レイヤーはRustの非`mod.rs`レイアウトを使います。`src/<module>.rs`が
+境界の説明と宣言を所有し、`src/<module>/*.rs`が凝集した個別概念を所有します。
+モジュールの追加や分割でもこの配置を維持してください。
+
 ## モジュールの責務
 
-### `src/domain`
+### `src/domain.rs`と`src/domain/`
 
 リポジトリパス、object ID、変更、コミット、差分、ツリー項目、検索一致、上限付きの現在ファイル文書を所有します。サブプロセスやターミナルへの依存はありません。
 
@@ -42,7 +46,7 @@ flowchart LR
 
 フィールドは非公開です。コンストラクターが、絶対パスのリポジトリルート、相対リポジトリパス、NULを含まないパス、16進数のobject IDを保証します。
 
-### `src/git`
+### `src/git.rs`と`src/git/`
 
 インストール済みGitとの通信をすべて所有します。
 
@@ -54,7 +58,7 @@ flowchart LR
 
 リポジトリのobject formatをSHA-1と仮定しません。Gitが返した完全な16進object IDを保持します。
 
-### `src/app`
+### `src/app.rs`と`src/app/`
 
 対話状態と遷移を所有します。
 
@@ -69,7 +73,7 @@ flowchart LR
 
 ツリーディレクトリはobject IDで展開します。読み込んだ子要素は選択コミットについてキャッシュし、画面用の平坦化ツリーは完全なリポジトリパスと深さを保持します。
 
-### `src/tui`
+### `src/tui.rs`と`src/tui/`
 
 キー変換、ターミナルライフサイクル、レイアウト、描画、イベントループを所有します。
 
@@ -120,6 +124,6 @@ Git標準出力は8 MiB、標準エラーは64 KiB、コマンド時間は30秒�
 | Git操作 | `src/git/command.rs`、`runner.rs`、`service.rs` | 読み取り専用方針、出力上限、parser test |
 | 非同期読み込み、選択 | `src/app/model.rs`、`update.rs`、`effect.rs` | request ID、古い応答、cache上限 |
 | キー、操作 | `src/tui/keymap.rs`、`keymap/config.rs` | 設定例、reducer動作、help/footer、ドキュメント |
-| レイアウト、ターミナルライフサイクル | `src/tui/render`、`terminal.rs`、`tui/mod.rs` | 最小サイズ、PTY smoke、復元 |
+| レイアウト、ターミナルライフサイクル | `src/tui/render.rs`、`tui/terminal.rs`、`src/tui.rs` | 最小サイズ、PTY smoke、復元 |
 
 不変条件を変える前に実装と最も近いテストを読んでください。必要な検証層は[検証ガイド](/ja/developer/validation/)で説明します。

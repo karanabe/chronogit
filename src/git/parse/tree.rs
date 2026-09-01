@@ -1,3 +1,5 @@
+//! Parsing direct `ls-tree` children without losing path bytes.
+
 use crate::domain::{ObjectId, RepoPath, TreeEntry, TreeKind};
 use crate::git::GitError;
 

@@ -1,3 +1,5 @@
+//! Validated repository roots and repository-relative byte paths.
+
 use std::ffi::OsString;
 use std::fmt::{self, Display, Formatter};
 use std::path::{Path, PathBuf};
@@ -7,10 +9,17 @@ use bstr::{BString, ByteSlice};
 #[cfg(unix)]
 use std::os::unix::ffi::OsStringExt;
 
+/// An absolute path to the discovered worktree root.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct RepositoryRoot(PathBuf);
 
 impl RepositoryRoot {
+    /// Creates a repository root after checking that the path is absolute.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for relative paths. Existence and repository membership
+    /// are established separately by [`crate::git::GitService::discover`].
     pub fn new(path: PathBuf) -> Result<Self, &'static str> {
         if path.is_absolute() {
             Ok(Self(path))
@@ -19,6 +28,7 @@ impl RepositoryRoot {
         }
     }
 
+    /// Returns the absolute filesystem path.
     #[must_use]
     pub fn as_path(&self) -> &Path {
         &self.0
@@ -31,10 +41,21 @@ impl Display for RepositoryRoot {
     }
 }
 
+/// A validated path relative to a [`RepositoryRoot`].
+///
+/// The value retains Git's raw bytes on Unix. It cannot be empty, absolute,
+/// contain NUL, or contain empty, `.` or `..` components. The sole exception is
+/// the semantic tree root created by [`RepoPath::root_marker`].
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct RepoPath(BString);
 
 impl RepoPath {
+    /// Validates and stores a repository-relative byte path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an empty or absolute path, a NUL byte, or an empty,
+    /// current-directory, or parent-directory component.
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, &'static str> {
         if bytes.is_empty() {
             return Err("repository path must not be empty");
@@ -54,21 +75,28 @@ impl RepoPath {
         Ok(Self(BString::from(bytes)))
     }
 
+    /// Creates the empty marker used internally for the root of a commit tree.
+    ///
+    /// This marker is not a valid pathspec and should only be used as the parent
+    /// of a top-level [`RepoPath::join`] operation.
     #[must_use]
     pub fn root_marker() -> Self {
         Self(BString::from(Vec::<u8>::new()))
     }
 
+    /// Returns the original Git path bytes.
     #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         self.0.as_ref()
     }
 
+    /// Returns a lossy UTF-8 representation intended only for presentation.
     #[must_use]
     pub fn display(&self) -> String {
         self.0.to_str_lossy().into_owned()
     }
 
+    /// Appends a validated child path while preserving raw bytes.
     #[must_use]
     pub fn join(&self, child: &RepoPath) -> RepoPath {
         if self.0.is_empty() {
@@ -81,6 +109,7 @@ impl RepoPath {
     }
 
     #[cfg(unix)]
+    /// Converts the raw path bytes into a Unix operating-system string.
     #[must_use]
     pub fn to_os_string(&self) -> OsString {
         OsString::from_vec(self.0.to_vec())

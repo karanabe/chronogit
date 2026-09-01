@@ -1,3 +1,9 @@
+//! Reducer logic for semantic actions and asynchronous completion events.
+//!
+//! This module is the only place that applies interaction policy to [`AppState`].
+//! It preserves selection where possible, rejects stale request IDs, and returns
+//! typed effects instead of performing repository I/O directly.
+
 use crate::app::repository_search::{
     file_content_last_line, file_content_overlay_action, load_file_view, move_file_content_cursor,
     overlay_action as repository_search_overlay_action, selected_file_history_diff,

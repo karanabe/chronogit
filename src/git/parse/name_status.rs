@@ -1,3 +1,5 @@
+//! Parsing NUL-delimited committed-file name-status records.
+
 use crate::domain::{ChangeKind, ChangedFile, RepoPath};
 use crate::git::GitError;
 

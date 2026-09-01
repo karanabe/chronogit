@@ -1,3 +1,9 @@
+//! Application state, user intent, asynchronous effects, and state transitions.
+//!
+//! [`AppState`] is the authoritative UI model. Callers feed it [`Action`] values
+//! from the terminal and [`Event`] values from [`EffectExecutor`]. Each update
+//! returns the [`GitEffect`] values required to continue loading repository data.
+
 mod action;
 mod effect;
 mod model;

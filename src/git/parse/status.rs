@@ -1,3 +1,5 @@
+//! Parsing porcelain-v2 status and selecting the unstaged worktree side.
+
 use crate::domain::{ChangeKind, RepoPath, WorktreeChange};
 use crate::git::GitError;
 

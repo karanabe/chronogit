@@ -1,3 +1,5 @@
+//! Client-side allocation of compact parent lanes for the loaded commit page.
+
 use crate::domain::{CommitSummary, ObjectId};
 
 /// Builds a compact lane prefix for each commit using the parents already loaded for history.

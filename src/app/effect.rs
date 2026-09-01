@@ -1,3 +1,5 @@
+//! Bounded asynchronous execution of typed, read-only Git requests.
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -11,55 +13,99 @@ use crate::git::{GitError, GitRunner, GitService};
 const DIFF_DEBOUNCE: Duration = Duration::from_millis(75);
 const REPOSITORY_SEARCH_DEBOUNCE: Duration = Duration::from_millis(100);
 
+/// A repository operation requested by an application-state transition.
+///
+/// Effects contain validated domain values rather than arbitrary Git arguments.
+/// Their request IDs let both the executor and reducer discard obsolete work.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GitEffect {
+    /// Load unstaged worktree changes.
     LoadChanges {
+        /// Identifier used to reject an obsolete response.
         request_id: RequestId,
     },
+    /// Load one page of commit summaries.
     LoadCommits {
+        /// Identifier used to reject an obsolete response.
         request_id: RequestId,
+        /// Number of leading commits to omit.
         skip: usize,
+        /// Maximum number of commits requested.
         limit: usize,
+        /// Whether the returned page extends an existing history list.
         append: bool,
     },
+    /// Load paths changed by one commit relative to its baseline.
     LoadFiles {
+        /// Identifier used to reject an obsolete response.
         request_id: RequestId,
+        /// Commit shown on the newer side.
         commit: ObjectId,
+        /// Empty tree or first parent shown on the older side.
         baseline: CommitBaseline,
     },
+    /// Load a bounded diff document.
     LoadDiff {
+        /// Identifier used to reject an obsolete response.
         request_id: RequestId,
+        /// Worktree or commit comparison to execute.
         target: DiffTarget,
     },
+    /// Load the complete message for one commit.
     LoadMessage {
+        /// Identifier used to reject an obsolete response.
         request_id: RequestId,
+        /// Commit whose message is requested.
         commit: ObjectId,
     },
+    /// Load one directory from a commit tree.
     LoadTree {
+        /// Identifier used to reject an obsolete response.
         request_id: RequestId,
+        /// Commit whose cached tree state owns the result.
         commit: ObjectId,
+        /// Tree object whose direct children are requested.
         treeish: ObjectId,
+        /// Visible parent to expand, or `None` for the root tree.
         parent: Option<VisibleTreeEntry>,
     },
+    /// Search tracked and untracked repository file names.
     SearchFiles {
+        /// Identifier allocated for this query text.
         request_id: RequestId,
+        /// Fixed text matched against repository-relative paths.
         query: String,
     },
+    /// Search non-binary working-tree contents for fixed text.
     SearchContent {
+        /// Identifier allocated for this query text.
         request_id: RequestId,
+        /// Fixed text matched against file contents.
         query: String,
     },
+    /// Load commits that touched one repository path.
     LoadFileHistory {
+        /// Identifier used to reject an obsolete response.
         request_id: RequestId,
+        /// Repository-relative path whose history is requested.
         path: RepoPath,
+        /// Maximum number of commits requested.
         limit: usize,
     },
+    /// Read bounded content from one current working-tree path.
     LoadFileContent {
+        /// Identifier used to reject an obsolete response.
         request_id: RequestId,
+        /// Repository-relative path to read.
         path: RepoPath,
     },
 }
 
+/// Runs [`GitEffect`] values without blocking the terminal event loop.
+///
+/// Clones share the same two-permit concurrency bound and latest-request slots.
+/// Diff and live-search work is briefly debounced; superseded work is discarded
+/// before it acquires a permit whenever possible.
 #[derive(Debug)]
 pub struct EffectExecutor<R> {
     service: Arc<GitService<R>>,
@@ -93,6 +139,7 @@ impl<R> Clone for EffectExecutor<R> {
 }
 
 impl<R: GitRunner> EffectExecutor<R> {
+    /// Creates an executor backed by a discovered repository service.
     #[must_use]
     pub fn new(service: Arc<GitService<R>>) -> Self {
         Self {
@@ -104,6 +151,15 @@ impl<R: GitRunner> EffectExecutor<R> {
         }
     }
 
+    /// Schedules an effect and sends its typed completion to `sender`.
+    ///
+    /// Delivery is best-effort when the receiving event loop has already
+    /// stopped. Newer effects of the same resource class supersede older ones.
+    ///
+    /// # Panics
+    ///
+    /// Panics when called outside a Tokio runtime because execution is spawned
+    /// onto the current runtime.
     pub fn dispatch(&self, effect: GitEffect, sender: mpsc::Sender<Event>) {
         effect
             .latest_slot(&self.latest)

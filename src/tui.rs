@@ -1,3 +1,11 @@
+//! Terminal input, rendering, lifecycle management, and the interactive loop.
+//!
+//! [`run`] owns the event loop: it draws [`AppState`], translates terminal input
+//! through [`keymap::KeyMapper`], and dispatches typed Git effects. Terminal raw
+//! mode and alternate-screen restoration remain isolated in [`terminal`].
+//!
+//! [`AppState`]: crate::app::AppState
+
 mod graph;
 pub mod keymap;
 pub mod render;
@@ -15,6 +23,17 @@ use crate::git::GitRunner;
 use crate::tui::keymap::KeyMapper;
 use crate::tui::terminal::TerminalSession;
 
+/// Runs the interactive terminal loop until the state requests shutdown.
+///
+/// The loop owns terminal setup, drawing, crossterm input, periodic ticks,
+/// Ctrl-C handling, effect dispatch, and completion events. Dropping its
+/// terminal session restores the alternate screen on every return path.
+///
+/// # Errors
+///
+/// Returns [`AppError`] when terminal setup, drawing, input streaming, or
+/// Ctrl-C registration fails. Repository errors produced after startup remain
+/// recoverable application load states and are rendered in their owning pane.
 pub async fn run<R: GitRunner>(
     mut state: AppState,
     executor: EffectExecutor<R>,

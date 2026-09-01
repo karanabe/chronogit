@@ -1,3 +1,5 @@
+//! The substitutable subprocess boundary and its bounded system implementation.
+
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::io::{self, Read};
@@ -16,6 +18,11 @@ const MAX_COMMAND_DURATION: Duration = Duration::from_secs(30);
 type ReaderResult = io::Result<(Vec<u8>, bool)>;
 type ReaderHandle = thread::JoinHandle<ReaderResult>;
 
+/// Captured status and bounded byte streams from one Git invocation.
+///
+/// Output is kept as bytes so machine-oriented parsers can preserve non-UTF-8
+/// repository paths. Truncation flags distinguish a complete stream from a
+/// prefix retained up to the runner limit.
 #[derive(Debug)]
 pub struct CommandOutput {
     success: bool,
@@ -44,62 +51,85 @@ impl CommandOutput {
         }
     }
 
+    /// Reports whether Git returned a successful exit status.
     #[must_use]
     pub fn success(&self) -> bool {
         self.success
     }
 
+    /// Returns the numeric exit code, or `None` when the process ended by signal.
     #[must_use]
     pub fn code(&self) -> Option<i32> {
         self.code
     }
 
+    /// Returns captured standard-output bytes.
     #[must_use]
     pub fn stdout(&self) -> &[u8] {
         &self.stdout
     }
 
+    /// Returns captured standard-error bytes.
     #[must_use]
     pub fn stderr(&self) -> &[u8] {
         &self.stderr
     }
 
+    /// Reports whether standard output crossed its configured byte limit.
     #[must_use]
     pub fn stdout_truncated(&self) -> bool {
         self.stdout_truncated
     }
 
+    /// Reports whether standard error crossed its configured byte limit.
     #[must_use]
     pub fn stderr_truncated(&self) -> bool {
         self.stderr_truncated
     }
 }
 
+/// A failure at the repository discovery, subprocess, or parsing boundary.
 #[derive(Debug)]
 pub enum GitError {
+    /// The operating system prevented a process or filesystem operation.
     Io {
+        /// Stable human-readable operation context.
         operation: &'static str,
+        /// Underlying operating-system error.
         source: io::Error,
     },
+    /// Git completed with an unsuccessful exit status.
     CommandFailed {
+        /// Stable human-readable operation context.
         operation: &'static str,
+        /// Numeric exit code, absent when the process ended by signal.
         code: Option<i32>,
+        /// Bounded, lossy-decoded standard-error text.
         stderr: String,
     },
+    /// Structured output exceeded its safe capture limit.
     OutputLimit {
+        /// Stable human-readable operation context.
         operation: &'static str,
     },
+    /// Git did not complete within the runner's duration limit.
     TimedOut {
+        /// Stable human-readable operation context.
         operation: &'static str,
     },
+    /// Complete machine output did not satisfy the expected grammar.
     Parse {
+        /// Name of the data format being decoded.
         context: &'static str,
+        /// Specific malformed-record detail.
         detail: String,
     },
+    /// Repository or platform state falls outside ChronoGit's support boundary.
     Unsupported(String),
 }
 
 impl GitError {
+    /// Constructs a machine-output parsing error with stable context.
     #[must_use]
     pub fn parse(context: &'static str, detail: impl Into<String>) -> Self {
         Self::Parse {
@@ -151,7 +181,17 @@ impl Error for GitError {
     }
 }
 
+/// Executes typed [`GitCommand`] values for a [`crate::git::GitService`].
+///
+/// The trait is the application's deliberate test and substitution boundary for
+/// slow, stateful subprocess I/O. Implementations must not reinterpret commands
+/// as mutating operations or concatenate repository paths into shell text.
 pub trait GitRunner: Send + Sync + 'static {
+    /// Executes one command, optionally within a discovered repository root.
+    ///
+    /// `root` is `None` during discovery and present for repository-local reads.
+    /// A successful `Result` preserves Git's exit status in [`CommandOutput`];
+    /// service methods decide which non-zero statuses have domain meaning.
     fn run(
         &self,
         root: Option<&RepositoryRoot>,
@@ -159,6 +199,11 @@ pub trait GitRunner: Send + Sync + 'static {
     ) -> Result<CommandOutput, GitError>;
 }
 
+/// Production runner that invokes `git` directly without a shell.
+///
+/// Standard output is limited to 8 MiB, standard error to 64 KiB, and duration
+/// to 30 seconds. Optional locks, prompts, pager, color, external diff, textconv,
+/// and fsmonitor execution are disabled for every command.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SystemGitRunner;
 

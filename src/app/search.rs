@@ -1,10 +1,16 @@
+//! Stateful forward and backward search within a loaded document.
+
+/// Direction used when finding and repeating in-document matches.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SearchDirection {
+    /// Search toward increasing line numbers, wrapping at the end.
     Forward,
+    /// Search toward decreasing line numbers, wrapping at the beginning.
     Backward,
 }
 
 impl SearchDirection {
+    /// Returns the Vim-style prompt character for this direction.
     #[must_use]
     pub fn prompt(self) -> char {
         match self {
@@ -13,6 +19,7 @@ impl SearchDirection {
         }
     }
 
+    /// Returns the opposite search direction.
     #[must_use]
     pub fn reversed(self) -> Self {
         match self {

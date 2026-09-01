@@ -1,3 +1,9 @@
+//! Translation from terminal key events to semantic application actions.
+//!
+//! Built-in Vim-oriented bindings can be selectively replaced by an optional
+//! keymap file. Multi-key sequences are resolved without ambiguous prefixes and
+//! expire after 750 milliseconds.
+
 mod config;
 
 use std::path::Path;
@@ -47,6 +53,11 @@ impl Binding {
     }
 }
 
+/// Stateful key-to-action translator with support for multi-key sequences.
+///
+/// `Ctrl-C` is reserved for [`Action::Quit`] regardless of configuration. While
+/// a search prompt is active, printable characters edit the query and pending
+/// normal-mode sequences are cleared.
 #[derive(Debug)]
 pub struct KeyMapper {
     bindings: Vec<Binding>,
@@ -55,6 +66,7 @@ pub struct KeyMapper {
 }
 
 impl KeyMapper {
+    /// Creates a mapper using all built-in bindings.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -64,6 +76,17 @@ impl KeyMapper {
         }
     }
 
+    /// Loads built-in bindings with optional validated overrides.
+    ///
+    /// An explicit `path` must exist. With `None`, the mapper tries
+    /// `$XDG_CONFIG_HOME/chronogit/keymap.conf` and then
+    /// `~/.config/chronogit/keymap.conf`; a missing implicit file falls back to
+    /// defaults.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KeyMapError`] when a selected file cannot be read, contains an
+    /// unknown action or key, or introduces duplicate or prefix-ambiguous keys.
     pub fn load(path: Option<&Path>) -> Result<Self, KeyMapError> {
         Ok(Self {
             bindings: config::load_bindings(path)?,
@@ -72,6 +95,11 @@ impl KeyMapper {
         })
     }
 
+    /// Consumes one key event and returns a completed semantic action.
+    ///
+    /// `None` means the key is either unbound or is a valid prefix awaiting the
+    /// next stroke. `search_input_active` switches printable keys to query-edit
+    /// actions while retaining the reserved quit and focus controls.
     pub fn map(&mut self, key: KeyEvent, search_input_active: bool) -> Option<Action> {
         if matches!(key.code, KeyCode::Char('c')) && key.modifiers.contains(KeyModifiers::CONTROL) {
             self.clear_pending();
