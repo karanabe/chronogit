@@ -47,7 +47,7 @@ chronogit [PATH] [--view changes|history|graph] [--keymap PATH]
 
 ### Read unstaged changes
 
-Start in Changes view with `chronogit`. The left pane contains tracked and untracked worktree changes. Select a file to see its `index → working tree` diff.
+Start in Changes view with `chronogit`. The left pane contains tracked and untracked worktree changes. Select a file to see its `index → working tree` diff. Recognized source files use syntax highlighting; additions and removals retain muted diff backgrounds without replacing token colors.
 
 Staged-only files are intentionally hidden. A file with both staged and unstaged edits shows only the unstaged part.
 
@@ -67,7 +67,7 @@ The active comparison is shown in both the diff pane title and the footer.
 - Press `b` to switch History to a three-row body layout: the same commit list, commit body, and changed files. Press `b` again to return to the diff layout.
 - Press `t` to switch between changed files and the selected commit's tree.
 - Press `Enter` to expand a directory or open a selected file in the floating diff. An unchanged tree file reports that it has no change in the selected commit.
-- In the floating diff, use `j` / `k` to move the highlighted current line down / up and `Ctrl-d` / `Ctrl-u` to move half a page. Navigation entered while the diff is loading is applied as soon as it appears. Use `/` for forward search, `?` for backward search, and `n` / `N` for the next / previous match. Search wraps at the ends; lowercase queries ignore case, while a query containing uppercase is case-sensitive. Press `Enter` again, `q`, or `Esc` to close the diff.
+- In the floating diff, use `j` / `k` to move the current-line marker down / up and `Ctrl-d` / `Ctrl-u` to move half a page. The marker stays in the gutter instead of recoloring the code row. Navigation entered while the diff is loading is applied as soon as it appears. Use `/` for forward search, `?` for backward search, and `n` / `N` for the next / previous match. Search wraps at the ends; lowercase queries ignore case, while a query containing uppercase is case-sensitive. Press `Enter` again, `q`, or `Esc` to close the diff.
 
 Symlinks and submodules are identified in the tree. ChronoGit does not enter a submodule repository.
 

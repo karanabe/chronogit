@@ -22,7 +22,7 @@ File-name search is smart-case: an all-lowercase query ignores case, while upper
 
 ## Compare current content with history
 
-The file view places up to 200 commits affecting the path in the upper pane and the current working-tree content in the lower pane. Symlinks, binary files, deleted paths, and submodules show a summary instead of following or decoding the target.
+The file view places up to 200 commits affecting the path in the upper pane and the syntax-highlighted current working-tree content in the lower pane. The current-line gutter marker does not replace token colors. Symlinks, binary files, deleted paths, and submodules show a summary instead of following or decoding the target.
 
 Move the history selection with `j` / `k`; after the selection changes, the lower pane shows that commit's diff against its first parent, or against the empty tree for a root commit. Use `h` / `l` to move between panes. Press `Enter` to open whichever current content or diff is shown in a large floating view. Press `q` or `Esc` once to close a floating view and again to return to the view where search began. While a search prompt is active, `q` and `Q` are query text; `Esc` cancels the prompt and `Ctrl-C` quits.
 

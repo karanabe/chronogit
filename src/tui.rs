@@ -7,6 +7,7 @@
 //! [`AppState`]: crate::app::AppState
 
 mod graph;
+mod highlight;
 pub mod keymap;
 pub mod render;
 pub mod terminal;

@@ -34,7 +34,9 @@ ChronoGit does not show an index-to-`HEAD` staged diff. Use ordinary Git tooling
 3. Use `j`, `k`, `Ctrl-d`, and `Ctrl-u` to scroll vertically.
 4. Use `zh` and `zl` to scroll long lines horizontally.
 
-Text patches include old and new line numbers and visually distinguish headers, hunks, additions, removals, context, and metadata. Binary changes appear as a summary instead of raw bytes.
+Text patches include old and new line numbers and visually distinguish headers, hunks, additions, removals, context, and metadata. Recognized source paths are syntax-highlighted with the embedded `syntect` and `two-face` grammar set. Muted green and red backgrounds distinguish additions and removals while preserving token colors. The current line selected with `j` / `k` uses a narrow gutter marker instead of a row background, so it does not cover the code colors. Binary changes appear as a summary instead of raw bytes.
+
+Syntax highlighting falls back to plain diff text for unrecognized files or unusually expensive inputs (more than 512 KiB, 10,000 lines, or 4 KiB on one line). Diff classification colors and navigation remain available in that fallback.
 
 At widths below 110 columns, only the focused pane is visible. Use `h` and `l` to move between the file list and diff. See [Navigation and layout](/guides/navigation/) for every key.
 

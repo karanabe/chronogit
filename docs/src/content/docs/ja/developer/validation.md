@@ -36,7 +36,7 @@ pnpm --dir docs build
 
 - domainとparserのunit testが、値の不変条件、バイト解析、行番号、不正出力を扱います。
 - reducerとeffectのtestが、Historyの全panel、浮動Graph詳細と戻る操作、live repository searchの入力、Search/Resultsフォーカスの往復と再検索、古い結果の拒否と要求集約、file history/current contentの遷移、全文message/content overlay、本文レイアウトの遷移/選択/scroll、pagination、tree展開、差分フロートのopen/scroll/検索/close遷移、差分読み込み中の移動入力、message読み込み、古い応答の拒否、差分要求の集約を扱います。
-- renderとkeyのtestが、loading、empty、failure、truncation、最小幅のHistoryレイアウト、Graphのlaneと詳細、repository searchのフォーカス案内と結果、file historyとcurrent content、message overlay、差分の現在行強調、差分全体のscroll、比較ラベル、既定/設定済みbinding、leader sequence、意味色、曖昧なキー設定の拒否を扱います。
+- renderとkeyのtestが、loading、empty、failure、truncation、最小幅のHistoryレイアウト、Graphのlaneと詳細、repository searchのフォーカス案内と結果、file historyとcurrent content、message overlay、ソースとdiff hunkのシンタックスハイライト、コードを邪魔しないガターマーカー移動、控えめな差分種別色、差分全体のscroll、比較ラベル、既定/設定済みbinding、leader sequence、曖昧なキー設定の拒否を扱います。
 - 一時リポジトリのintegration testが、root/merge commit、detached/unborn repository、linked worktree、staged-only/mixed change、file/fixed-text search、現在/過去のfile content、中間シンボリックリンクの拒否、conflict、rename、delete、type change、symlink、submodule、binary/oversized diff、非UTF-8/先頭dash pathを扱います。
 - CLI testが、help/version、非repository診断、Git未検出、権限エラー、非TTY拒否、ターミナル設定前の不正な明示keymap fileを扱います。
 - 読み取り専用integration checkが、Git service操作の前後で`HEAD`、porcelain status、worktree bytesを比較します。

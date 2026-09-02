@@ -16,8 +16,9 @@ use crate::app::{
     AppState, AppView, FocusedPane, HistoryPanel, LoadState, Overlay, RepositorySearchKind,
     VisibleTreeEntry,
 };
-use crate::domain::{DiffDocument, DiffLine, DiffLineKind, FileDocument, TreeKind};
+use crate::domain::{DiffDocument, DiffLine, DiffLineKind, DiffTarget, FileDocument, TreeKind};
 use crate::tui::graph::graph_prefixes;
+use crate::tui::highlight::{highlight_code, source_is_too_large};
 
 const MIN_WIDTH: u16 = 80;
 const MIN_HEIGHT: u16 = 24;
@@ -468,16 +469,20 @@ fn file_document_lines(document: &FileDocument, state: &AppState) -> Vec<Line<'s
     if let Some(message) = document.message() {
         return vec![current_file_line(plain(sanitize_inline(message)), 0, state)];
     }
+    let highlighted = source_spans(document.lines(), state.file_view.path.as_ref());
     let mut lines = document
         .lines()
         .iter()
         .enumerate()
         .map(|(index, line)| {
-            current_file_line(
-                Line::raw(format!("{:>6} {}", index + 1, sanitize_inline(line))),
-                index,
-                state,
-            )
+            let code = highlighted
+                .as_ref()
+                .and_then(|lines| lines.get(index))
+                .cloned()
+                .unwrap_or_else(|| vec![Span::raw(sanitize_inline(line))]);
+            let mut spans = vec![Span::styled(format!("{:>6} ", index + 1), gutter_style())];
+            spans.extend(code);
+            current_file_line(Line::from(spans), index, state)
         })
         .collect::<Vec<_>>();
     if document.is_truncated() {
@@ -500,15 +505,9 @@ fn file_document_lines(document: &FileDocument, state: &AppState) -> Vec<Line<'s
 }
 
 fn current_file_line(mut line: Line<'static>, index: usize, state: &AppState) -> Line<'static> {
-    if state.file_view.vertical == index
-        && (state.overlay == Overlay::FileContent || state.focus == FocusedPane::Diff)
-    {
-        line.style = line.style.patch(
-            Style::default()
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD),
-        );
-    }
+    let selected = state.file_view.vertical == index
+        && (state.overlay == Overlay::FileContent || state.focus == FocusedPane::Diff);
+    line.spans.insert(0, navigation_marker(selected));
     line
 }
 
@@ -520,11 +519,15 @@ fn diff_lines(document: &DiffDocument, state: &AppState) -> Vec<Line<'static>> {
             state,
         )];
     }
+    let mut highlighted = diff_source_spans(document, diff_target_path(state.diff.target.as_ref()));
     let mut lines = document
         .lines()
         .iter()
         .enumerate()
-        .map(|(index, line)| highlight_diff_line(diff_line(line), index, state))
+        .map(|(index, line)| {
+            let code = highlighted.get_mut(index).and_then(Option::take);
+            highlight_diff_line(diff_line(line, code), index, state)
+        })
         .collect::<Vec<_>>();
     if document.is_truncated() {
         let index = lines.len();
@@ -543,6 +546,9 @@ fn diff_lines(document: &DiffDocument, state: &AppState) -> Vec<Line<'static>> {
 }
 
 fn highlight_diff_line(mut line: Line<'static>, index: usize, state: &AppState) -> Line<'static> {
+    let selected = state.diff.vertical == index
+        && (state.overlay == Overlay::Diff || state.focus == FocusedPane::Diff);
+    line.spans.insert(0, navigation_marker(selected));
     if state.search.current_line() == Some(index) {
         line.style = line.style.patch(
             Style::default()
@@ -553,20 +559,10 @@ fn highlight_diff_line(mut line: Line<'static>, index: usize, state: &AppState) 
     } else if state.search.is_match(index) {
         line.style = line.style.add_modifier(Modifier::UNDERLINED);
     }
-    if state.search.current_line() != Some(index)
-        && state.diff.vertical == index
-        && (state.overlay == Overlay::Diff || state.focus == FocusedPane::Diff)
-    {
-        line.style = line.style.patch(
-            Style::default()
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD),
-        );
-    }
     line
 }
 
-fn diff_line(line: &DiffLine) -> Line<'static> {
+fn diff_line(line: &DiffLine, syntax_spans: Option<Vec<Span<'static>>>) -> Line<'static> {
     let old = line
         .old_line()
         .map(|value| value.value().to_string())
@@ -575,18 +571,167 @@ fn diff_line(line: &DiffLine) -> Line<'static> {
         .new_line()
         .map(|value| value.value().to_string())
         .unwrap_or_default();
-    let style = match line.kind() {
-        DiffLineKind::Added => Style::default().fg(Color::Green),
-        DiffLineKind::Removed => Style::default().fg(Color::Red),
-        DiffLineKind::Hunk => Style::default().fg(Color::Cyan),
-        DiffLineKind::Header => Style::default().fg(Color::Blue),
-        DiffLineKind::Meta => Style::default().fg(Color::Yellow),
-        DiffLineKind::Context => Style::default(),
+    let mut spans = vec![Span::styled(format!("{old:>5} {new:>5} "), gutter_style())];
+    let line_style = match line.kind() {
+        DiffLineKind::Added => {
+            let (marker, code) = split_diff_code(line);
+            spans.push(Span::styled(
+                marker,
+                Style::default()
+                    .fg(Color::Rgb(166, 227, 161))
+                    .add_modifier(Modifier::BOLD),
+            ));
+            spans.extend(syntax_spans.unwrap_or_else(|| vec![Span::raw(sanitize_inline(code))]));
+            Style::default().bg(Color::Rgb(33, 58, 43))
+        }
+        DiffLineKind::Removed => {
+            let (marker, code) = split_diff_code(line);
+            spans.push(Span::styled(
+                marker,
+                Style::default()
+                    .fg(Color::Rgb(243, 139, 168))
+                    .add_modifier(Modifier::BOLD),
+            ));
+            spans.extend(syntax_spans.unwrap_or_else(|| vec![Span::raw(sanitize_inline(code))]));
+            Style::default().bg(Color::Rgb(74, 34, 29))
+        }
+        DiffLineKind::Context => {
+            let (marker, code) = split_diff_code(line);
+            spans.push(Span::raw(marker));
+            spans.extend(syntax_spans.unwrap_or_else(|| vec![Span::raw(sanitize_inline(code))]));
+            Style::default()
+        }
+        DiffLineKind::Hunk => {
+            spans.push(Span::styled(
+                sanitize_inline(line.text()),
+                Style::default()
+                    .fg(Color::Rgb(137, 180, 250))
+                    .add_modifier(Modifier::BOLD),
+            ));
+            Style::default().bg(Color::Rgb(49, 50, 68))
+        }
+        DiffLineKind::Header => {
+            spans.push(Span::styled(
+                sanitize_inline(line.text()),
+                Style::default()
+                    .fg(Color::Rgb(137, 180, 250))
+                    .add_modifier(Modifier::BOLD),
+            ));
+            Style::default()
+        }
+        DiffLineKind::Meta => {
+            spans.push(Span::styled(
+                sanitize_inline(line.text()),
+                Style::default().fg(Color::Rgb(249, 226, 175)),
+            ));
+            Style::default()
+        }
     };
-    Line::styled(
-        format!("{old:>5} {new:>5} {}", sanitize_inline(line.text())),
-        style,
-    )
+    Line::from(spans).style(line_style)
+}
+
+fn source_spans(
+    lines: &[String],
+    path: Option<&crate::domain::RepoPath>,
+) -> Option<Vec<Vec<Span<'static>>>> {
+    let bytes = lines
+        .iter()
+        .fold(0usize, |total, line| total.saturating_add(line.len()));
+    if source_is_too_large(bytes, lines.len()) {
+        return None;
+    }
+    let mut source = String::with_capacity(bytes.saturating_add(lines.len()));
+    for line in lines {
+        source.push_str(&sanitize_inline(line));
+        source.push('\n');
+    }
+    highlight_code(&source, path).filter(|highlighted| highlighted.len() == lines.len())
+}
+
+fn diff_source_spans(
+    document: &DiffDocument,
+    path: Option<&crate::domain::RepoPath>,
+) -> Vec<Option<Vec<Span<'static>>>> {
+    let lines = document.lines();
+    let mut result = vec![None; lines.len()];
+    let bytes = lines.iter().fold(0usize, |total, line| {
+        total.saturating_add(diff_code_text(line).map_or(0, str::len))
+    });
+    let code_lines = lines
+        .iter()
+        .filter(|line| diff_code_text(line).is_some())
+        .count();
+    if source_is_too_large(bytes, code_lines) {
+        return result;
+    }
+
+    let mut start = 0;
+    while start < lines.len() {
+        while start < lines.len() && diff_code_text(&lines[start]).is_none() {
+            start += 1;
+        }
+        let mut end = start;
+        while end < lines.len() && diff_code_text(&lines[end]).is_some() {
+            end += 1;
+        }
+        if start == end {
+            continue;
+        }
+        let mut source = String::new();
+        for line in &lines[start..end] {
+            if let Some(code) = diff_code_text(line) {
+                source.push_str(&sanitize_inline(code));
+                source.push('\n');
+            }
+        }
+        if let Some(highlighted) = highlight_code(&source, path)
+            && highlighted.len() == end - start
+            && let Some(slots) = result.get_mut(start..end)
+        {
+            for (slot, spans) in slots.iter_mut().zip(highlighted) {
+                *slot = Some(spans);
+            }
+        }
+        start = end;
+    }
+    result
+}
+
+fn diff_code_text(line: &DiffLine) -> Option<&str> {
+    match line.kind() {
+        DiffLineKind::Added => Some(line.text().strip_prefix('+').unwrap_or(line.text())),
+        DiffLineKind::Removed => Some(line.text().strip_prefix('-').unwrap_or(line.text())),
+        DiffLineKind::Context => Some(line.text().strip_prefix(' ').unwrap_or(line.text())),
+        DiffLineKind::Header | DiffLineKind::Hunk | DiffLineKind::Meta => None,
+    }
+}
+
+fn split_diff_code(line: &DiffLine) -> (&'static str, &str) {
+    match line.kind() {
+        DiffLineKind::Added => ("+", line.text().strip_prefix('+').unwrap_or(line.text())),
+        DiffLineKind::Removed => ("-", line.text().strip_prefix('-').unwrap_or(line.text())),
+        DiffLineKind::Context => (" ", line.text().strip_prefix(' ').unwrap_or(line.text())),
+        DiffLineKind::Header | DiffLineKind::Hunk | DiffLineKind::Meta => ("", line.text()),
+    }
+}
+
+fn diff_target_path(target: Option<&DiffTarget>) -> Option<&crate::domain::RepoPath> {
+    match target {
+        Some(DiffTarget::Worktree { path, .. } | DiffTarget::Commit { path, .. }) => Some(path),
+        None => None,
+    }
+}
+
+fn navigation_marker(selected: bool) -> Span<'static> {
+    if selected {
+        Span::styled("▌", Style::default().fg(Color::Rgb(137, 180, 250)))
+    } else {
+        Span::raw(" ")
+    }
+}
+
+fn gutter_style() -> Style {
+    Style::default().fg(Color::Rgb(108, 112, 134))
 }
 
 fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
@@ -976,7 +1121,9 @@ mod tests {
     use ratatui::backend::TestBackend;
     use ratatui::style::Color;
 
-    use super::{diff_line, diff_lines, render, sanitize_inline, sanitize_multiline};
+    use super::{
+        diff_line, diff_lines, file_document_lines, render, sanitize_inline, sanitize_multiline,
+    };
     use crate::app::{
         Action, AppState, AppView, ErrorNotice, FocusedPane, LoadState, Overlay,
         RepositorySearchKind,
@@ -1177,22 +1324,78 @@ mod tests {
     }
 
     #[test]
-    fn assigns_distinct_semantic_colors_to_diff_lines() {
-        for (kind, expected) in [
-            (DiffLineKind::Added, Some(Color::Green)),
-            (DiffLineKind::Removed, Some(Color::Red)),
-            (DiffLineKind::Hunk, Some(Color::Cyan)),
-            (DiffLineKind::Header, Some(Color::Blue)),
-            (DiffLineKind::Meta, Some(Color::Yellow)),
-            (DiffLineKind::Context, None),
-        ] {
-            let line = diff_line(&DiffLine::new(kind, None, None, "fixture".to_owned()));
-            assert_eq!(line.style.fg, expected, "unexpected color for {kind:?}");
+    fn assigns_subtle_backgrounds_and_distinct_semantic_colors_to_diff_lines() {
+        let added = diff_line(
+            &DiffLine::new(DiffLineKind::Added, None, None, "+added".to_owned()),
+            None,
+        );
+        assert_eq!(added.style.bg, Some(Color::Rgb(33, 58, 43)));
+        assert!(added.spans.iter().any(|span| {
+            span.content == "+" && span.style.fg == Some(Color::Rgb(166, 227, 161))
+        }));
+
+        let removed = diff_line(
+            &DiffLine::new(DiffLineKind::Removed, None, None, "-removed".to_owned()),
+            None,
+        );
+        assert_eq!(removed.style.bg, Some(Color::Rgb(74, 34, 29)));
+        assert!(removed.spans.iter().any(|span| {
+            span.content == "-" && span.style.fg == Some(Color::Rgb(243, 139, 168))
+        }));
+
+        let hunk = diff_line(
+            &DiffLine::new(DiffLineKind::Hunk, None, None, "@@ -1 +1 @@".to_owned()),
+            None,
+        );
+        assert_eq!(hunk.style.bg, Some(Color::Rgb(49, 50, 68)));
+        assert_eq!(hunk.spans[1].style.fg, Some(Color::Rgb(137, 180, 250)));
+
+        for kind in [DiffLineKind::Header, DiffLineKind::Meta] {
+            let line = diff_line(
+                &DiffLine::new(kind, None, None, "metadata".to_owned()),
+                None,
+            );
+            assert!(line.spans[1].style.fg.is_some());
         }
+        let context = diff_line(
+            &DiffLine::new(DiffLineKind::Context, None, None, " context".to_owned()),
+            None,
+        );
+        assert_eq!(context.style.bg, None);
     }
 
     #[test]
-    fn highlights_the_diff_line_selected_by_j_and_k() {
+    fn syntax_highlights_code_inside_diff_hunks() {
+        let mut state = state();
+        state.diff.target = Some(DiffTarget::Worktree {
+            path: RepoPath::from_bytes(b"src/example.rs".to_vec())
+                .unwrap_or_else(|error| panic!("{error}")),
+            untracked: false,
+        });
+        let document = DiffDocument::Text {
+            lines: vec![
+                DiffLine::new(DiffLineKind::Hunk, None, None, "@@ -1 +1 @@".to_owned()),
+                DiffLine::new(
+                    DiffLineKind::Added,
+                    None,
+                    None,
+                    "+pub fn answer() -> u32 { 42 }".to_owned(),
+                ),
+            ],
+            bytes: 45,
+        };
+
+        let lines = diff_lines(&document, &state);
+        let colors = lines[1]
+            .spans
+            .iter()
+            .filter_map(|span| span.style.fg)
+            .collect::<std::collections::HashSet<_>>();
+        assert!(colors.len() > 3, "diff code should retain token colors");
+    }
+
+    #[test]
+    fn marks_the_diff_line_selected_by_j_and_k_without_recoloring_code() {
         let mut state = state();
         state.focus = FocusedPane::Diff;
         let document = DiffDocument::Text {
@@ -1205,17 +1408,48 @@ mod tests {
         state.diff.content = LoadState::Ready(document.clone());
 
         let initial = diff_lines(&document, &state);
-        assert_eq!(initial[0].style.bg, Some(Color::DarkGray));
+        assert_eq!(initial[0].spans[0].content, "▌");
+        assert_eq!(initial[0].style.bg, None);
+        assert!(initial[0].spans.iter().all(|span| span.style.bg.is_none()));
+        assert_eq!(initial[1].spans[0].content, " ");
         assert_eq!(initial[1].style.bg, None);
 
         let _none = state.handle_action(Action::MoveDown);
         let moved = diff_lines(&document, &state);
-        assert_eq!(moved[0].style.bg, None);
-        assert_eq!(moved[1].style.bg, Some(Color::DarkGray));
+        assert_eq!(moved[0].spans[0].content, " ");
+        assert_eq!(moved[1].spans[0].content, "▌");
+        assert_eq!(moved[1].style.bg, None);
 
         let _none = state.handle_action(Action::MoveUp);
         let returned = diff_lines(&document, &state);
-        assert_eq!(returned[0].style.bg, Some(Color::DarkGray));
+        assert_eq!(returned[0].spans[0].content, "▌");
+    }
+
+    #[test]
+    fn marks_the_selected_current_file_line_without_a_background_override() {
+        let mut state = state();
+        state.focus = FocusedPane::Diff;
+        state.file_view.path = Some(
+            RepoPath::from_bytes(b"src/example.rs".to_vec())
+                .unwrap_or_else(|error| panic!("{error}")),
+        );
+        let document = FileDocument::Text {
+            lines: vec![
+                "pub fn first() {}".to_owned(),
+                "pub fn second() {}".to_owned(),
+            ],
+            truncated: false,
+        };
+
+        let first = file_document_lines(&document, &state);
+        assert_eq!(first[0].spans[0].content, "▌");
+        assert!(first[0].spans.iter().all(|span| span.style.bg.is_none()));
+
+        state.file_view.vertical = 1;
+        let second = file_document_lines(&document, &state);
+        assert_eq!(second[0].spans[0].content, " ");
+        assert_eq!(second[1].spans[0].content, "▌");
+        assert!(second[1].spans.iter().all(|span| span.style.bg.is_none()));
     }
 
     #[test]

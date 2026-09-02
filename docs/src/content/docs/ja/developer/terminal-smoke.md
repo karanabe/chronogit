@@ -57,7 +57,7 @@ printf 'terminal accepts normal input after Q\n'
 3. root、normal、merge commitを訪れ、footerとdiff titleが状況に応じて`empty tree`、`parent`、`first parent`を示すことを確認します。
 4. commitペインにフォーカスした状態で`Enter`を押し、選択中commitの変更ファイルへ直接フォーカスが移ることを確認します。
 5. 変更されたtext/binary fileを選んで`Enter`を押し、大きなフロートでpatchまたはbinary summaryが開くことを確認します。`q`、`Esc`、`Enter`のそれぞれで閉じることを確認します。
-6. cacheされていない長いtext diffを開くと同時に`Ctrl-d`を押し、表示された直後に強調中の現在行が半ページ移動していることを確認します。`j` / `k`で強調が1行ずつ目に見えて移動し、`Ctrl-u`も遅延なく上へ移動することを確認します。
+6. 種別を判別できるソースファイルを開き、コードのトークンがシンタックスハイライトされ、追加・削除に控えめな緑・赤の背景が付き、現在行のガターマーカーがコードの色を塗り替えないことを確認します。cacheされていない長いtext diffを開くと同時に`Ctrl-d`を押し、表示された直後にマーカーが半ページ移動していることを確認します。`j` / `k`でマーカーが1行ずつ目に見えて移動し、`Ctrl-u`も遅延なく上へ移動することを確認します。
 7. 長いtext diffで`g` / `G`により先頭/末尾へ移動します。`/`で前方、`?`で後方検索し、`n` / `N`が強調された一致を折り返すことを確認します。
 8. `m`を押し、commit message全文のoverlayを`j` / `k`でscrollし、`m`、`q`、`Esc`のそれぞれで閉じることを確認します。
 9. `b`を押し、通常と同じcommit一覧、commit body、変更ファイルの3段を確認します。`Ctrl-j` / `Ctrl-k`でフォーカスを移し、上段のcommit変更時に残りの段が更新されることを確認し、bodyをscrollして下段ファイルのdiffを開きます。もう一度`b`を押して通常のHistoryへ戻ります。

@@ -9,6 +9,7 @@ All notable changes to ChronoGit are documented here.
 - Parent-lane Git graph view with commit messages, changed-file/diff details, and a full-diff overlay.
 - Global `Space f` file-path search and `Space g` fixed-text working-tree search with per-file history and current-content browsing.
 - Optional XDG or `--keymap` configuration with validated action names, key sequences, alternatives, and ambiguity checks.
+- Syntax highlighting for recognized source files and diff hunks using the embedded `syntect` and `two-face` grammar set.
 
 ### Changed
 
@@ -16,6 +17,7 @@ All notable changes to ChronoGit are documented here.
 - Repository file lists, content matches, file histories, and current file reads share the existing read-only, bounded asynchronous pipeline.
 - Repository searches now refresh after every query edit while stale asynchronous results remain ignored; `Ctrl-j` focuses Results and `Ctrl-k` returns to Search for another live query.
 - `q` and `Esc` now close or go back, while `Q` and Ctrl-C quit; Graph commit details now appear as a floating window over the graph.
+- Diff additions and removals now use muted, syntax-preserving backgrounds; `j` / `k` navigation uses a gutter marker instead of recoloring the selected code row.
 
 ### Fixed
 

@@ -28,6 +28,7 @@ futures-util = { version = "0.3.34", default-features = false, features = ["std"
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm_0_29"] }
 rustix = { version = "1.1.4", features = ["fs"] }
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
+two-face = { version = "0.5.2", default-features = false, features = ["syntect-onig"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
