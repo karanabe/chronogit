@@ -271,6 +271,19 @@ fn searches_files_and_content_and_reads_file_history_and_current_content() {
     repository.write("untracked-needle.txt", b"searchable needle in worktree\n");
 
     let service = repository.service();
+    let repository_files = service
+        .repository_files()
+        .unwrap_or_else(|error| panic!("could not list repository files: {error}"));
+    assert!(
+        repository_files
+            .iter()
+            .any(|path| path.display() == "src/needle.rs")
+    );
+    assert!(
+        repository_files
+            .iter()
+            .any(|path| path.display() == "untracked-needle.txt")
+    );
     let files = service
         .search_files("Needle")
         .unwrap_or_else(|error| panic!("could not search files: {error}"));

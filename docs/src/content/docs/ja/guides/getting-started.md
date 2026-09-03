@@ -9,7 +9,7 @@ sidebar:
   order: 1
 ---
 
-ChronoGitは、未ステージのワークツリー変更とコミット履歴を調べる読み取り専用のターミナルUIです。このガイドでは、Cargoでバージョン`0.2.0`をインストールし、リポジトリを変更せずに開きます。
+ChronoGitは、Gitの変更、履歴、ワークツリーのソースコードを調べる読み取り専用のターミナルUIです。このガイドでは、Cargoでインストールし、リポジトリを変更せずに開きます。
 
 :::note[配布状況]
 manifestはcrates.ioへ公開できる状態です。registryから`0.2.0`を取得できない間は、信頼できるチェックアウトからインストールしてください。
@@ -67,19 +67,21 @@ ChronoGitはGitにワークツリーのルートを問い合わせるため、�
 
 ## 最初のビューを選ぶ
 
-標準の**Changes**ビューは未ステージの作業を表示します。コミットから見たい場合は**History**または**Graph**で起動します。
+標準の**Changes**ビューは未ステージの作業を表示します。目的に合わせて**History**、**Graph**、ワークツリーの**Code** viewerから直接起動することもできます。
 
 ```sh title="ターミナル"
 chronogit /path/to/repository --view history
 chronogit /path/to/repository --view graph
+chronogit /path/to/repository --view code
 ```
 
-起動後も`1`でChanges、`2`でHistory、`3`でGraphへ移動できます。どのメインビューでも`Space f`でファイル、`Space g`でワークツリー文字列を検索できます。キー一覧は`F1`、閉じる/戻る操作は`q` / `Esc`、終了は`Q` / `Ctrl-C`です。
+起動後も`1`でChanges、`2`でHistory、`3`でGraph、`4`でCodeへ移動できます。最初の3つがGitワークフロー、Codeが独立したソース閲覧ワークフローです。どのメインビューでも`Space f`でファイル、`Space g`でワークツリー文字列を検索できます。キー一覧は`F1`、閉じる/戻る操作は`q` / `Esc`、終了は`Q` / `Ctrl-C`です。
 
 ## 次に読む
 
 - [未ステージの変更を調べる](/ja/guides/changes/)
 - [コミット履歴、メッセージ、ツリーをたどる](/ja/guides/history/)
+- [ワークツリーのソースコードを閲覧する](/ja/guides/code-viewer/)
 - [ファイル、内容、ファイル単位の履歴を検索する](/ja/guides/search/)
 - [キー操作と画面レイアウトを覚える](/ja/guides/navigation/)
 - [読み取り専用の保証とリソース上限を確認する](/ja/reference/safety-and-limits/)

@@ -53,7 +53,7 @@ flowchart LR
 - `GitCommand`は閉じた許可リストで、呼び出し側は任意の引数を渡せません。
 - `GitRunner`は唯一の差し替え用traitです。遅く状態を持つサブプロセスI/Oが実際のテスト境界であるためです。
 - `SystemGitRunner`はシェルなしで実行し、上限付きのバイト出力を取得し、任意のロック、プロンプト、pager、色、外部diff、textconv、fsmonitor実行を無効にします。
-- `GitService`は検出、status、履歴、メッセージ、変更ファイル、差分、ツリー子要素、ファイル/内容検索、ファイル単位履歴、上限付き現在内容というドメイン操作を提供します。現在ファイルは検出済みワークツリーのdescriptorから相対的に開き、すべてのパス要素でシンボリックリンクを拒否します。
+- `GitService`は検出、status、履歴、メッセージ、変更ファイル、差分、ツリー子要素、追跡済み/非ignoreパス一覧、ファイル/内容検索、ファイル単位履歴、上限付き現在内容というドメイン操作を提供します。現在ファイルは検出済みワークツリーのdescriptorから相対的に開き、すべてのパス要素でシンボリックリンクを拒否します。
 - `git::parse`はNUL区切りの機械出力とunified patchを解析します。
 
 リポジトリのobject formatをSHA-1と仮定しません。Gitが返した完全な16進object IDを保持します。
@@ -62,8 +62,8 @@ flowchart LR
 
 対話状態と遷移を所有します。
 
-- `AppView`、`FocusedPane`、`HistoryPanel`、`Overlay`が排他的なUI状態を表します。Changes、History/本文、Graph/詳細、ファイル履歴はview、リポジトリ検索、メッセージ全文、差分全文、現在ファイル内容はoverlayです。
-- `SearchState`は読み込み済み差分内の検索を所有します。`RepositorySearchState`はグローバルprompt、live query、結果、選択、戻り先viewを別に所有します。有効なpromptがSearchフォーカスを表し、Resultsへ移ってもクエリを保持するため、Searchへ戻して再編集できます。クエリ編集ごとに新しい型付きeffectを発行し、古い完了が新しい結果を置き換えないようRequestIdで防ぎます。`FileViewState`は選択パス、履歴/現在内容、下段が内容か履歴差分かを所有します。
+- `AppView`、`FocusedPane`、`HistoryPanel`、`Overlay`が排他的なUI状態を表します。Changes、History/本文、Graph/詳細、ファイル履歴、Codeはview、リポジトリ検索、メッセージ全文、差分全文、現在ファイル内容、Code全文はoverlayです。
+- `SearchState`は読み込み済み差分またはCode全文内の検索を所有します。`RepositorySearchState`はグローバルprompt、live query、結果、選択、戻り先viewを別に所有します。有効なpromptがSearchフォーカスを表し、Resultsへ移ってもクエリを保持するため、Searchへ戻して再編集できます。クエリ編集ごとに新しい型付きeffectを発行し、古い完了が新しい結果を置き換えないようRequestIdで防ぎます。`FileViewState`は検索結果の選択パス、履歴/現在内容、下段が内容か履歴差分かを所有します。`CodeViewState`は完全なパス集合、画面用ツリー、選択パス、上限付き内容、コード表示位置を所有します。
 - `LoadState<T>`はidle、request ID付きloading、ready、failedのいずれかです。
 - `Action`はユーザーの意図、`Event`は非同期完了、`GitEffect`は唯一のGit副作用記述です。
 - すべての要求に単調増加する`RequestId`を付けます。現在のリソースと選択コミットに一致する完了だけを適用します。
@@ -73,6 +73,8 @@ flowchart LR
 
 ツリーディレクトリはobject IDで展開します。読み込んだ子要素は選択コミットについてキャッシュし、画面用の平坦化ツリーは完全なリポジトリパスと深さを保持します。
 
+Codeツリーは別の方法を使います。Gitから追跡済み・非ignoreのワークツリーパスを一度取得し、`app::code_view`が展開されたdirectoryの直下だけを平坦な表示一覧へ投影します。directoryの展開/折り畳みでは追加のfilesystem走査やsubprocessを使いません。ファイル内容は引き続きdescriptor相対・link非追従のservice経路で読みます。
+
 ### `src/tui.rs`と`src/tui/`
 
 キー変換、ターミナルライフサイクル、レイアウト、描画、イベントループを所有します。
@@ -81,7 +83,7 @@ flowchart LR
 - `TerminalSession`がraw modeとalternate screenを有効化し、`Drop`でターミナル状態を復元します。
 - panic hookも、以前のhookへ引き渡す前に同じ復元を行います。
 - `tokio::select!`がターミナル入力、resize/tick、Ctrl-C、Git完了イベントを待ちます。
-- 通常のHistoryはコミット、変更ファイル/ツリー、差分を全幅の3段で描画し、本文レイアウトは同じコミット一覧、コミット本文、変更ファイルを描画します。Graphは読み込んだ親IDからクライアント側でレーンを描き、その上の中央ウィンドウへ詳細2段を描画します。ファイル履歴は2段のビューです。Changesは110列以上で2ペインを表示し、それ未満ではフォーカス中のペインが横幅を使います。
+- 通常のHistoryはコミット、変更ファイル/ツリー、差分を全幅の3段で描画し、本文レイアウトは同じコミット一覧、コミット本文、変更ファイルを描画します。Graphは読み込んだ親IDからクライアント側でレーンを描き、その上の中央ウィンドウへ詳細2段を描画します。ファイル履歴とCodeは2段のビューです。Changesは110列以上で2ペインを表示し、それ未満ではフォーカス中のペインが横幅を使います。
 - 80×24未満では安定したサイズ案内に置き換え、終了キーを使えるままにします。
 
 ## Git比較の契約
@@ -116,6 +118,12 @@ Git標準出力は8 MiB、標準エラーは64 KiB、コマンド時間は30秒�
 - bareリポジトリと非対話ターミナルは起動時に拒否すること。
 
 将来の機能は、この境界を迂回せずdomain variantと型付きcommand/effect経路を追加してください。
+
+## 将来の言語セマンティックナビゲーション
+
+定義、実装、型定義、宣言へのジャンプは、Git objectやsyntax highlightから信頼できる形では導出できません。将来のLanguage Server Protocol adapterで実現できます。transportとchild process lifecycleを`domain`の外へ置き、locationと要求結果をtyped valueにし、cancelと古いresponseの扱いを明示できるよう`Action -> GitEffect`と同様のapplication effect経路へ通します。
+
+adapterにはlanguageごとのserver検出/設定、document同期、position encodingの合意、現在位置の変換、1件または複数locationの正規化が必要です。リポジトリ外locationは拒否または明示確認します。server起動/終了、timeout、未対応language、multi-root workspace、表示中のファイル変更、定義なしをすべて可視の失敗状態として扱う必要があります。この一連のlifecycleを実装するまでは境界を追加せず、CodeをIDEではなく読み取り専用source viewerとして保ちます。
 
 ## 変更する場所
 

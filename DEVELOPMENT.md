@@ -1,7 +1,7 @@
 # Developer Guide
 
-ChronoGit is a single Rust binary for exploring worktree changes and commit
-history in a terminal. This guide explains the implementation layout and design
+ChronoGit is a single Rust binary for exploring Git changes, history, and
+working-tree source in a terminal. This guide explains the implementation layout and design
 boundaries for people changing the code. For contribution workflow, commit
 guidelines, and required checks, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
@@ -14,6 +14,7 @@ The current implementation covers the `0.2.0` scope described in
 - paged commit history with root and first-parent merge comparisons
 - parent-lane Git graph with changed-file/diff details
 - repository file/content search with per-file history and current content
+- expandable working-tree Code viewer with bounded full-file content
 - full commit messages, changed-file lists, and lazy commit trees
 - optional validated XDG or explicit keymap configuration
 - bounded, asynchronous Git reads through a typed command allowlist
@@ -26,7 +27,7 @@ The current implementation covers the `0.2.0` scope described in
 | --- | --- | --- |
 | [`src/domain.rs`](src/domain.rs) + [`src/domain/`](src/domain) | Domain model | Owns validated repository paths, object IDs, changes, commits, diffs, search hits, file documents, and tree entries without Git or terminal I/O. |
 | [`src/git.rs`](src/git.rs) + [`src/git/`](src/git) | Repository adapter | Owns the read-only Git command allowlist, bounded process/current-file reads, machine-output parsing, and domain-level repository operations. |
-| [`src/app.rs`](src/app.rs) + [`src/app/`](src/app) | Application state | Owns actions, events, effects, asynchronous load state, selection, caching, and stale-response rejection. |
+| [`src/app.rs`](src/app.rs) + [`src/app/`](src/app) | Application state | Owns actions, events, effects, asynchronous load state, Git and Code workflow selection, projected code-tree state, caching, and stale-response rejection. |
 | [`src/tui.rs`](src/tui.rs) + [`src/tui/`](src/tui) | Terminal presentation | Owns configurable key mapping, graph lanes, bounded syntax highlighting, terminal lifecycle, layout, rendering, and the interactive event loop. |
 | [`src/cli.rs`](src/cli.rs) | CLI boundary | Owns command-line parsing, repository discovery input, and startup validation. |
 | [`src/error.rs`](src/error.rs) | Top-level errors | Owns contextual application errors and source chaining. |

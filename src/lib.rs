@@ -1,6 +1,6 @@
 //! Reusable layers for the ChronoGit terminal application.
 //!
-//! ChronoGit is a read-only Git repository explorer. This crate exposes the
+//! ChronoGit is a read-only Git history and working-tree source explorer. This crate exposes the
 //! domain model, the bounded Git adapter, the application state machine, and
 //! the terminal presentation layer used by the `chronogit` binary.
 //!

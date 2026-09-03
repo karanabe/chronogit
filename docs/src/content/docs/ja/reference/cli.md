@@ -19,7 +19,7 @@ chronogit [OPTIONS] [PATH]
 | 入力 | デフォルト | 意味 |
 | --- | --- | --- |
 | `[PATH]` | `.` | リポジトリルートまたはその下のディレクトリ |
-| `--view changes\|history\|graph` | `changes` | 最初に開くビュー |
+| `--view changes\|history\|graph\|code` | `changes` | 最初に開くビュー |
 | `--keymap PATH` | 存在する場合はXDGパス | 明示するキーマップ設定ファイル |
 | `-h`, `--help` | — | ヘルプを出力して終了 |
 | `-V`, `--version` | — | バージョンを出力して終了 |
@@ -37,6 +37,9 @@ chronogit /srv/project --view history
 
 # Graphとプロジェクト固有キーマップで開く
 chronogit /srv/project --view graph --keymap ./keymap.conf
+
+# ワークツリーのソース閲覧から開始
+chronogit /srv/project --view code
 
 # ヘルプとバージョンには対話型TTYが不要
 chronogit --help

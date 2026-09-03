@@ -183,6 +183,7 @@ pub(super) fn default_bindings() -> Vec<Binding> {
         single(character('1'), Action::ShowChanges),
         single(character('2'), Action::ShowHistory),
         single(character('3'), Action::ShowGraph),
+        single(character('4'), Action::ShowCode),
         single(character('h'), Action::FocusLeft),
         single(control('k'), Action::FocusLeft),
         single(character('l'), Action::FocusRight),

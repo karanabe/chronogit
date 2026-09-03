@@ -13,8 +13,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 use crate::app::{
-    AppState, AppView, FocusedPane, HistoryPanel, LoadState, Overlay, RepositorySearchKind,
-    VisibleTreeEntry,
+    AppState, AppView, CodeEntryKind, FocusedPane, HistoryPanel, LoadState, Overlay,
+    RepositorySearchKind, VisibleCodeEntry, VisibleTreeEntry,
 };
 use crate::domain::{DiffDocument, DiffLine, DiffLineKind, DiffTarget, FileDocument, TreeKind};
 use crate::tui::graph::graph_prefixes;
@@ -113,7 +113,60 @@ fn render_main(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                 render_file_content(frame, rows[1], state, "Current working tree content");
             }
         }
+        AppView::Code => render_code_view(frame, area, state),
     }
+}
+
+fn render_code_view(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
+        .split(area);
+    render_code_tree(frame, rows[0], state);
+    render_code_content(frame, rows[1], state);
+}
+
+fn render_code_tree(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
+    let block = pane_block(
+        "Working tree [Enter: expand/open]",
+        state.focus == FocusedPane::Primary,
+    );
+    let lines = match &state.code_view.visible {
+        LoadState::Idle => vec![plain("Not loaded")],
+        LoadState::Loading { .. } => vec![plain("Loading files…")],
+        LoadState::Failed(error) => vec![error_line(error.message())],
+        LoadState::Ready(entries) if entries.is_empty() => vec![plain("No files.")],
+        LoadState::Ready(entries) => entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| {
+                code_tree_line(entry, state.code_view.selection.index() == Some(index))
+            })
+            .collect(),
+    };
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .scroll((list_scroll(state.code_view.selection.index(), area), 0)),
+        area,
+    );
+}
+
+fn code_tree_line(entry: &VisibleCodeEntry, selected: bool) -> Line<'static> {
+    let marker = match entry.kind() {
+        CodeEntryKind::Directory if entry.expanded() => "▾",
+        CodeEntryKind::Directory => "▸",
+        CodeEntryKind::File => "·",
+    };
+    selected_line(
+        selected,
+        format!(
+            "{}{} {}",
+            "  ".repeat(entry.depth()),
+            marker,
+            sanitize_inline(&entry.name().display())
+        ),
+    )
 }
 
 fn render_graph(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
@@ -465,11 +518,55 @@ fn render_file_content(frame: &mut Frame<'_>, area: Rect, state: &AppState, titl
     );
 }
 
+fn render_code_content(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
+    let path = state
+        .code_view
+        .path
+        .as_ref()
+        .map(|path| sanitize_inline(&path.display()))
+        .unwrap_or_else(|| "Code".to_owned());
+    let block = pane_block(&path, state.focus == FocusedPane::Diff);
+    let lines = match &state.code_view.content {
+        LoadState::Idle => vec![plain("Select a file to view its current content.")],
+        LoadState::Loading { .. } => vec![plain("Loading current content…")],
+        LoadState::Failed(error) => vec![error_line(error.message())],
+        LoadState::Ready(document) => code_document_lines(document, state),
+    };
+    let visible = usize::from(area.height.saturating_sub(2)).max(1);
+    let cursor = state.code_view.vertical.min(lines.len().saturating_sub(1));
+    let vertical = cursor
+        .saturating_sub(visible.saturating_sub(1))
+        .min(u16::MAX as usize) as u16;
+    let horizontal = state.code_view.horizontal.min(u16::MAX as usize) as u16;
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .scroll((vertical, horizontal)),
+        area,
+    );
+}
+
 fn file_document_lines(document: &FileDocument, state: &AppState) -> Vec<Line<'static>> {
+    document_lines(document, state.file_view.path.as_ref(), |line, index| {
+        current_file_line(line, index, state)
+    })
+}
+
+fn code_document_lines(document: &FileDocument, state: &AppState) -> Vec<Line<'static>> {
+    document_lines(document, state.code_view.path.as_ref(), |line, index| {
+        code_file_line(line, index, state)
+    })
+}
+
+fn document_lines(
+    document: &FileDocument,
+    path: Option<&crate::domain::RepoPath>,
+    mut decorate: impl FnMut(Line<'static>, usize) -> Line<'static>,
+) -> Vec<Line<'static>> {
     if let Some(message) = document.message() {
-        return vec![current_file_line(plain(sanitize_inline(message)), 0, state)];
+        return vec![decorate(plain(sanitize_inline(message)), 0)];
     }
-    let highlighted = source_spans(document.lines(), state.file_view.path.as_ref());
+    let highlighted = source_spans(document.lines(), path);
     let mut lines = document
         .lines()
         .iter()
@@ -482,12 +579,12 @@ fn file_document_lines(document: &FileDocument, state: &AppState) -> Vec<Line<'s
                 .unwrap_or_else(|| vec![Span::raw(sanitize_inline(line))]);
             let mut spans = vec![Span::styled(format!("{:>6} ", index + 1), gutter_style())];
             spans.extend(code);
-            current_file_line(Line::from(spans), index, state)
+            decorate(Line::from(spans), index)
         })
         .collect::<Vec<_>>();
     if document.is_truncated() {
         let index = lines.len();
-        lines.push(current_file_line(
+        lines.push(decorate(
             Line::styled(
                 "… file truncated at the safe output limit …",
                 Style::default()
@@ -495,13 +592,29 @@ fn file_document_lines(document: &FileDocument, state: &AppState) -> Vec<Line<'s
                     .add_modifier(Modifier::BOLD),
             ),
             index,
-            state,
         ));
     }
     if lines.is_empty() {
-        lines.push(current_file_line(plain("Empty file."), 0, state));
+        lines.push(decorate(plain("Empty file."), 0));
     }
     lines
+}
+
+fn code_file_line(mut line: Line<'static>, index: usize, state: &AppState) -> Line<'static> {
+    let selected = state.code_view.vertical == index
+        && (state.overlay == Overlay::CodeContent || state.focus == FocusedPane::Diff);
+    line.spans.insert(0, navigation_marker(selected));
+    if state.search.current_line() == Some(index) {
+        line.style = line.style.patch(
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
+    } else if state.search.is_match(index) {
+        line.style = line.style.add_modifier(Modifier::UNDERLINED);
+    }
+    line
 }
 
 fn current_file_line(mut line: Line<'static>, index: usize, state: &AppState) -> Line<'static> {
@@ -742,6 +855,7 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         AppView::Graph => "GRAPH",
         AppView::GraphDetails => "GRAPH DETAILS",
         AppView::FileHistory => "FILE HISTORY",
+        AppView::Code => "CODE",
     };
     let notice = state
         .notice
@@ -762,10 +876,14 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             "q/Esc back  h/l pane  j/k history  Enter full  Space f/g search  Q quit"
         }
         (AppView::FileHistory, false) => "q/Esc back  j/k history  Enter full  Q quit",
-        (_, true) => {
-            "1/2/3 view  h/l or ^j/^k pane  j/k move  Enter open  Space f/g search  r refresh  m message  F1 help  Q quit"
+        (AppView::Code, true) => {
+            "4 Code  h/l or ^j/^k pane  j/k move  Enter expand/full  Space f/g search  r refresh  Q quit"
         }
-        (_, false) => "1/2/3  Space f/g find  Enter open  Q quit",
+        (AppView::Code, false) => "h/l pane  j/k move  Enter  Space f/g  Q quit",
+        (_, true) => {
+            "1/2/3 Git  4 Code  h/l or ^j/^k pane  j/k move  Enter open  Space f/g search  r refresh  m message  F1 help  Q quit"
+        }
+        (_, false) => "1-3 Git  4 Code  Space f/g find  Q quit",
     };
     let root = if area.width >= 180 {
         format!(" | {}", sanitize_inline(&state.root.to_string()))
@@ -795,20 +913,20 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                 plain("ChronoGit keys"),
                 plain(""),
                 plain("1 / 2       Changes / History"),
-                plain("3           Git graph"),
+                plain("3 / 4       Git graph / Code viewer"),
                 plain("Space f/g   Search files / repository content"),
                 plain("h / l       Focus previous / next pane"),
                 plain("Ctrl-j / k  Focus next / previous pane"),
                 plain("j / k       Move or scroll"),
                 plain("g / G       First / last"),
                 plain("Ctrl-u/d    Half page up / down"),
-                plain("zh / zl     Diff horizontal scroll"),
+                plain("zh / zl     Diff/code horizontal scroll"),
                 plain("r           Refresh current view"),
                 plain("m           Toggle full commit message"),
                 plain("b           History diff / body layout"),
                 plain("t           Changed files / commit tree"),
                 plain("Enter       Open details/full view; close an opened view"),
-                plain("/ , ?       Search diff forward / backward"),
+                plain("/ , ?       Search full diff/code forward / backward"),
                 plain("n / N       Next / previous search match"),
                 plain("F1          Toggle this help"),
                 plain("q / Esc     Close or go back"),
@@ -855,6 +973,7 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         Overlay::Diff => render_diff_overlay(frame, area, state),
         Overlay::RepositorySearch => render_repository_search_overlay(frame, area, state),
         Overlay::FileContent => render_file_content_overlay(frame, area, state),
+        Overlay::CodeContent => render_code_content_overlay(frame, area, state),
     }
 }
 
@@ -942,6 +1061,60 @@ fn render_file_content_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppSta
     render_file_content(frame, popup, state, &format!("{path} [Enter/q/Esc: close]"));
 }
 
+fn render_code_content_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
+    let popup = Rect {
+        x: area.x.saturating_add(1),
+        y: area.y.saturating_add(1),
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(2),
+    };
+    frame.render_widget(Clear, popup);
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(popup);
+    let path = state
+        .code_view
+        .path
+        .as_ref()
+        .map(|path| sanitize_inline(&path.display()))
+        .unwrap_or_else(|| "Code".to_owned());
+    render_code_content_with_title(
+        frame,
+        sections[0],
+        state,
+        &format!("{path} [Enter/q/Esc: close]"),
+    );
+    render_search_bar(frame, sections[1], state);
+}
+
+fn render_code_content_with_title(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    state: &AppState,
+    title: &str,
+) {
+    let block = pane_block(title, true);
+    let lines = match &state.code_view.content {
+        LoadState::Idle => vec![plain("Select a file to view its current content.")],
+        LoadState::Loading { .. } => vec![plain("Loading current content…")],
+        LoadState::Failed(error) => vec![error_line(error.message())],
+        LoadState::Ready(document) => code_document_lines(document, state),
+    };
+    let visible = usize::from(area.height.saturating_sub(2)).max(1);
+    let cursor = state.code_view.vertical.min(lines.len().saturating_sub(1));
+    let vertical = cursor
+        .saturating_sub(visible.saturating_sub(1))
+        .min(u16::MAX as usize) as u16;
+    let horizontal = state.code_view.horizontal.min(u16::MAX as usize) as u16;
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .scroll((vertical, horizontal)),
+        area,
+    );
+}
+
 fn render_diff_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let popup = Rect {
         x: area.x.saturating_add(1),
@@ -1003,6 +1176,7 @@ fn selected_baseline(state: &AppState) -> Option<String> {
                 _ => None,
             };
         }
+        AppView::Code => return Some("current working tree file".to_owned()),
         AppView::History | AppView::CommitDetails | AppView::Graph | AppView::GraphDetails => {}
     }
     match (&state.commits, state.commit_selection.index()) {
@@ -1125,7 +1299,7 @@ mod tests {
         diff_line, diff_lines, file_document_lines, render, sanitize_inline, sanitize_multiline,
     };
     use crate::app::{
-        Action, AppState, AppView, ErrorNotice, FocusedPane, LoadState, Overlay,
+        Action, AppState, AppView, ErrorNotice, Event, FocusedPane, GitEffect, LoadState, Overlay,
         RepositorySearchKind,
     };
     use crate::domain::{
@@ -1157,6 +1331,48 @@ mod tests {
                 assert!(text.contains("Unstaged changes"));
             }
         }
+    }
+
+    #[test]
+    fn renders_code_tree_preview_and_full_content_overlay() {
+        let mut state = AppState::new(
+            RepositoryRoot::new(PathBuf::from("/tmp/repo"))
+                .unwrap_or_else(|error| panic!("{error}")),
+            AppView::Code,
+        );
+        let tree_request = match state.start().first() {
+            Some(GitEffect::LoadCodeTree { request_id }) => *request_id,
+            other => panic!("expected code-tree request, got {other:?}"),
+        };
+        let path = RepoPath::from_bytes(b"README.md".to_vec())
+            .unwrap_or_else(|error| panic!("invalid fixture path: {error}"));
+        let file_effects = state.handle_event(Event::CodeTreeLoaded {
+            request_id: tree_request,
+            result: Ok(vec![path.clone()]),
+        });
+        let file_request = match file_effects.first() {
+            Some(GitEffect::LoadCodeFile { request_id, .. }) => *request_id,
+            other => panic!("expected code-file request, got {other:?}"),
+        };
+        let _none = state.handle_event(Event::CodeFileLoaded {
+            request_id: file_request,
+            path,
+            result: Ok(FileDocument::Text {
+                lines: vec!["code viewer content".to_owned()],
+                truncated: false,
+            }),
+        });
+
+        let text = rendered_text(&state, 100, 30);
+        assert!(text.contains("Working tree"));
+        assert!(text.contains("README.md"));
+        assert!(text.contains("code viewer content"));
+
+        let _none = state.handle_action(Action::Activate);
+        assert_eq!(state.overlay, Overlay::CodeContent);
+        let overlay = rendered_text(&state, 100, 30);
+        assert!(overlay.contains("Enter/q/Esc: close"));
+        assert!(overlay.contains("forward search"));
     }
 
     #[test]

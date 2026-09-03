@@ -206,6 +206,7 @@ pub(super) fn action_for_name(name: &str) -> Option<Action> {
         "show_changes" => Some(Action::ShowChanges),
         "show_history" => Some(Action::ShowHistory),
         "show_graph" => Some(Action::ShowGraph),
+        "show_code" => Some(Action::ShowCode),
         "focus_previous" => Some(Action::FocusLeft),
         "focus_next" => Some(Action::FocusRight),
         "move_up" => Some(Action::MoveUp),
@@ -289,6 +290,10 @@ mod tests {
         assert_eq!(
             mapper.map(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE), false),
             Some(Action::ShowGraph)
+        );
+        assert_eq!(
+            mapper.map(KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE), false),
+            Some(Action::ShowCode)
         );
         assert_eq!(
             mapper.map(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), false),

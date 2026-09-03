@@ -17,20 +17,21 @@ ChronoGit is operated entirely from the keyboard. Press `F1` inside the applicat
 | --- | --- |
 | `q` / `Esc` | Close the current float or go back |
 | `Q` / `Ctrl-C` | Quit |
-| `1` / `2` / `3` | Open Changes / History / Graph |
+| `1` / `2` / `3` | Open the Git workflow's Changes / History / Graph views |
+| `4` | Open the working-tree Code viewer |
 | `Space f` / `Space g` | Search repository file names / working-tree content |
 | `h` / `l` | Focus the previous / next pane |
 | `Ctrl-k` / `Ctrl-j` | Focus the previous / next pane |
 | `j` / `k` or `↓` / `↑` | Move selection or scroll down / up |
 | `g` / `G` or `Home` / `End` | Move to the first / last item |
 | `Ctrl-d` / `Ctrl-u` | Move or scroll half a page down / up |
-| `zh` / `zl` | Scroll a diff left / right |
+| `zh` / `zl` | Scroll a diff or code document left / right |
 | `r` | Refresh the current view |
 | `m` | Toggle the complete commit-message overlay |
 | `b` | Toggle History's diff / body layout |
 | `t` | Toggle changed files / commit tree |
 | `Enter` | Confirm or open the selected item, or close a floating full view |
-| `/` / `?` | Search a floating diff forward / backward |
+| `/` / `?` | Search a floating diff or Code file forward / backward |
 | `n` / `N` | Go to the next / previous search match |
 | `F1` | Toggle the in-app help overlay |
 
@@ -38,7 +39,7 @@ The `zh`, `zl`, `Space f`, and `Space g` sequences must be completed within 750 
 
 ## Pane behavior
 
-Changes contains a file pane and a diff pane. Standard History stacks three full-width rows: commits, changed files/tree, and diff. Press `b` for the alternative History layout, which stacks the same interactive commit list, commit body, and changed files. Graph is a full-height parent-lane list; its two-row commit details float over that list. File search results use two rows for history above content or diff.
+Changes contains a file pane and a diff pane. Standard History stacks three full-width rows: commits, changed files/tree, and diff. Press `b` for the alternative History layout, which stacks the same interactive commit list, commit body, and changed files. Graph is a full-height parent-lane list; its two-row commit details float over that list. Code always stacks an expandable working-tree file tree above the selected file content. File search results outside Code use two rows for history above content or diff.
 
 - At 110 columns or wider, Changes shows its two panes together.
 - From 80 through 109 columns, Changes gives the available width to its focused pane. History retains its three-row layout.
@@ -49,7 +50,7 @@ The highlighted border identifies the focused pane. Selection and scrolling comm
 
 ## Overlays
 
-Help, Graph details, repository search, complete commit messages, current file content, and selected-file diffs open above the main panes. Press `m` again to close a message. Navigation keys scroll message, content, and diff overlays; `Enter` closes a full content or diff view with the same key that opened it. In repository search, `Enter` or `Ctrl-j` moves from Search to Results, while `Ctrl-k` returns to Search with the current query ready to edit. Outside text entry, `q` and `Esc` close the current float or return from a detail/file view. While a repository or diff-search prompt is active, `q` and `Q` are query text, `Esc` cancels input, and `Ctrl-C` quits; cancelling a repository-search prompt also closes that overlay. In a floating diff, `j` / `k` move the current-line gutter marker down / up and the viewport follows it without recoloring the code. `Ctrl-d` / `Ctrl-u` move it half a page, including when entered while the diff is still loading. `/` starts a forward search, and `?` a backward search. Type a query and press `Enter`; `n` / `N` move through highlighted matches with wraparound. Lowercase queries ignore case, while any uppercase character makes the query case-sensitive.
+Help, Graph details, repository search, complete commit messages, current file content, Code files, and selected-file diffs open above the main panes. Press `m` again to close a message. Navigation keys scroll message, content, and diff overlays; `Enter` closes a full content or diff view with the same key that opened it. In repository search, `Enter` or `Ctrl-j` moves from Search to Results, while `Ctrl-k` returns to Search with the current query ready to edit. Outside text entry, `q` and `Esc` close the current float or return from a detail/file view. While a repository, diff, or Code-search prompt is active, `q` and `Q` are query text, `Esc` cancels input, and `Ctrl-C` quits; cancelling a repository-search prompt also closes that overlay. In a floating diff or Code file, `j` / `k` move the current-line gutter marker down / up and the viewport follows it without recoloring the code. `Ctrl-d` / `Ctrl-u` move it half a page, including when entered while the document is still loading. `/` starts a forward search, and `?` a backward search. Type a query and press `Enter`; `n` / `N` move through highlighted matches with wraparound. Lowercase queries ignore case, while any uppercase character makes the query case-sensitive.
 
 ## Exit and terminal restoration
 

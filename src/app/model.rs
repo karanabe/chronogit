@@ -26,6 +26,8 @@ pub enum AppView {
     GraphDetails,
     /// History and current content for one repository path.
     FileHistory,
+    /// Expandable working-tree file tree and current source content.
+    Code,
 }
 
 /// The pane receiving navigation actions in the current view.
@@ -63,6 +65,8 @@ pub enum Overlay {
     RepositorySearch,
     /// A full-screen current working-tree file.
     FileContent,
+    /// A full-screen file opened from the code viewer.
+    CodeContent,
 }
 
 /// Repository-wide search mode.
@@ -322,6 +326,84 @@ pub(crate) struct FileViewState {
     pub(crate) return_view: AppView,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CodeEntryKind {
+    Directory,
+    File,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct VisibleCodeEntry {
+    path: RepoPath,
+    name: RepoPath,
+    depth: usize,
+    kind: CodeEntryKind,
+    expanded: bool,
+}
+
+impl VisibleCodeEntry {
+    pub(crate) fn new(path: RepoPath, name: RepoPath, depth: usize, kind: CodeEntryKind) -> Self {
+        Self {
+            path,
+            name,
+            depth,
+            kind,
+            expanded: false,
+        }
+    }
+
+    pub(crate) fn path(&self) -> &RepoPath {
+        &self.path
+    }
+
+    pub(crate) fn name(&self) -> &RepoPath {
+        &self.name
+    }
+
+    pub(crate) fn depth(&self) -> usize {
+        self.depth
+    }
+
+    pub(crate) fn kind(&self) -> CodeEntryKind {
+        self.kind
+    }
+
+    pub(crate) fn expanded(&self) -> bool {
+        self.expanded
+    }
+
+    pub(crate) fn set_expanded(&mut self, expanded: bool) {
+        self.expanded = expanded;
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct CodeViewState {
+    pub(crate) files: Vec<RepoPath>,
+    pub(crate) visible: LoadState<Vec<VisibleCodeEntry>>,
+    pub(crate) selection: Selection,
+    pub(crate) path: Option<RepoPath>,
+    pub(crate) content: LoadState<FileDocument>,
+    pub(crate) vertical: usize,
+    pub(crate) horizontal: usize,
+    pub(crate) pending_reveal: Option<RepoPath>,
+}
+
+impl CodeViewState {
+    fn new() -> Self {
+        Self {
+            files: Vec::new(),
+            visible: LoadState::Idle,
+            selection: Selection::new(),
+            path: None,
+            content: LoadState::Idle,
+            vertical: 0,
+            horizontal: 0,
+            pending_reveal: None,
+        }
+    }
+}
+
 impl FileViewState {
     fn new(view: AppView) -> Self {
         Self {
@@ -414,6 +496,7 @@ pub struct AppState {
     pub(crate) search: SearchState,
     pub(crate) repository_search: RepositorySearchState,
     pub(crate) file_view: FileViewState,
+    pub(crate) code_view: CodeViewState,
     pub(crate) notice: Option<ErrorNotice>,
     pub(crate) preferred_change: Option<RepoPath>,
     pub(crate) preferred_commit: Option<ObjectId>,
@@ -466,6 +549,7 @@ impl AppState {
             search: SearchState::new(),
             repository_search: RepositorySearchState::new(view),
             file_view: FileViewState::new(view),
+            code_view: CodeViewState::new(),
             notice: None,
             preferred_change: None,
             preferred_commit: None,
@@ -485,6 +569,7 @@ impl AppState {
                 self.request_commits(false)
             }
             AppView::FileHistory => Vec::new(),
+            AppView::Code => crate::app::code_view::request_tree(self),
         }
     }
 

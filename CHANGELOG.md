@@ -2,6 +2,14 @@
 
 All notable changes to ChronoGit are documented here.
 
+## Unreleased
+
+### Added
+
+- Working-tree Code viewer with a directory-first expandable tree of tracked and non-ignored untracked files, syntax-highlighted preview, full-screen content, and diff-style navigation and in-document search.
+- `4`, `--view code`, and the configurable `show_code` action for entering the Code workflow while preserving the existing Changes landing view.
+- Repository file/content search now returns directly to Code, reveals the selected tree path, and positions content searches at the matched line.
+
 ## 0.2.0
 
 ### Added

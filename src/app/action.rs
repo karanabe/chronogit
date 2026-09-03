@@ -21,6 +21,8 @@ pub enum Action {
     ShowHistory,
     /// Switch to the commit graph.
     ShowGraph,
+    /// Switch to the working-tree code viewer.
+    ShowCode,
     /// Move focus to the preceding pane or search input.
     FocusLeft,
     /// Move focus to the following pane or search results.
@@ -156,6 +158,22 @@ pub enum Event {
     },
     /// Completed a bounded current-file read.
     FileContentLoaded {
+        /// Identifier allocated when the request began.
+        request_id: RequestId,
+        /// Path that was selected when loading began.
+        path: RepoPath,
+        /// Typed file document or the filesystem/Git boundary error.
+        result: Result<FileDocument, GitError>,
+    },
+    /// Completed the working-tree file list used by the code viewer.
+    CodeTreeLoaded {
+        /// Identifier allocated when the request began.
+        request_id: RequestId,
+        /// Repository-relative file paths or the Git boundary error.
+        result: Result<Vec<RepoPath>, GitError>,
+    },
+    /// Completed a bounded code-viewer file read.
+    CodeFileLoaded {
         /// Identifier allocated when the request began.
         request_id: RequestId,
         /// Path that was selected when loading began.

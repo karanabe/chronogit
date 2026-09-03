@@ -53,7 +53,7 @@ Owns all communication with the installed Git executable.
 - `GitCommand` is a closed allowlist; callers cannot pass arbitrary arguments.
 - `GitRunner` is the only substitution trait because subprocess I/O is a real slow and stateful test boundary.
 - `SystemGitRunner` executes without a shell, captures bounded byte output, and disables optional locks, prompts, pager, color, external diff, textconv, and fsmonitor execution.
-- `GitService` exposes domain use cases: discovery, status, history, message, changed files, diff, tree children, file/content search, per-file history, and bounded current-file content. Current-file opens stay relative to the discovered worktree descriptor and reject symbolic links in every path component.
+- `GitService` exposes domain use cases: discovery, status, history, message, changed files, diff, tree children, tracked/non-ignored path listing, file/content search, per-file history, and bounded current-file content. Current-file opens stay relative to the discovered worktree descriptor and reject symbolic links in every path component.
 - `git::parse` modules decode NUL-delimited machine output and unified patches.
 
 The repository object format is not assumed to be SHA-1. ChronoGit retains complete hexadecimal IDs returned by Git.
@@ -62,8 +62,8 @@ The repository object format is not assumed to be SHA-1. ChronoGit retains compl
 
 Owns interactive state and transitions.
 
-- `AppView`, `FocusedPane`, `HistoryPanel`, and `Overlay` model mutually exclusive UI states. Changes, History/body, Graph/details, and file history are views; repository search, complete messages, full diffs, and current file content are overlays.
-- `SearchState` owns search inside a loaded diff. `RepositorySearchState` separately owns the global prompt, live query, results, selection, and return view. An active prompt represents Search focus; moving to Results retains the query so returning to Search can restore and edit it. Every query edit issues a new typed effect; request IDs prevent an older completion from replacing newer results. `FileViewState` owns the selected path, its history/current content, and whether the lower pane shows content or a historical diff.
+- `AppView`, `FocusedPane`, `HistoryPanel`, and `Overlay` model mutually exclusive UI states. Changes, History/body, Graph/details, file history, and Code are views; repository search, complete messages, full diffs, current file content, and full Code content are overlays.
+- `SearchState` owns search inside a loaded diff or full Code file. `RepositorySearchState` separately owns the global prompt, live query, results, selection, and return view. An active prompt represents Search focus; moving to Results retains the query so returning to Search can restore and edit it. Every query edit issues a new typed effect; request IDs prevent an older completion from replacing newer results. `FileViewState` owns the selected search-result path, its history/current content, and whether the lower pane shows content or a historical diff. `CodeViewState` owns the complete path set, projected visible tree, selected path, bounded content, and code viewport.
 - `LoadState<T>` is idle, loading with a request ID, ready, or failed.
 - `Action` represents user intent, `Event` an asynchronous completion, and `GitEffect` the only Git side-effect description.
 - Every request receives a monotonically increasing `RequestId`. A completion applies only if it still matches the current resource and selected commit.
@@ -73,6 +73,8 @@ Owns interactive state and transitions.
 
 Tree directories are expanded by object ID. Loaded children are cached for the selected commit; the flattened visible tree stores complete repository paths and depth.
 
+The Code tree is different: Git enumerates all tracked and non-ignored worktree paths once, and `app::code_view` projects only the direct children of each expanded directory into a flattened visible list. No additional filesystem traversal or subprocess is needed while expanding and collapsing directories. File content still uses the descriptor-relative, no-follow service path.
+
 ### `src/tui.rs` and `src/tui/`
 
 Owns key translation, terminal lifecycle, layout, rendering, and the event loop.
@@ -81,7 +83,7 @@ Owns key translation, terminal lifecycle, layout, rendering, and the event loop.
 - `TerminalSession` enables raw mode and the alternate screen and restores terminal state from `Drop`.
 - A panic hook performs the same restoration before forwarding to the previous hook.
 - `tokio::select!` waits for terminal input, resize/tick events, Ctrl-C, and Git completion events.
-- Standard History renders commits, changed files/tree, and diff as three full-width rows. Its body layout renders the same commit list, commit body, and changed files. Graph renders client-side lanes from loaded parent IDs; its two-row details are drawn in a centered window over the graph, while file history uses a two-row view. Changes renders both panes from 110 columns and gives the focused pane the full width below that threshold.
+- Standard History renders commits, changed files/tree, and diff as three full-width rows. Its body layout renders the same commit list, commit body, and changed files. Graph renders client-side lanes from loaded parent IDs; its two-row details are drawn in a centered window over the graph, while file history and Code use two-row views. Changes renders both panes from 110 columns and gives the focused pane the full width below that threshold.
 - Below 80×24, rendering becomes a stable size message and quit remains available.
 
 ## Git comparison contracts
@@ -116,6 +118,12 @@ No new effects are dispatched during exit. Dropping the Tokio runtime completes 
 - Reject bare repositories and non-interactive terminals during startup.
 
 Future features should add a domain variant and a typed command/effect path instead of bypassing these boundaries.
+
+## Future language-semantic navigation
+
+Definition, implementation, type-definition, and declaration jumps cannot be derived reliably from Git objects or syntax highlighting. They are feasible through a future Language Server Protocol adapter. Keep the transport and child-process lifecycle outside `domain`; represent locations and request outcomes as typed values, and route requests through `Action -> GitEffect`-style application effects so cancellation and stale responses remain explicit.
+
+The adapter must detect/configure a server per language, synchronize documents, negotiate position encoding, map the current source position, normalize one or multiple returned locations, and reject or explicitly confirm locations outside the repository. Server startup/shutdown, timeouts, unsupported languages, multi-root workspaces, files changed while open, and missing definitions all need visible failure states. This boundary is intentionally absent until that complete lifecycle can be implemented; Code is currently a read-only source viewer, not an IDE.
 
 ## Where to make a change
 

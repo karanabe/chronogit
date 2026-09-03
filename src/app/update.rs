@@ -35,6 +35,7 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
         Action::ShowChanges => switch_view(state, AppView::Changes),
         Action::ShowHistory => switch_view(state, AppView::History),
         Action::ShowGraph => switch_view(state, AppView::Graph),
+        Action::ShowCode => switch_view(state, AppView::Code),
         Action::FocusLeft => {
             state.focus = previous_pane(state.view, state.focus);
             Vec::new()
@@ -50,7 +51,9 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
         Action::HalfPageUp => move_half_page(state, -10),
         Action::HalfPageDown => move_half_page(state, 10),
         Action::ScrollLeft => {
-            if state.view == AppView::FileHistory && !state.file_view.showing_history_diff {
+            if state.view == AppView::Code {
+                state.code_view.horizontal = state.code_view.horizontal.saturating_sub(4);
+            } else if state.view == AppView::FileHistory && !state.file_view.showing_history_diff {
                 state.file_view.horizontal = state.file_view.horizontal.saturating_sub(4);
             } else {
                 state.diff.horizontal = state.diff.horizontal.saturating_sub(4);
@@ -58,7 +61,9 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
             Vec::new()
         }
         Action::ScrollRight => {
-            if state.view == AppView::FileHistory && !state.file_view.showing_history_diff {
+            if state.view == AppView::Code {
+                state.code_view.horizontal = state.code_view.horizontal.saturating_add(4);
+            } else if state.view == AppView::FileHistory && !state.file_view.showing_history_diff {
                 state.file_view.horizontal = state.file_view.horizontal.saturating_add(4);
             } else {
                 state.diff.horizontal = state.diff.horizontal.saturating_add(4);
@@ -272,6 +277,20 @@ pub(crate) fn apply_event(state: &mut AppState, event: Event) -> Vec<GitEffect> 
             state.file_view.vertical = state.file_view.vertical.min(file_content_last_line(state));
             Vec::new()
         }
+        Event::CodeTreeLoaded { request_id, result }
+            if state.code_view.visible.loading_request() == Some(request_id) =>
+        {
+            crate::app::code_view::tree_loaded(state, result)
+        }
+        Event::CodeFileLoaded {
+            request_id,
+            path,
+            result,
+        } if state.code_view.content.loading_request() == Some(request_id)
+            && state.code_view.path.as_ref() == Some(&path) =>
+        {
+            crate::app::code_view::file_loaded(state, result)
+        }
         _ => Vec::new(),
     }
 }
@@ -282,6 +301,7 @@ fn overlay_action(state: &mut AppState, action: Action) -> Vec<GitEffect> {
         Overlay::CommitMessage => message_overlay_action(state, action),
         Overlay::RepositorySearch => repository_search_overlay_action(state, action),
         Overlay::FileContent => file_content_overlay_action(state, action),
+        Overlay::CodeContent => crate::app::code_view::content_action(state, action),
         Overlay::Help => {
             if matches!(action, Action::CloseOverlay | Action::ToggleHelp) {
                 state.overlay = Overlay::None;
@@ -451,6 +471,8 @@ fn previous_pane(view: AppView, focus: FocusedPane) -> FocusedPane {
         (AppView::FileHistory, FocusedPane::Primary | FocusedPane::Secondary) => {
             FocusedPane::Primary
         }
+        (AppView::Code, FocusedPane::Diff) => FocusedPane::Primary,
+        (AppView::Code, FocusedPane::Primary | FocusedPane::Secondary) => FocusedPane::Primary,
     }
 }
 
@@ -465,6 +487,7 @@ fn next_pane(view: AppView, focus: FocusedPane) -> FocusedPane {
         (AppView::Graph, _) => FocusedPane::Primary,
         (AppView::GraphDetails, _) => FocusedPane::Diff,
         (AppView::FileHistory, _) => FocusedPane::Diff,
+        (AppView::Code, _) => FocusedPane::Diff,
     }
 }
 
@@ -478,11 +501,22 @@ fn switch_view(state: &mut AppState, view: AppView) -> Vec<GitEffect> {
         {
             state.request_commits(false)
         }
+        AppView::Code if matches!(state.code_view.visible, LoadState::Idle) => {
+            crate::app::code_view::request_tree(state)
+        }
         _ => Vec::new(),
     }
 }
 
 fn move_selection(state: &mut AppState, delta: isize) -> Vec<GitEffect> {
+    if state.view == AppView::Code {
+        return if state.focus == FocusedPane::Diff {
+            crate::app::code_view::move_content_cursor(state, delta);
+            Vec::new()
+        } else {
+            crate::app::code_view::move_selection(state, delta)
+        };
+    }
     if state.view == AppView::FileHistory && state.focus == FocusedPane::Diff {
         if state.file_view.showing_history_diff {
             move_diff_cursor(state, delta);
@@ -583,6 +617,18 @@ fn move_selection(state: &mut AppState, delta: isize) -> Vec<GitEffect> {
 }
 
 fn move_to_edge(state: &mut AppState, bottom: bool) -> Vec<GitEffect> {
+    if state.view == AppView::Code {
+        return if state.focus == FocusedPane::Diff {
+            state.code_view.vertical = if bottom {
+                crate::app::code_view::last_line(state)
+            } else {
+                0
+            };
+            Vec::new()
+        } else {
+            crate::app::code_view::move_to_edge(state, bottom)
+        };
+    }
     if state.view == AppView::FileHistory && state.focus == FocusedPane::Diff {
         if state.file_view.showing_history_diff {
             state.diff.vertical = if bottom { diff_last_line(state) } else { 0 };
@@ -667,7 +713,10 @@ fn edge(selection: &mut crate::app::model::Selection, len: usize, bottom: bool) 
 }
 
 fn move_half_page(state: &mut AppState, delta: isize) -> Vec<GitEffect> {
-    if state.view == AppView::CommitDetails && state.focus == FocusedPane::Secondary {
+    if state.view == AppView::Code && state.focus == FocusedPane::Diff {
+        crate::app::code_view::move_content_cursor(state, delta);
+        Vec::new()
+    } else if state.view == AppView::CommitDetails && state.focus == FocusedPane::Secondary {
         move_message_cursor(state, delta);
         Vec::new()
     } else if state.view == AppView::FileHistory && state.focus == FocusedPane::Diff {
@@ -709,6 +758,7 @@ fn refresh(state: &mut AppState) -> Vec<GitEffect> {
                 .map(|path| load_file_view(state, path))
                 .unwrap_or_default();
         }
+        AppView::Code => return crate::app::code_view::request_tree(state),
     }
     state.clear_cache();
     state.diff = crate::app::model::DiffViewState {
@@ -723,6 +773,7 @@ fn refresh(state: &mut AppState) -> Vec<GitEffect> {
             state.request_commits(false)
         }
         AppView::FileHistory => Vec::new(),
+        AppView::Code => crate::app::code_view::request_tree(state),
     }
 }
 
@@ -794,6 +845,14 @@ fn toggle_tree(state: &mut AppState) -> Vec<GitEffect> {
 }
 
 fn activate(state: &mut AppState) -> Vec<GitEffect> {
+    if state.view == AppView::Code {
+        return if state.focus == FocusedPane::Diff {
+            crate::app::code_view::open_content(state);
+            Vec::new()
+        } else {
+            crate::app::code_view::activate_tree(state)
+        };
+    }
     match (state.view, state.focus, state.history_panel) {
         (AppView::History, FocusedPane::Primary, _) => {
             state.history_panel = HistoryPanel::ChangedFiles;
@@ -1872,6 +1931,104 @@ mod tests {
         let confirm = apply_action(&mut state, Action::ConfirmSearch);
         assert!(confirm.is_empty());
         assert!(state.repository_search.prompt.is_none());
+    }
+
+    #[test]
+    fn code_view_expands_files_opens_full_content_and_keeps_search_in_the_workflow() {
+        let mut state = state();
+        let tree_effects = apply_action(&mut state, Action::ShowCode);
+        assert_eq!(state.view, AppView::Code);
+        let tree_request = match tree_effects.first() {
+            Some(GitEffect::LoadCodeTree { request_id }) => *request_id,
+            other => panic!("expected code-tree request, got {other:?}"),
+        };
+        let readme = RepoPath::from_bytes(b"README.md".to_vec())
+            .unwrap_or_else(|error| panic!("invalid fixture path: {error}"));
+        let source = RepoPath::from_bytes(b"src/lib.rs".to_vec())
+            .unwrap_or_else(|error| panic!("invalid fixture path: {error}"));
+        let preview = apply_event(
+            &mut state,
+            Event::CodeTreeLoaded {
+                request_id: tree_request,
+                result: Ok(vec![readme, source.clone()]),
+            },
+        );
+        assert!(preview.is_empty());
+        assert!(matches!(
+            &state.code_view.visible,
+            LoadState::Ready(entries)
+                if entries.len() == 2
+                    && entries[0].path().display() == "src"
+                    && entries[1].path().display() == "README.md"
+        ));
+
+        let _expanded = apply_action(&mut state, Action::Activate);
+        assert!(matches!(
+            &state.code_view.visible,
+            LoadState::Ready(entries) if entries.len() == 3 && entries[0].expanded()
+        ));
+        let file_effects = apply_action(&mut state, Action::MoveDown);
+        let file_request = match file_effects.first() {
+            Some(GitEffect::LoadCodeFile { request_id, path }) if path == &source => *request_id,
+            other => panic!("expected code-file request, got {other:?}"),
+        };
+        let _none = apply_event(
+            &mut state,
+            Event::CodeFileLoaded {
+                request_id: file_request,
+                path: source,
+                result: Ok(FileDocument::Text {
+                    lines: vec!["first".to_owned(), "searchable code".to_owned()],
+                    truncated: false,
+                }),
+            },
+        );
+        let _none = apply_action(&mut state, Action::FocusRight);
+        let _none = apply_action(&mut state, Action::Activate);
+        assert_eq!(state.overlay, Overlay::CodeContent);
+
+        let _none = apply_action(&mut state, Action::StartSearch(SearchDirection::Forward));
+        for character in "searchable".chars() {
+            let _none = apply_action(&mut state, Action::InsertSearch(character));
+        }
+        let _none = apply_action(&mut state, Action::ConfirmSearch);
+        assert_eq!(state.code_view.vertical, 1);
+        let _none = apply_action(&mut state, Action::CloseOverlay);
+        assert_eq!(state.overlay, Overlay::None);
+        assert_eq!(state.focus, FocusedPane::Diff);
+        let _none = apply_action(&mut state, Action::FocusLeft);
+        assert_eq!(state.focus, FocusedPane::Primary);
+        let _none = apply_action(&mut state, Action::FocusRight);
+        assert_eq!(state.focus, FocusedPane::Diff);
+
+        let _none = apply_action(&mut state, Action::OpenContentSearch);
+        let search = apply_action(&mut state, Action::InsertSearch('x'));
+        let search_request = match search.first() {
+            Some(GitEffect::SearchContent { request_id, .. }) => *request_id,
+            other => panic!("expected repository search, got {other:?}"),
+        };
+        let match_path = RepoPath::from_bytes(b"src/lib.rs".to_vec())
+            .unwrap_or_else(|error| panic!("invalid fixture path: {error}"));
+        let _none = apply_event(
+            &mut state,
+            Event::RepositorySearchLoaded {
+                request_id: search_request,
+                result: Ok(vec![SearchHit::content(
+                    match_path.clone(),
+                    2,
+                    "x".to_owned(),
+                )]),
+            },
+        );
+        let _none = apply_action(&mut state, Action::ConfirmSearch);
+        let opened = apply_action(&mut state, Action::Activate);
+        assert_eq!(state.view, AppView::Code);
+        assert_eq!(state.focus, FocusedPane::Diff);
+        assert_eq!(state.code_view.vertical, 1);
+        assert!(matches!(
+            opened.first(),
+            Some(GitEffect::LoadCodeFile { path, .. }) if path == &match_path
+        ));
     }
 
     fn commit(value: char, subject: &str) -> CommitSummary {

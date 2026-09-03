@@ -19,7 +19,7 @@ chronogit [OPTIONS] [PATH]
 | Input | Default | Meaning |
 | --- | --- | --- |
 | `[PATH]` | `.` | Repository root or any directory below it |
-| `--view changes\|history\|graph` | `changes` | View to open first |
+| `--view changes\|history\|graph\|code` | `changes` | View to open first |
 | `--keymap PATH` | XDG path when present | Explicit keymap configuration file |
 | `-h`, `--help` | — | Print help and exit |
 | `-V`, `--version` | — | Print the version and exit |
@@ -37,6 +37,9 @@ chronogit /srv/project --view history
 
 # Graph first with a project-specific keymap
 chronogit /srv/project --view graph --keymap ./keymap.conf
+
+# Working-tree source browser first
+chronogit /srv/project --view code
 
 # Help and version do not require an interactive TTY
 chronogit --help

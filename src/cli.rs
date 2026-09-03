@@ -6,7 +6,7 @@ use clap::{Parser, ValueEnum};
 
 use crate::app::AppView;
 
-/// A read-only terminal history and diff explorer.
+/// A read-only terminal Git history, diff, and source-code explorer.
 #[derive(Debug, Parser)]
 #[command(name = "chronogit", version, about)]
 pub struct Cli {
@@ -56,6 +56,8 @@ pub enum InitialView {
     History,
     /// Show commit parent lanes.
     Graph,
+    /// Browse the working-tree file tree and source code.
+    Code,
 }
 
 impl From<InitialView> for AppView {
@@ -64,6 +66,22 @@ impl From<InitialView> for AppView {
             InitialView::Changes => Self::Changes,
             InitialView::History => Self::History,
             InitialView::Graph => Self::Graph,
+            InitialView::Code => Self::Code,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::Cli;
+    use crate::app::AppView;
+
+    #[test]
+    fn parses_code_as_an_initial_view() {
+        let cli = Cli::try_parse_from(["chronogit", "--view", "code"])
+            .unwrap_or_else(|error| panic!("could not parse code view: {error}"));
+        assert_eq!(cli.initial_view(), AppView::Code);
     }
 }

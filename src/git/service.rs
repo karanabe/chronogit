@@ -148,12 +148,11 @@ impl<R: GitRunner> GitService<R> {
     /// Returns an error when Git cannot enumerate files, output crosses its
     /// limit, or the NUL-delimited path list is malformed.
     pub fn search_files(&self, query: &str) -> Result<Vec<SearchHit>, GitError> {
-        let output = self
-            .runner
-            .run(Some(&self.root), &GitCommand::RepositoryFiles)?;
-        ensure_complete(&output, "list repository files")?;
-        ensure_success(&output, "list repository files")?;
-        let mut files = parse_file_paths(output.stdout())?;
+        let mut files = self
+            .repository_files()?
+            .into_iter()
+            .map(SearchHit::file)
+            .collect::<Vec<_>>();
         let case_sensitive = query.chars().any(char::is_uppercase);
         let folded_query = (!case_sensitive).then(|| query.to_lowercase());
         files.retain(|hit| {
@@ -166,6 +165,29 @@ impl<R: GitRunner> GitService<R> {
             }
         });
         Ok(files)
+    }
+
+    /// Lists tracked and untracked working-tree file paths.
+    ///
+    /// Ignored files are omitted according to Git's standard exclude rules.
+    /// The result retains repository-relative path bytes on Unix and is used by
+    /// both file search and the code-viewer tree.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when Git cannot enumerate files, output crosses its
+    /// limit, or the NUL-delimited path list is malformed.
+    pub fn repository_files(&self) -> Result<Vec<RepoPath>, GitError> {
+        let output = self
+            .runner
+            .run(Some(&self.root), &GitCommand::RepositoryFiles)?;
+        ensure_complete(&output, "list repository files")?;
+        ensure_success(&output, "list repository files")?;
+        parse_file_paths(output.stdout()).map(|hits| {
+            hits.into_iter()
+                .map(|hit| hit.path().clone())
+                .collect::<Vec<_>>()
+        })
     }
 
     /// Searches non-binary working-tree contents for literal `query` text.

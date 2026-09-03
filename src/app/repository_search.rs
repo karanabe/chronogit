@@ -141,6 +141,11 @@ fn open_selected_file(state: &mut AppState) -> Vec<GitEffect> {
     let Some(hit) = hit else {
         return Vec::new();
     };
+    if state.repository_search.return_view == AppView::Code {
+        state.overlay = Overlay::None;
+        state.view = AppView::Code;
+        return crate::app::code_view::reveal_and_load(state, hit.path().clone(), hit.line());
+    }
     state.file_view.return_view = state.repository_search.return_view;
     state.file_view.vertical = hit.line().unwrap_or(1).saturating_sub(1) as usize;
     state.overlay = Overlay::None;

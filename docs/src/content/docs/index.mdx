@@ -1,6 +1,6 @@
 ---
 title: ChronoGit documentation
-description: Learn to inspect unstaged changes and commit history safely from a terminal.
+description: Learn to inspect Git history, diffs, and working-tree source safely from a terminal.
 tags:
   - chronogit
   - terminal
@@ -8,7 +8,7 @@ tags:
 template: splash
 hero:
   title: See what changed. Never change the repository.
-  tagline: ChronoGit keeps unstaged changes, commit history and graph, repository search, complete messages, and commit trees in one fast, Vim-oriented terminal interface.
+  tagline: ChronoGit keeps Git review and working-tree code browsing in one fast, read-only, Vim-oriented terminal interface.
   actions:
     - text: Get started
       link: /guides/getting-started/
@@ -32,7 +32,7 @@ import logo from '../../assets/ChronoGitLogo.png';
   <section class="landing-intro" aria-labelledby="landing-intro-title">
     <p class="landing-eyebrow">Read-only by design</p>
     <h2 id="landing-intro-title">Review a repository without leaving your terminal.</h2>
-    <p>Move from the working tree or repository search to a commit, its complete message, changed files, and tree without assembling several Git commands. ChronoGit only issues a closed set of read commands and never stages, restores, commits, or checks out.</p>
+    <p>Move from the working tree or repository search to source code, a commit, its complete message, changed files, and tree without assembling several Git commands. ChronoGit only issues a closed set of reads and never stages, restores, commits, or checks out.</p>
   </section>
 
   <div class="landing-principles" aria-label="ChronoGit capabilities">
@@ -48,8 +48,8 @@ import logo from '../../assets/ChronoGitLogo.png';
     </section>
     <section>
       <span aria-hidden="true">03</span>
-      <h3>Stay in control</h3>
-      <p>Use bounded Git reads, responsive layouts, and familiar Vim-oriented keys.</p>
+      <h3>Browse source safely</h3>
+      <p>Expand the working-tree hierarchy and read syntax-highlighted files with bounded, link-safe reads.</p>
     </section>
   </div>
 
@@ -64,6 +64,6 @@ import logo from '../../assets/ChronoGitLogo.png';
 $ chronogit /path/to/repository
 
 1 Changes  2 History  3 Graph
-Space f/g Search      Q Quit`}</code></pre>
+4 Code     Space f/g Search     Q Quit`}</code></pre>
   </section>
 </div>

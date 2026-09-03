@@ -99,6 +99,18 @@ pub enum GitEffect {
         /// Repository-relative path to read.
         path: RepoPath,
     },
+    /// Load the tracked and untracked paths used by the code-viewer tree.
+    LoadCodeTree {
+        /// Identifier used to reject an obsolete response.
+        request_id: RequestId,
+    },
+    /// Read bounded current content for the selected code-viewer file.
+    LoadCodeFile {
+        /// Identifier used to reject an obsolete response.
+        request_id: RequestId,
+        /// Repository-relative path to read.
+        path: RepoPath,
+    },
 }
 
 /// Runs [`GitEffect`] values without blocking the terminal event loop.
@@ -125,6 +137,8 @@ struct LatestRequests {
     repository_search: AtomicU64,
     file_history: AtomicU64,
     file_content: AtomicU64,
+    code_tree: AtomicU64,
+    code_file: AtomicU64,
 }
 
 impl<R> Clone for EffectExecutor<R> {
@@ -223,7 +237,9 @@ impl GitEffect {
             | Self::SearchFiles { request_id, .. }
             | Self::SearchContent { request_id, .. }
             | Self::LoadFileHistory { request_id, .. }
-            | Self::LoadFileContent { request_id, .. } => *request_id,
+            | Self::LoadFileContent { request_id, .. }
+            | Self::LoadCodeTree { request_id }
+            | Self::LoadCodeFile { request_id, .. } => *request_id,
         }
     }
 
@@ -238,6 +254,8 @@ impl GitEffect {
             Self::SearchFiles { .. } | Self::SearchContent { .. } => &latest.repository_search,
             Self::LoadFileHistory { .. } => &latest.file_history,
             Self::LoadFileContent { .. } => &latest.file_content,
+            Self::LoadCodeTree { .. } => &latest.code_tree,
+            Self::LoadCodeFile { .. } => &latest.code_file,
         }
     }
 
@@ -332,6 +350,19 @@ async fn execute<R: GitRunner>(service: Arc<GitService<R>>, effect: GitEffect) -
             let event_path = path.clone();
             let result = run_blocking(move || service.file_content(&path)).await;
             Event::FileContentLoaded {
+                request_id,
+                path: event_path,
+                result,
+            }
+        }
+        GitEffect::LoadCodeTree { request_id } => {
+            let result = run_blocking(move || service.repository_files()).await;
+            Event::CodeTreeLoaded { request_id, result }
+        }
+        GitEffect::LoadCodeFile { request_id, path } => {
+            let event_path = path.clone();
+            let result = run_blocking(move || service.file_content(&path)).await;
+            Event::CodeFileLoaded {
                 request_id,
                 path: event_path,
                 result,

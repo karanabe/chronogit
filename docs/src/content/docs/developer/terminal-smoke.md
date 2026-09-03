@@ -73,6 +73,16 @@ Confirm typed input echoes normally, the cursor is visible, mouse selection work
 5. Run `Space g`, type known text, confirm live results follow each edit and deletion, open a result, and confirm the matching current-content line is highlighted. Reopen the prompt, enter a query containing both `q` and uppercase `Q`, and confirm both are inserted and update results. Confirm `Esc` closes the prompt and `Ctrl-C` quits.
 6. Start once with the default XDG keymap and once with `--keymap` pointing to a valid custom binding. Confirm an invalid explicit file fails before the alternate screen opens.
 
+## Code workflow
+
+1. Press `4`, then confirm a tracked root file and a collapsed nested directory appear above the code pane. Repeat by starting with `--view code`.
+2. Move onto a file and confirm its current syntax-highlighted content loads below. Move rapidly between files and confirm the final content matches the final selection.
+3. Press `Enter` on a directory, expand at least two levels, then press it again and confirm all descendants collapse.
+4. Move between tree and code with both `h` / `l` and `Ctrl-k` / `Ctrl-j`. In the code pane use `j` / `k`, `g` / `G`, `Ctrl-u` / `Ctrl-d`, and `zh` / `zl`.
+5. Press `Enter` from both a tree file and the lower pane. Confirm the full Code window opens, `/` / `?` and `n` / `N` search with wraparound, and `Enter`, `q`, and `Esc` each return to Code.
+6. Run `Space f` and `Space g` from Code. Open a nested result and confirm Code returns directly, expands the path in the tree, and places the marker on the content-match line.
+7. Open a binary, symbolic link, deleted tracked path, and file larger than 8 MiB. Confirm each displays a safe summary or truncation marker and no symbolic-link target is read.
+
 ## Sign-off
 
 Do not mark a platform complete from automated tests alone.

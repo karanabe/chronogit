@@ -1,6 +1,6 @@
 ---
 title: ChronoGitドキュメント
-description: 端末から未ステージの変更とコミット履歴を安全に調べる方法を説明します。
+description: 端末からGit履歴、差分、ワークツリーのソースを安全に調べる方法を説明します。
 tags:
   - ChronoGit
   - ターミナル
@@ -8,7 +8,7 @@ tags:
 template: splash
 hero:
   title: リポジトリを変えずに、変更を見渡す。
-  tagline: 未ステージの変更、コミット履歴とGraph、リポジトリ検索、メッセージ全文、コミットツリーを、Vim指向の軽快なターミナルUIにまとめます。
+  tagline: Gitレビューとワークツリーのコード閲覧を、読み取り専用でVim指向の軽快なターミナルUIにまとめます。
   actions:
     - text: はじめる
       link: /ja/guides/getting-started/
@@ -32,7 +32,7 @@ import logo from '../../../assets/ChronoGitLogo.png';
   <section class="landing-intro" aria-labelledby="landing-intro-title">
     <p class="landing-eyebrow">設計から読み取り専用</p>
     <h2 id="landing-intro-title">ターミナルを離れずに、リポジトリをレビュー。</h2>
-    <p>ワークツリーやリポジトリ検索からコミット、メッセージ全文、変更ファイル、ツリーまでを、複数のGitコマンドを組み立てずにたどれます。ChronoGitが実行するのは閉じた一覧の読み取りコマンドだけで、ステージ、復元、コミット、チェックアウトは行いません。</p>
+    <p>ワークツリーやリポジトリ検索からソースコード、コミット、メッセージ全文、変更ファイル、ツリーまでを、複数のGitコマンドを組み立てずにたどれます。ChronoGitが行うのは読み取りだけで、ステージ、復元、コミット、チェックアウトは行いません。</p>
   </section>
 
   <div class="landing-principles" aria-label="ChronoGitでできること">
@@ -48,8 +48,8 @@ import logo from '../../../assets/ChronoGitLogo.png';
     </section>
     <section>
       <span aria-hidden="true">03</span>
-      <h3>制御を手元に保つ</h3>
-      <p>上限付きのGit読み取り、画面幅に追従するレイアウト、Vim指向のキー操作を備えます。</p>
+      <h3>ソースを安全に閲覧</h3>
+      <p>ワークツリー階層を展開し、上限付きでlinkをたどらない読み取りによりsyntax highlightされたファイルを確認できます。</p>
     </section>
   </div>
 
@@ -64,6 +64,6 @@ import logo from '../../../assets/ChronoGitLogo.png';
 $ chronogit /path/to/repository
 
 1 Changes  2 History  3 Graph
-Space f/g 検索        Q 終了`}</code></pre>
+4 Code     Space f/g 検索       Q 終了`}</code></pre>
   </section>
 </div>
