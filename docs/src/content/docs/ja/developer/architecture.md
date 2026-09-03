@@ -114,7 +114,7 @@ Git標準出力は8 MiB、標準エラーは64 KiB、コマンド時間は30秒�
 - リポジトリ設定からpager、diff、textconv、fsmonitorプログラムを起動させないこと。
 - 現在ファイルはdescriptorから相対的に読み、すべてのパス要素でシンボリックリンクを拒否すること。
 - 全読み取り操作の前後で`HEAD`、porcelain status、ワークツリーのバイト列を比較するintegration testを維持すること。
-- LinuxとmacOSが`0.2.0`のサポート境界です。Windows対応では未検証変換を加えず、Unixバイトパス境界を再設計すること。
+- LinuxとmacOSが`0.3.0`のサポート境界です。Windows対応では未検証変換を加えず、Unixバイトパス境界を再設計すること。
 - bareリポジトリと非対話ターミナルは起動時に拒否すること。
 
 将来の機能は、この境界を迂回せずdomain variantと型付きcommand/effect経路を追加してください。

@@ -44,7 +44,7 @@ pnpm --dir docs build
 
 ## 現在の変更の検証
 
-このrevisionでは、format、check、warningを拒否するClippy、全feature testが成功し、unit、binary、CLI、Git service、rustdocの計100 testに続いてlock済みrelease buildも成功しました。`cargo package --allow-dirty --locked`は48ファイルのcrate（457.3 KiB、圧縮後96.8 KiB）を生成・再buildしました。ドキュメントbuildも35ページを生成して成功しました。公開とpublish dry runはmaintainerが行う別の操作です。
+このrevisionでは、format、check、warningを拒否するClippy、全feature testが成功し、unit、binary、CLI、Git service、rustdocの計100 testに続いてlock済みrelease buildも成功しました。`cargo package --allow-dirty --locked`は48ファイルのcrate（457.4 KiB、圧縮後96.8 KiB）を生成・再buildしました。ドキュメントbuildも35ページを生成して成功しました。公開とpublish dry runはmaintainerが行う別の操作です。
 
 Code viewerは、このリポジトリに対する実Linux 80×24 PTYでも対象を絞って操作しました。追跡済み/非ignoreツリーを読み込み、`.github/workflows`をネスト展開し、`ci.yml`選択でsyntax highlightされた内容を読み込み、`Ctrl-j`でコードペインへ移動し、`Enter`で検索bar付きのCode全文ウィンドウを開き、`q`の後に`Q`でターミナルを復元しました。この確認はLinux/macOSの完全なsmoke checklistを置き換えません。
 

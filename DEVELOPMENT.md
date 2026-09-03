@@ -7,7 +7,7 @@ guidelines, and required checks, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Current Implementation Status
 
-The current implementation covers the `0.2.0` scope described in
+The current implementation covers the `0.3.0` scope described in
 [`README.md`](README.md):
 
 - unstaged tracked and untracked worktree changes

@@ -4,6 +4,8 @@ All notable changes to ChronoGit are documented here.
 
 ## Unreleased
 
+## 0.3.0
+
 ### Added
 
 - Working-tree Code viewer with a directory-first expandable tree of tracked and non-ignored untracked files, syntax-highlighted preview, full-screen content, and diff-style navigation and in-document search.

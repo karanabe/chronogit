@@ -51,9 +51,9 @@ When a text diff reaches the stdout limit, the process is stopped and the availa
 
 ## Supported environment
 
-Version `0.2.0` supports Linux and macOS, non-bare repositories, and interactive terminals. Unix path bytes are preserved internally; Windows is outside the current compatibility boundary.
+Version `0.3.0` supports Linux and macOS, non-bare repositories, and interactive terminals. Unix path bytes are preserved internally; Windows is outside the current compatibility boundary.
 
-## Non-goals in `0.2.0`
+## Non-goals in `0.3.0`
 
 ChronoGit does not provide:
 

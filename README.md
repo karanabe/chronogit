@@ -11,7 +11,7 @@ ChronoGit is a read-only terminal UI with two complementary workflows: Git histo
 
 ## Status
 
-ChronoGit is at `0.2.0`. Linux and macOS are supported. Windows, bare repositories, and non-interactive terminals are not supported yet.
+ChronoGit is at `0.3.0`. Linux and macOS are supported. Windows, bare repositories, and non-interactive terminals are not supported yet.
 
 The manifest is prepared to publish this release to crates.io. Publishing remains a separate maintainer action.
 

@@ -9,7 +9,7 @@ sidebar:
   order: 4
 ---
 
-この手順はChronoGit `0.2.0`のcrates.io packageを検証し、SHA-256 checksum付きのnative archiveを準備します。registryへの実際の公開は、maintainerが明示的に行う操作です。
+この手順はChronoGit `0.3.0`のcrates.io packageを検証し、SHA-256 checksum付きのnative archiveを準備します。registryへの実際の公開は、maintainerが明示的に行う操作です。
 
 ## リリースの前提条件
 
@@ -68,7 +68,7 @@ cargo publish --locked
 クリーンなチェックアウトで、必要に応じてtargetを置き換えて実行します。
 
 ```sh title="ターミナル"
-release_version=0.2.0
+release_version=0.3.0
 release_target=x86_64-unknown-linux-gnu
 release_name="chronogit-${release_version}-${release_target}"
 release_stage=$(mktemp -d)

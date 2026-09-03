@@ -9,7 +9,7 @@ sidebar:
   order: 4
 ---
 
-This procedure validates the ChronoGit `0.2.0` crates.io package and prepares native archives with SHA-256 checksums. The actual registry publish remains an explicit maintainer action.
+This procedure validates the ChronoGit `0.3.0` crates.io package and prepares native archives with SHA-256 checksums. The actual registry publish remains an explicit maintainer action.
 
 ## Release prerequisites
 
@@ -68,7 +68,7 @@ Build each archive on its target OS. Set one supported target label explicitly:
 From the clean checkout, replace the target value as needed:
 
 ```sh title="Terminal"
-release_version=0.2.0
+release_version=0.3.0
 release_target=x86_64-unknown-linux-gnu
 release_name="chronogit-${release_version}-${release_target}"
 release_stage=$(mktemp -d)

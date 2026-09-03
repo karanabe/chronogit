@@ -44,7 +44,7 @@ Focused Rust commands include `cargo test --lib`, `cargo test --test git_service
 
 ## Current change verification
 
-For this revision, format, check, Clippy with warnings denied, and all-feature tests passed with 100 tests across unit, binary, CLI, Git-service, and rustdoc targets, followed by the locked release build. `cargo package --allow-dirty --locked` produced and rebuilt a 48-file crate (457.3 KiB, 96.8 KiB compressed). The documentation build generated 35 pages successfully. Publication and a publish dry run remain separate maintainer actions.
+For this revision, format, check, Clippy with warnings denied, and all-feature tests passed with 100 tests across unit, binary, CLI, Git-service, and rustdoc targets, followed by the locked release build. `cargo package --allow-dirty --locked` produced and rebuilt a 48-file crate (457.4 KiB, 96.8 KiB compressed). The documentation build generated 35 pages successfully. Publication and a publish dry run remain separate maintainer actions.
 
 The Code viewer was also exercised against this repository in a real Linux 80×24 PTY. The tracked/non-ignored tree loaded, nested `.github/workflows` directories expanded, selecting `ci.yml` loaded syntax-highlighted content, `Ctrl-j` moved to the code pane, `Enter` opened the full Code window with its search bar, and `q` then `Q` restored the terminal. This focused run does not replace the complete Linux/macOS smoke checklist.
 

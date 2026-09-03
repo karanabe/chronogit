@@ -114,7 +114,7 @@ No new effects are dispatched during exit. Dropping the Tokio runtime completes 
 - Prevent repository configuration from launching pager, diff, textconv, or fsmonitor programs.
 - Keep current-file reads descriptor-relative and reject symbolic links in every path component.
 - Preserve integration tests that compare `HEAD`, porcelain status, and worktree bytes before and after every read operation.
-- Linux and macOS are the `0.2.0` support boundary. A Windows port must redesign the Unix byte-path boundary rather than adding unchecked conversion.
+- Linux and macOS are the `0.3.0` support boundary. A Windows port must redesign the Unix byte-path boundary rather than adding unchecked conversion.
 - Reject bare repositories and non-interactive terminals during startup.
 
 Future features should add a domain variant and a typed command/effect path instead of bypassing these boundaries.
