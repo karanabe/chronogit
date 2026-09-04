@@ -10,6 +10,7 @@ use chronogit::app::{AppState, EffectExecutor};
 use chronogit::cli::Cli;
 use chronogit::error::AppError;
 use chronogit::git::{GitService, SystemGitRunner};
+use chronogit::lsp::{LspConfig, LspManager};
 use chronogit::tui;
 use chronogit::tui::keymap::KeyMapper;
 
@@ -49,6 +50,7 @@ async fn run() -> Result<(), AppError> {
     let runner = SystemGitRunner;
     let service = Arc::new(GitService::discover(runner, cli.path())?);
     let keymap = KeyMapper::load(cli.keymap())?;
+    let lsp_config = LspConfig::load(cli.lsp_profiles(), cli.lsp_config())?;
 
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return Err(AppError::NonInteractiveTerminal);
@@ -56,7 +58,12 @@ async fn run() -> Result<(), AppError> {
 
     tui::terminal::install_panic_hook();
     let state = AppState::new(service.root().clone(), cli.initial_view());
-    let executor = EffectExecutor::new(service);
+    let executor = if lsp_config.is_disabled() {
+        EffectExecutor::new(service)
+    } else {
+        let manager = LspManager::new(service.root().clone(), lsp_config);
+        EffectExecutor::with_lsp(service, manager)
+    };
     tui::run(state, executor, keymap).await
 }
 

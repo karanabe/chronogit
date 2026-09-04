@@ -3,9 +3,10 @@
 use crate::app::{RequestId, SearchDirection, VisibleTreeEntry};
 use crate::domain::{
     ChangedFile, CommitMessage, CommitSummary, DiffDocument, FileDocument, ObjectId, RepoPath,
-    SearchHit, TreeEntry, WorktreeChange,
+    SearchHit, SemanticNavigationKind, SourcePosition, TreeEntry, WorktreeChange,
 };
 use crate::git::GitError;
+use crate::lsp::LspError;
 
 /// A semantic input handled by [`crate::app::AppState`].
 ///
@@ -43,6 +44,18 @@ pub enum Action {
     ScrollLeft,
     /// Scroll a diff horizontally to the right.
     ScrollRight,
+    /// Move the focused Code cursor left, or move to the preceding pane.
+    MoveCursorLeft,
+    /// Move the focused Code cursor right, or move to the following pane.
+    MoveCursorRight,
+    /// Open or close language-server hover information at the Code cursor.
+    ToggleLspHover,
+    /// Request one standard semantic target from the enabled language server.
+    GoToSemanticTarget(SemanticNavigationKind),
+    /// Return to the source location preceding the latest semantic jump.
+    GoBackFromSemanticTarget,
+    /// Revisit the semantic location most recently left by a backward jump.
+    GoForwardFromSemanticTarget,
     /// Reload data owned by the current view.
     Refresh,
     /// Open or close the selected commit's complete message.
@@ -180,5 +193,40 @@ pub enum Event {
         path: RepoPath,
         /// Typed file document or the filesystem/Git boundary error.
         result: Result<FileDocument, GitError>,
+    },
+    /// Completed the latest semantic navigation request.
+    SemanticNavigationCompleted {
+        /// Identifier allocated for the navigation intent.
+        request_id: RequestId,
+        /// Document selected when the request was sent.
+        path: RepoPath,
+        /// Cursor selected when the request was sent.
+        position: SourcePosition,
+        /// Code document generation selected when the request was sent.
+        document_revision: u64,
+        /// Requested standard navigation operation.
+        kind: SemanticNavigationKind,
+        /// Normalized repository or explicitly unsupported targets.
+        result: Result<Vec<crate::domain::NavigationTarget>, LspError>,
+    },
+    /// Completed the latest language-server hover request.
+    LspHoverCompleted {
+        /// Identifier allocated for the hover intent.
+        request_id: RequestId,
+        /// Document selected when the request was sent.
+        path: RepoPath,
+        /// Cursor selected when the request was sent.
+        position: SourcePosition,
+        /// Code document generation selected when the request was sent.
+        document_revision: u64,
+        /// Plain or Markdown-formatted hover text, when the server has any.
+        result: Result<Option<String>, LspError>,
+    },
+    /// Bounded status text from the server handling the current LSP request.
+    LspStatus {
+        /// LSP request for which the status is relevant.
+        request_id: RequestId,
+        /// Sanitized server progress or log text.
+        message: String,
     },
 }

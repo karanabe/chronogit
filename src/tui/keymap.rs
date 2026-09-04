@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::app::{Action, SearchDirection};
+use crate::app::{Action, SearchDirection, SemanticNavigationKind};
 
 pub use config::KeyMapError;
 
@@ -217,6 +217,23 @@ pub(super) fn action_for_name(name: &str) -> Option<Action> {
         "half_page_down" => Some(Action::HalfPageDown),
         "scroll_left" => Some(Action::ScrollLeft),
         "scroll_right" => Some(Action::ScrollRight),
+        "cursor_left" => Some(Action::MoveCursorLeft),
+        "cursor_right" => Some(Action::MoveCursorRight),
+        "lsp_hover" => Some(Action::ToggleLspHover),
+        "go_to_definition" => Some(Action::GoToSemanticTarget(
+            SemanticNavigationKind::Definition,
+        )),
+        "go_to_implementation" => Some(Action::GoToSemanticTarget(
+            SemanticNavigationKind::Implementation,
+        )),
+        "go_to_type_definition" => Some(Action::GoToSemanticTarget(
+            SemanticNavigationKind::TypeDefinition,
+        )),
+        "go_to_declaration" => Some(Action::GoToSemanticTarget(
+            SemanticNavigationKind::Declaration,
+        )),
+        "semantic_back" => Some(Action::GoBackFromSemanticTarget),
+        "semantic_forward" => Some(Action::GoForwardFromSemanticTarget),
         "refresh" => Some(Action::Refresh),
         "toggle_message" => Some(Action::ToggleMessage),
         "toggle_details" => Some(Action::ToggleDetails),
@@ -241,7 +258,7 @@ mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     use super::KeyMapper;
-    use crate::app::Action;
+    use crate::app::{Action, SemanticNavigationKind};
 
     #[test]
     fn maps_navigation_sequences_graph_and_global_search() {
@@ -280,6 +297,14 @@ mod tests {
             Some(Action::MoveDown)
         );
         assert_eq!(
+            mapper.map(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE), false),
+            Some(Action::MoveCursorLeft)
+        );
+        assert_eq!(
+            mapper.map(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE), false),
+            Some(Action::MoveCursorRight)
+        );
+        assert_eq!(
             mapper.map(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE), false),
             None
         );
@@ -302,6 +327,61 @@ mod tests {
         assert_eq!(
             mapper.map(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE), false),
             Some(Action::OpenFileSearch)
+        );
+        assert_eq!(
+            mapper.map(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE), false),
+            None
+        );
+        assert_eq!(
+            mapper.map(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE), false),
+            Some(Action::MoveTop)
+        );
+        for (suffix, kind) in [
+            ('d', SemanticNavigationKind::Definition),
+            ('i', SemanticNavigationKind::Implementation),
+            ('y', SemanticNavigationKind::TypeDefinition),
+            ('D', SemanticNavigationKind::Declaration),
+        ] {
+            assert_eq!(
+                mapper.map(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE), false),
+                None
+            );
+            assert_eq!(
+                mapper.map(
+                    KeyEvent::new(KeyCode::Char(suffix), KeyModifiers::NONE),
+                    false
+                ),
+                Some(Action::GoToSemanticTarget(kind))
+            );
+        }
+        assert_eq!(
+            mapper.map(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE), false),
+            Some(Action::MoveCursorRight)
+        );
+        assert_eq!(
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('K'), KeyModifiers::SHIFT),
+                false
+            ),
+            Some(Action::ToggleLspHover)
+        );
+        assert_eq!(
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL),
+                false
+            ),
+            Some(Action::GoBackFromSemanticTarget)
+        );
+        assert_eq!(
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('i'), KeyModifiers::CONTROL),
+                false
+            ),
+            Some(Action::GoForwardFromSemanticTarget)
+        );
+        assert_eq!(
+            mapper.map(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE), false),
+            Some(Action::GoForwardFromSemanticTarget)
         );
     }
 
@@ -354,7 +434,7 @@ mod tests {
         let path = directory.path().join("keymap.conf");
         fs::write(
             &path,
-            "[bindings]\nshow_graph = x\nfile_search = ctrl-p\ntoggle_tree = f\n",
+            "[bindings]\nshow_graph = x\nfile_search = ctrl-p\ntoggle_tree = f\nsemantic_forward = tab\n",
         )
         .unwrap_or_else(|error| panic!("could not write keymap: {error}"));
         let mut mapper = KeyMapper::load(Some(&path)).unwrap_or_else(|error| panic!("{error}"));
@@ -376,6 +456,18 @@ mod tests {
         assert_eq!(
             mapper.map(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE), false),
             Some(Action::ToggleTree)
+        );
+        assert_eq!(
+            mapper.map(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE), false),
+            Some(Action::GoForwardFromSemanticTarget)
+        );
+        assert_eq!(
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('i'), KeyModifiers::CONTROL),
+                false
+            ),
+            None,
+            "an explicit semantic_forward binding replaces its defaults"
         );
     }
 

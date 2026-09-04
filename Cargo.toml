@@ -1,6 +1,6 @@
 [package]
 name = "chronogit"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.88"
 description = "A read-only terminal UI for Git history, diffs, and source code"
@@ -27,11 +27,14 @@ crossterm = { version = "0.29.0", features = ["event-stream"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm_0_29"] }
 rustix = { version = "1.1.4", features = ["fs"] }
-tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
-two-face = { version = "0.5.2", default-features = false, features = ["syntect-onig"] }
-
-[dev-dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
 tempfile = "3.27.0"
+tokio = { version = "1.53.1", features = ["io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+toml = "0.9.8"
+two-face = { version = "0.5.2", default-features = false, features = ["syntect-onig"] }
+unicode-width = "0.2.2"
+url = "2.5.7"
 
 [profile.release]
 lto = "thin"

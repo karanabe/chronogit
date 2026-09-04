@@ -16,9 +16,12 @@ flowchart LR
     Terminal["crossterm events"] --> KeyMap
     KeyMap --> Update["AppState update"]
     Update --> State["typed state"]
-    Update --> Effect["GitEffect + RequestId"]
-    Effect --> Executor["bounded Tokio executor"]
+    Update --> Effect["AppEffect + RequestId"]
+    Effect --> Executor["bounded Tokio router"]
     Executor --> Service["GitService"]
+    Executor --> Manager["LspManager"]
+    Manager --> LSP["profile/workspace stdio session"]
+    LSP --> Event
     Service --> Runner["GitRunner"]
     Runner --> Git["allowlisted git process"]
     Service --> Event["typed completion Event"]
@@ -65,7 +68,8 @@ Owns interactive state and transitions.
 - `AppView`, `FocusedPane`, `HistoryPanel`, and `Overlay` model mutually exclusive UI states. Changes, History/body, Graph/details, file history, and Code are views; repository search, complete messages, full diffs, current file content, and full Code content are overlays.
 - `SearchState` owns search inside a loaded diff or full Code file. `RepositorySearchState` separately owns the global prompt, live query, results, selection, and return view. An active prompt represents Search focus; moving to Results retains the query so returning to Search can restore and edit it. Every query edit issues a new typed effect; request IDs prevent an older completion from replacing newer results. `FileViewState` owns the selected search-result path, its history/current content, and whether the lower pane shows content or a historical diff. `CodeViewState` owns the complete path set, projected visible tree, selected path, bounded content, and code viewport.
 - `LoadState<T>` is idle, loading with a request ID, ready, or failed.
-- `Action` represents user intent, `Event` an asynchronous completion, and `GitEffect` the only Git side-effect description.
+- `Action` represents user intent, `Event` an asynchronous completion, and `GitEffect` a closed Git side-effect description.
+- `AppEffect` routes existing `GitEffect` values and persistent `LspEffect` values without mixing their lifecycle policies. `SemanticNavigationState` owns candidates, request identity, and a bounded bidirectional jump history; `LspHoverState` owns the hover request, return overlay, and scroll offset.
 - Every request receives a monotonically increasing `RequestId`. A completion applies only if it still matches the current resource and selected commit.
 - Diff requests have a 75 ms debounce, live repository searches have a 100 ms debounce, and at most two Git tasks run concurrently.
 - The diff cache keeps at most 16 entries and 16 MiB. Refresh clears it.
@@ -82,7 +86,8 @@ Owns key translation, terminal lifecycle, layout, rendering, and the event loop.
 - `KeyMapper` converts Vim-oriented key events to actions through built-in or XDG/`--keymap` bindings. The parser accepts only named actions and keys, rejects ambiguous prefixes, and uses a 750 ms sequence timeout. Ctrl-C remains reserved for safe exit.
 - `TerminalSession` enables raw mode and the alternate screen and restores terminal state from `Drop`.
 - A panic hook performs the same restoration before forwarding to the previous hook.
-- `tokio::select!` waits for terminal input, resize/tick events, Ctrl-C, and Git completion events.
+- `tokio::select!` waits for terminal input, resize/tick events, Ctrl-C, and typed asynchronous completion events.
+- The same event channel carries Git and LSP completions. Normal TUI exit restores the terminal before awaiting bounded LSP shutdown.
 - Standard History renders commits, changed files/tree, and diff as three full-width rows. Its body layout renders the same commit list, commit body, and changed files. Graph renders client-side lanes from loaded parent IDs; its two-row details are drawn in a centered window over the graph, while file history and Code use two-row views. Changes renders both panes from 110 columns and gives the focused pane the full width below that threshold.
 - Below 80×24, rendering becomes a stable size message and quit remains available.
 
@@ -114,16 +119,22 @@ No new effects are dispatched during exit. Dropping the Tokio runtime completes 
 - Prevent repository configuration from launching pager, diff, textconv, or fsmonitor programs.
 - Keep current-file reads descriptor-relative and reject symbolic links in every path component.
 - Preserve integration tests that compare `HEAD`, porcelain status, and worktree bytes before and after every read operation.
-- Linux and macOS are the `0.3.0` support boundary. A Windows port must redesign the Unix byte-path boundary rather than adding unchecked conversion.
+- Linux and macOS are the `0.4.0` support boundary. A Windows port must redesign the Unix byte-path boundary rather than adding unchecked conversion.
 - Reject bare repositories and non-interactive terminals during startup.
 
 Future features should add a domain variant and a typed command/effect path instead of bypassing these boundaries.
 
-## Future language-semantic navigation
+## Language-semantic navigation
 
-Definition, implementation, type-definition, and declaration jumps cannot be derived reliably from Git objects or syntax highlighting. They are feasible through a future Language Server Protocol adapter. Keep the transport and child-process lifecycle outside `domain`; represent locations and request outcomes as typed values, and route requests through `Action -> GitEffect`-style application effects so cancellation and stale responses remain explicit.
+`src/lsp.rs` and `src/lsp/` implement one generic LSP 3.17 client boundary. `config` owns trusted user profiles and extension/root-marker routing; `protocol` owns bounded `Content-Length` JSON-RPC framing; `position` converts ChronoGit UTF-8 byte columns to negotiated UTF-8/16/32 code units; `session` owns initialize, document synchronization, navigation/hover requests, cancellation, server requests, shutdown, and child cleanup; `manager` owns profile/workspace sessions and LRU eviction.
 
-The adapter must detect/configure a server per language, synchronize documents, negotiate position encoding, map the current source position, normalize one or multiple returned locations, and reject or explicitly confirm locations outside the repository. Server startup/shutdown, timeouts, unsupported languages, multi-root workspaces, files changed while open, and missing definitions all need visible failure states. This boundary is intentionally absent until that complete lifecycle can be implemented; Code is currently a read-only source viewer, not an IDE.
+LSP intentionally remains a module in the existing `chronogit` crate, not a new crate. Its processes share the application's startup/shutdown lifecycle, its only current consumer is the app effect executor, and it uses the same Tokio/serde/url dependencies already needed by the binary. A separate crate would add a manifest, release/API surface, and conversion layer without creating independent reuse or dependency isolation. Reconsider extraction only if another binary/library becomes a real consumer or Cargo-level dependency isolation becomes necessary.
+
+The app never branches on Rust, Java, or Python. A selected extension resolves to exactly one explicitly enabled `ServerProfile`; the nearest root marker determines a workspace, and `(profile ID, workspace root)` is the session key. Built-ins for rust-analyzer, JDT LS, Pyright, basedpyright, and pylsp are ordinary profile data. User-level TOML can add another language without implementing another transport. Multiple enabled profiles claiming one extension are rejected at request time rather than ordered implicitly.
+
+Each session negotiates capabilities and position encoding, keeps one exact open document, uses full-content `didChange` after a refresh, and closes the preceding document when switching. Navigation and `textDocument/hover` use the same synchronized position request path; standard hover content shapes are normalized to bounded display text before reaching the app. The connection has independent reader and writer tasks so notifications and server-to-client requests cannot deadlock a response. Standard log/progress notifications become one bounded footer status. Only `workspace/configuration` and work-progress creation are answered; unadvertised requests receive JSON-RPC method-not-found. A newer LSP intent sends `$/cancelRequest`, while the reducer independently rejects stale request ID/path/cursor completions.
+
+Wire `Location` and `LocationLink` values normalize behind the adapter. Repository `file:` results are converted to `RepoPath`, then their wire columns are converted using content read by `GitService`, preserving the no-follow boundary. Non-file, `jdt:`, malformed, and repository-external URIs become display-only targets. At most four sessions and one 8 MiB synchronized document per session are retained. A fifth session shuts down the least recently used one. Normal shutdown sends `shutdown`, waits, sends `exit`, then kills a child that exceeds the grace period; `kill_on_drop` is the final cleanup invariant.
 
 ## Where to make a change
 
@@ -131,8 +142,9 @@ The adapter must detect/configure a server per language, synchronize documents, 
 | --- | --- | --- |
 | Domain invariant or value type | `src/domain` | Parsers, app state, integration fixtures |
 | Git operation | `src/git/command.rs`, `runner.rs`, `service.rs` | Read-only policy, output bounds, parser tests |
+| LSP profile/protocol/session | `src/lsp/config.rs`, `protocol.rs`, `session.rs`, `manager.rs` | Trust boundary, framing bounds, capability/position tests, cleanup |
 | Async loading or selection | `src/app/model.rs`, `update.rs`, `effect.rs` | Request IDs, stale responses, cache bounds |
 | Key or interaction | `src/tui/keymap.rs`, `keymap/config.rs` | Example config, reducer behavior, help/footer text, docs |
 | Layout or terminal lifecycle | `src/tui/render.rs`, `tui/terminal.rs`, `src/tui.rs` | Minimum sizes, PTY smoke checks, restoration |
 
-Read the implementation and the nearest tests before changing any invariant. The [validation guide](/developer/validation/) explains the required verification layers.
+Read the implementation and the nearest tests before changing any invariant. Contribution checks belong in `CONTRIBUTING.md`; release-only checks belong in the [release procedure](/developer/release/).

@@ -20,7 +20,7 @@ History displays commits, changed files/tree, and the diff preview as three full
 1. Select a commit in the top row with `j` and `k`.
 2. Press `Enter` to confirm the commit and focus Changed files. You can also move there with `l` or `Ctrl-j`.
 3. Press `Enter` to open the complete patch in a large floating diff.
-4. Move the current-line gutter marker with `j` / `k`, `Ctrl-d` / `Ctrl-u`, and `g` / `G`; the viewport follows it without recoloring syntax-highlighted code. These keys also take effect when entered while the diff is loading. Use `/` or `?` to search forward or backward, then `n` / `N` to move between matches.
+4. Move the current-line gutter marker with `j` / `k`, `Ctrl-d` / `Ctrl-u`, and `gg` / `G`; the viewport follows it without recoloring syntax-highlighted code. These keys also take effect when entered while the diff is loading. Use `/` or `?` to search forward or backward, then `n` / `N` to move between matches.
 5. Press `Enter` again to close the diff, or use `q` / `Esc`.
 
 History loads 200 commits at a time. Moving to the end of the loaded page requests the next page when one exists. Changed-file lists and diffs load only for the selected commit.
@@ -35,7 +35,7 @@ ChronoGit displays the active baseline in the changed-files title, diff title, a
 | Normal commit | Parent → selected commit |
 | Merge commit | First parent → selected merge commit |
 
-Merge commits are not shown as a combined or per-parent diff in `0.3.0`. When another parent matters, use Git alongside ChronoGit.
+Merge commits are not shown as a combined or per-parent diff in `0.4.0`. When another parent matters, use Git alongside ChronoGit.
 
 ## Read the complete commit message
 

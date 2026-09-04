@@ -37,7 +37,7 @@ src/content/docs/
 ├── guides/                 # Installation and user workflows
 ├── reference/              # CLI, safety, limits, and non-goals
 ├── troubleshooting/        # Failure diagnosis and recovery
-├── developer/              # Architecture, validation, smoke, release
+├── developer/              # Architecture, terminal smoke, and release
 ├── tags.mdx
 └── ja/
     ├── index.mdx

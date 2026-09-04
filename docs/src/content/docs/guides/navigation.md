@@ -23,7 +23,7 @@ ChronoGit is operated entirely from the keyboard. Press `F1` inside the applicat
 | `h` / `l` | Focus the previous / next pane |
 | `Ctrl-k` / `Ctrl-j` | Focus the previous / next pane |
 | `j` / `k` or `↓` / `↑` | Move selection or scroll down / up |
-| `g` / `G` or `Home` / `End` | Move to the first / last item |
+| `gg` / `G` or `Home` / `End` | Move to the first / last item |
 | `Ctrl-d` / `Ctrl-u` | Move or scroll half a page down / up |
 | `zh` / `zl` | Scroll a diff or code document left / right |
 | `r` | Refresh the current view |
@@ -33,6 +33,9 @@ ChronoGit is operated entirely from the keyboard. Press `F1` inside the applicat
 | `Enter` | Confirm or open the selected item, or close a floating full view |
 | `/` / `?` | Search a floating diff or Code file forward / backward |
 | `n` / `N` | Go to the next / previous search match |
+| `K` | Toggle LSP hover at the Code cursor |
+| `gd` / `gi`, `gy` / `gD` | LSP definition / implementation, type definition / declaration |
+| `Ctrl-o` / `Ctrl-i` | Older / newer semantic location |
 | `F1` | Toggle the in-app help overlay |
 
 The `zh`, `zl`, `Space f`, and `Space g` sequences must be completed within 750 ms. An unrelated key after a sequence prefix is handled normally. These are the built-in defaults; see [Keymap configuration](/reference/keymap/) to replace them.

@@ -11,7 +11,7 @@ ChronoGit is a read-only terminal UI with two complementary workflows: Git histo
 
 ## Status
 
-ChronoGit is at `0.3.0`. Linux and macOS are supported. Windows, bare repositories, and non-interactive terminals are not supported yet.
+ChronoGit is prepared as `0.4.0`. Linux and macOS are supported. Windows, bare repositories, and non-interactive terminals are not supported yet.
 
 The manifest is prepared to publish this release to crates.io. Publishing remains a separate maintainer action.
 
@@ -20,6 +20,7 @@ The manifest is prepared to publish this release to crates.io. Publishing remain
 - Rust 1.88 or newer
 - Git available on `PATH`
 - An interactive terminal of at least 80x24
+- Optional: a user-installed language server for semantic Code navigation
 
 ## Install
 
@@ -38,7 +39,7 @@ cargo install --path . --locked
 The `chronogit` binary can then be launched from any directory:
 
 ```bash
-chronogit [PATH] [--view changes|history|graph|code] [--keymap PATH]
+chronogit [PATH] [--view changes|history|graph|code] [--keymap PATH] [--lsp PROFILE]...
 ```
 
 `PATH` may be a repository root or any directory below it. It defaults to the current directory. `--view` defaults to `changes`, preserving the existing landing workflow; `--keymap` overrides the optional XDG keymap path.
@@ -79,7 +80,9 @@ Press `3`, or start with `chronogit --view graph`. The graph uses commit parent 
 
 Press `4`, or start with `chronogit --view code`, to enter the Code viewer. The upper pane is an expandable tree containing tracked files and non-ignored untracked files; the lower pane previews the selected file with line numbers and syntax highlighting. Press `Enter` on a directory to expand or collapse it. Use `h` / `l` or `Ctrl-k` / `Ctrl-j` to move between the tree and code panes.
 
-Press `Enter` on a file in the tree, or from the code pane, to open the current content in a large floating view. It uses the same navigation and search keys as a floating diff: `j` / `k`, `g` / `G`, `Ctrl-u` / `Ctrl-d`, `zh` / `zl`, `/` / `?`, and `n` / `N`. Press `Enter`, `q`, or `Esc` to return. `Space f` and `Space g` search from the Code viewer; selecting a result reveals the file in the tree and opens its current content at the matching line when available.
+Press `Enter` on a file in the tree, or from the code pane, to open the current content in a large floating view. It uses the same navigation and search keys as a floating diff: `j` / `k`, `gg` / `G`, `Ctrl-u` / `Ctrl-d`, `zh` / `zl`, `/` / `?`, and `n` / `N`. Press `Enter`, `q`, or `Esc` to return. `Space f` and `Space g` search from the Code viewer; selecting a result reveals the file in the tree and opens its current content at the matching line when available.
+
+In focused Code content, `h` / `l` or the left/right arrow keys move a semantic cursor within the current source line. With an explicitly enabled language server, `K` opens hover information in a `j` / `k` scrollable float and toggles it closed; `q` / `Esc` also close it. Use `gd` for definition, `gi` for implementation, `gy` for type definition, and `gD` for declaration. A single repository result opens directly; multiple results open a selection list. `Ctrl-o` moves to an older semantic location and `Ctrl-i` moves to a newer one. Results outside the repository, including virtual `jdt:` documents, are reported but never passed to the file reader.
 
 ### Search files or working-tree text
 
@@ -98,12 +101,17 @@ The file view shows its commit history above its current working-tree content. C
 | `1` / `2` / `3` | Git workflow: Changes / History / Graph |
 | `4` | Code viewer |
 | `Space f` / `Space g` | Search repository files / working-tree text |
-| `h` / `l` | Focus the previous / next pane |
+| `h` / `l` | Focus panes; in focused Code content, move the character cursor |
 | `Ctrl-k` / `Ctrl-j` | Focus the previous / next pane |
 | `j` / `k` | Move or scroll down / up |
-| `g` / `G` | Move to first / last item |
+| `gg` / `G` | Move to first / last item |
 | `Ctrl-d` / `Ctrl-u` | Move or scroll half a page |
 | `zh` / `zl` | Scroll a diff or code document horizontally |
+| Left / Right | Move the focused Code semantic cursor by one character |
+| `K` | Toggle LSP hover information; `j` / `k` scroll it |
+| `gd` / `gi` | Definition / implementation |
+| `gy` / `gD` | Type definition / declaration |
+| `Ctrl-o` / `Ctrl-i` | Older / newer semantic location |
 | `r` | Refresh the current view |
 | `m` | Toggle the full commit-message overlay |
 | `b` | Toggle History's diff / body layout |
@@ -131,9 +139,40 @@ quit = Q
 
 Key sequences are space-separated and alternatives are comma-separated. Invalid, duplicate, or ambiguous bindings fail before raw terminal mode starts. `Ctrl-C` always remains available for safe exit. The complete action and key syntax is in the [keymap reference](docs/src/content/docs/reference/keymap.md).
 
+## Optional language-server navigation
+
+LSP is off unless at least one `--lsp PROFILE` is supplied. ChronoGit ships client profiles, not language-server binaries:
+
+```bash
+chronogit --view code --lsp rust-analyzer
+chronogit --view code --lsp jdtls
+chronogit --view code --lsp pyright
+chronogit --view code --lsp basedpyright
+chronogit --view code --lsp pylsp
+
+# A polyglot repository
+chronogit --view code --lsp rust-analyzer --lsp jdtls --lsp pyright
+```
+
+Install the selected executable separately using the upstream instructions for [rust-analyzer](https://rust-analyzer.github.io/book/installation.html), [Eclipse JDT LS](https://github.com/eclipse-jdtls/eclipse.jdt.ls), [Pyright](https://github.com/microsoft/pyright), [basedpyright](https://docs.basedpyright.com/latest/installation/), or [Python LSP Server](https://github.com/python-lsp/python-lsp-server), and put it on `PATH`. JDT LS uses its `jdtls` wrapper and currently needs a Java 21+ runtime. Pyright and basedpyright use their `*-langserver --stdio` commands; Python LSP Server uses `pylsp`. Do not enable multiple Python profiles together: ChronoGit refuses ambiguous routing instead of selecting one implicitly. At startup, ChronoGit only validates and selects profiles. The matching process starts lazily on the first hover/navigation request, after extension and workspace-root routing, and is reused until eviction or shutdown.
+
+Built-ins can be replaced or extended only from the trusted user-level `$XDG_CONFIG_HOME/chronogit/lsp.toml` (or `~/.config/chronogit/lsp.toml`), or `--lsp-config PATH`. Start from [`config/lsp.toml`](config/lsp.toml). Repository-local command configuration is never loaded. A profile is data, so future languages do not require another client implementation:
+
+```toml
+[servers.gopls]
+language_id = "go"
+extensions = ["go"]
+command = ["gopls"]
+root_markers = ["go.mod", "go.work"]
+```
+
+Commands are direct argument arrays, not shell strings. Supported whole-argument placeholders are `{workspace_root}`, `{workspace_data}`, `{workspace_config}`, and `{cache_dir}`; partial interpolation is rejected. The workspace data/configuration placeholders require `workspace_data = true`.
+
 ## Read-only and failure behavior
 
 ChronoGit only invokes an allowlisted set of Git read commands. It never stages, restores, commits, checks out, resets, or updates references. Commands are executed without a shell, paths are passed after `--`, optional Git locks are disabled, and external diff, textconv, pager, and fsmonitor programs are disabled. Code-viewer file reads remain rooted at the discovered worktree and do not follow symbolic links.
+
+An explicitly enabled language server is a separate trust boundary. It receives the repository workspace and current source text, and may execute project tooling or create caches/build artifacts according to that server and project configuration. Enable LSP only for repositories you trust. ChronoGit starts no server by default, downloads nothing, uses no repository-provided server command, and keeps JDT workspace data outside the repository.
 
 Git output is bounded. A text diff larger than 8 MiB is terminated and displayed as truncated instead of growing memory without limit; current file reads are also capped at 8 MiB. A Git command that runs longer than 30 seconds is terminated with a recoverable error. Binary changes and files are shown as a summary.
 
@@ -141,7 +180,7 @@ Startup errors are printed before raw terminal mode is enabled. During the TUI, 
 
 ## Non-goals
 
-ChronoGit does not stage, restore, commit, reset, check out, or otherwise mutate a repository. It also does not provide staged-change, remote, pull-request, blame, stash, editor, plugin, or machine-readable export features. The Code viewer does not yet provide language-semantic definition, implementation, type-definition, or declaration jumps; those require a future Language Server Protocol integration.
+ChronoGit does not stage, restore, commit, reset, check out, or otherwise mutate a repository. It also does not provide staged-change, remote, pull-request, blame, stash, editor, plugin, or machine-readable export features. Semantic navigation is limited to complete current-working-tree text files and repository-contained `file:` URI results; dependency, standard-library, archive, and virtual-document source is not opened.
 
 ## Troubleshooting
 
@@ -150,6 +189,9 @@ ChronoGit does not stage, restore, commit, reset, check out, or otherwise mutate
 - `Terminal too small`: resize to at least 80 columns by 24 rows. `Q` and `Ctrl-C` still quit safely.
 - A pane shows a Git error: correct the repository or permission problem, then press `r` to retry the current view.
 - A diff is truncated or a command times out: inspect a smaller target; the 8 MiB output and 30-second process limits are intentional safety boundaries.
+- `LSP is disabled`: restart with one or more trusted `--lsp PROFILE` options.
+- A server cannot start: install the selected external binary and verify it is on `PATH`; errors remain recoverable inside the TUI.
+- Multiple Python servers match: enable exactly one of `pyright`, `basedpyright`, or `pylsp` for `.py`/`.pyi` files.
 
 ## Use alongside coding agents
 
@@ -166,7 +208,7 @@ mkdir -p ~/.agents/skills
 cp -R integrations/codex/chronogit ~/.agents/skills/
 ```
 
-Use `~/.claude/skills/` for Claude Code or `~/.grok/skills/` for Grok Build. Invoke it explicitly as `$chronogit` in Codex or `/chronogit` in Claude Code and Grok Build. It also matches natural-language requests to let the user inspect current changes or commit history interactively; it does not prepare a command merely because an agent edited a file or needs to summarize a diff.
+Use `~/.claude/skills/` for Claude Code or `~/.grok/skills/` for Grok Build. Invoke it explicitly as `$chronogit` in Codex or `/chronogit` in Claude Code and Grok Build. It also matches natural-language requests to let the user inspect current changes, commit history, or source code interactively; it does not prepare a command merely because an agent edited a file or needs to summarize a diff.
 
 Open another terminal window, tab, split, or `tmux` pane and run the command there. The agent cannot see or operate the TUI. Switch between the agent and that terminal with the terminal application's normal controls, press `Q` or `Ctrl-C` to close ChronoGit, and rerun the command to open it again. See the complete [coding-agent setup and switching guide](docs/src/content/docs/guides/agents.md).
 
@@ -184,10 +226,8 @@ cargo package --locked
 
 ## Documentation
 
-- English user and developer documentation:
+- Developer documentation:
   [`docs/src/content/docs/index.mdx`](docs/src/content/docs/index.mdx)
-- 日本語のユーザー・開発者ドキュメント:
-  [`docs/src/content/docs/ja/index.mdx`](docs/src/content/docs/ja/index.mdx)
 - Contributor workflow and pull request expectations:
   [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Architecture notes and module boundaries:

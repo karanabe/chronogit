@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use crossterm::event::{KeyCode, KeyModifiers};
 
 use super::{Binding, KeyStroke, action_for_name};
-use crate::app::{Action, SearchDirection};
+use crate::app::{Action, SearchDirection, SemanticNavigationKind};
 
 /// A path-qualified keymap read or validation failure.
 #[derive(Debug)]
@@ -116,6 +116,7 @@ fn parse_stroke(value: &str) -> Result<KeyStroke, String> {
         "esc" | "escape" => KeyCode::Esc,
         "space" => KeyCode::Char(' '),
         "backspace" => KeyCode::Backspace,
+        "tab" => KeyCode::Tab,
         "up" => KeyCode::Up,
         "down" => KeyCode::Down,
         "left" => KeyCode::Left,
@@ -184,9 +185,9 @@ pub(super) fn default_bindings() -> Vec<Binding> {
         single(character('2'), Action::ShowHistory),
         single(character('3'), Action::ShowGraph),
         single(character('4'), Action::ShowCode),
-        single(character('h'), Action::FocusLeft),
+        single(character('h'), Action::MoveCursorLeft),
         single(control('k'), Action::FocusLeft),
-        single(character('l'), Action::FocusRight),
+        single(character('l'), Action::MoveCursorRight),
         single(control('j'), Action::FocusRight),
         single(character('k'), Action::MoveUp),
         single(
@@ -198,7 +199,15 @@ pub(super) fn default_bindings() -> Vec<Binding> {
             KeyStroke::new(KeyCode::Down, KeyModifiers::NONE),
             Action::MoveDown,
         ),
-        single(character('g'), Action::MoveTop),
+        single(
+            KeyStroke::new(KeyCode::Left, KeyModifiers::NONE),
+            Action::MoveCursorLeft,
+        ),
+        single(
+            KeyStroke::new(KeyCode::Right, KeyModifiers::NONE),
+            Action::MoveCursorRight,
+        ),
+        Binding::new(vec![character('g'), character('g')], Action::MoveTop),
         single(
             KeyStroke::new(KeyCode::Home, KeyModifiers::NONE),
             Action::MoveTop,
@@ -225,6 +234,29 @@ pub(super) fn default_bindings() -> Vec<Binding> {
             vec![character(' '), character('g')],
             Action::OpenContentSearch,
         ),
+        Binding::new(
+            vec![character('g'), character('d')],
+            Action::GoToSemanticTarget(SemanticNavigationKind::Definition),
+        ),
+        Binding::new(
+            vec![character('g'), character('i')],
+            Action::GoToSemanticTarget(SemanticNavigationKind::Implementation),
+        ),
+        Binding::new(
+            vec![character('g'), character('y')],
+            Action::GoToSemanticTarget(SemanticNavigationKind::TypeDefinition),
+        ),
+        Binding::new(
+            vec![character('g'), character('D')],
+            Action::GoToSemanticTarget(SemanticNavigationKind::Declaration),
+        ),
+        single(control('o'), Action::GoBackFromSemanticTarget),
+        single(control('i'), Action::GoForwardFromSemanticTarget),
+        single(
+            KeyStroke::new(KeyCode::Tab, KeyModifiers::NONE),
+            Action::GoForwardFromSemanticTarget,
+        ),
+        single(character('K'), Action::ToggleLspHover),
         single(
             character('/'),
             Action::StartSearch(SearchDirection::Forward),

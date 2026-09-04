@@ -9,7 +9,7 @@ sidebar:
   order: 4
 ---
 
-この手順はChronoGit `0.3.0`のcrates.io packageを検証し、SHA-256 checksum付きのnative archiveを準備します。registryへの実際の公開は、maintainerが明示的に行う操作です。
+この手順はChronoGit `0.4.0`のcrates.io packageを検証し、SHA-256 checksum付きのnative archiveを準備します。registryへの実際の公開は、maintainerが明示的に行う操作です。
 
 ## リリースの前提条件
 
@@ -32,12 +32,14 @@ cargo test --all-features
 cargo build --release --locked
 cargo install --path . --locked
 cargo package --locked
+cargo audit
+cargo tree --duplicates
 cargo publish --dry-run --locked
 pnpm --dir docs install --frozen-lockfile
 pnpm --dir docs build
 ```
 
-[検証](/ja/developer/validation/)に記録された依存関係・ソース監査も再実行します。生成ドキュメント、packageに含まれるファイル一覧、両platformのsmoke test行もレビューします。
+正確なdiffとpackage内容を確認し、資格情報、個人path、内部専用note、無関係なartifactが含まれていないことを確認します。生成ドキュメント、dependency warning、両platformのsmoke test行もレビューします。許容された保守warningを脆弱性として扱わない一方、記録を残し、その依存経路を削除または更新できるか確認します。
 
 ## crateの内容を確認して公開する
 
@@ -47,7 +49,7 @@ pnpm --dir docs build
 cargo package --list
 ```
 
-一覧にはRustのapplication・test source、sample keymap、README、changelog、2つのlicense file、Cargoが生成するmanifest・lock・VCS metadataだけが含まれている必要があります。documentation site、repository workflow、agent integration file、contributor専用documentを含めてはいけません。
+一覧にはRustのapplication・test source、sample keymap・LSP profile、README、changelog、2つのlicense file、Cargoが生成するmanifest・lock・VCS metadataだけが含まれている必要があります。documentation site、repository workflow、agent integration file、contributor専用documentを含めてはいけません。
 
 リリース対象そのもののrevisionで、すべての前提条件と品質ゲートが成功した後、権限を持つmaintainerが公開します。
 
@@ -68,7 +70,7 @@ cargo publish --locked
 クリーンなチェックアウトで、必要に応じてtargetを置き換えて実行します。
 
 ```sh title="ターミナル"
-release_version=0.3.0
+release_version=0.4.0
 release_target=x86_64-unknown-linux-gnu
 release_name="chronogit-${release_version}-${release_target}"
 release_stage=$(mktemp -d)

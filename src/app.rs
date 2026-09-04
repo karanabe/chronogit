@@ -2,7 +2,7 @@
 //!
 //! [`AppState`] is the authoritative Git and Code workflow model. Callers feed it [`Action`] values
 //! from the terminal and [`Event`] values from [`EffectExecutor`]. Each update
-//! returns the [`GitEffect`] values required to continue loading repository data.
+//! returns typed [`AppEffect`] values for repository and optional LSP work.
 
 mod action;
 mod code_view;
@@ -10,10 +10,12 @@ mod effect;
 mod model;
 mod repository_search;
 mod search;
+mod semantic_navigation;
 mod update;
 
+pub use crate::domain::SemanticNavigationKind;
 pub use action::{Action, Event};
-pub use effect::{EffectExecutor, GitEffect};
+pub use effect::{AppEffect, EffectExecutor, GitEffect, LspEffect};
 pub use model::{
     AppState, AppView, ErrorNotice, FocusedPane, HistoryPanel, LoadState, Overlay,
     RepositorySearchKind, RequestId, VisibleTreeEntry,

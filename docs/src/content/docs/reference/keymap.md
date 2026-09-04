@@ -21,14 +21,19 @@ close = q, esc
 quit = Q
 ```
 
-Each `action = keys` line replaces all defaults for that action. Separate a sequence with spaces and alternatives with commas. Supported names are single characters, `space`, `enter`, `esc`, `backspace`, `up`, `down`, `left`, `right`, `home`, `end`, `f1` through `f255`, and `ctrl-` or `alt-` plus one of those keys. Sequences expire after 750 ms.
+Each `action = keys` line replaces all defaults for that action. Separate a sequence with spaces and alternatives with commas. Supported names are single characters, `space`, `enter`, `esc`, `backspace`, `tab`, `up`, `down`, `left`, `right`, `home`, `end`, `f1` through `f255`, and `ctrl-` or `alt-` plus one of those keys. Sequences expire after 750 ms.
 
 | Action names | Purpose |
 | --- | --- |
 | `quit`, `show_changes`, `show_history`, `show_graph`, `show_code` | Application and view selection |
 | `focus_previous`, `focus_next` | Pane focus |
-| `move_up`, `move_down`, `move_top`, `move_bottom` | Selection or cursor movement |
+| `move_up`, `move_down`, `move_top`, `move_bottom` | Selection or cursor movement (`j` / `k`, `gg` / `G`) |
 | `half_page_up`, `half_page_down`, `scroll_left`, `scroll_right` | Viewport movement |
+| `cursor_left`, `cursor_right` | Focused Code cursor (`h` / `l` and Left / Right); pane movement elsewhere |
+| `lsp_hover` | Toggle hover information at the Code cursor (`K`) |
+| `go_to_definition`, `go_to_implementation` | LSP definition / implementation (`gd` / `gi`) |
+| `go_to_type_definition`, `go_to_declaration` | LSP type definition / declaration (`gy` / `gD`) |
+| `semantic_back`, `semantic_forward` | Older / newer semantic location (`Ctrl-o` / `Ctrl-i`; Tab is the terminal-compatible forward alias) |
 | `refresh`, `activate`, `close` | Current view operations |
 | `toggle_message`, `toggle_details`, `toggle_tree`, `toggle_help` | History and help views |
 | `file_search`, `content_search` | Repository-wide search |

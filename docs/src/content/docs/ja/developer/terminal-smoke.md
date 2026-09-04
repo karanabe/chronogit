@@ -58,7 +58,7 @@ printf 'terminal accepts normal input after Q\n'
 4. commitペインにフォーカスした状態で`Enter`を押し、選択中commitの変更ファイルへ直接フォーカスが移ることを確認します。
 5. 変更されたtext/binary fileを選んで`Enter`を押し、大きなフロートでpatchまたはbinary summaryが開くことを確認します。`q`、`Esc`、`Enter`のそれぞれで閉じることを確認します。
 6. 種別を判別できるソースファイルを開き、コードのトークンがシンタックスハイライトされ、追加・削除に控えめな緑・赤の背景が付き、現在行のガターマーカーがコードの色を塗り替えないことを確認します。cacheされていない長いtext diffを開くと同時に`Ctrl-d`を押し、表示された直後にマーカーが半ページ移動していることを確認します。`j` / `k`でマーカーが1行ずつ目に見えて移動し、`Ctrl-u`も遅延なく上へ移動することを確認します。
-7. 長いtext diffで`g` / `G`により先頭/末尾へ移動します。`/`で前方、`?`で後方検索し、`n` / `N`が強調された一致を折り返すことを確認します。
+7. 長いtext diffで`gg` / `G`により先頭/末尾へ移動します。`/`で前方、`?`で後方検索し、`n` / `N`が強調された一致を折り返すことを確認します。
 8. `m`を押し、commit message全文のoverlayを`j` / `k`でscrollし、`m`、`q`、`Esc`のそれぞれで閉じることを確認します。
 9. `b`を押し、通常と同じcommit一覧、commit body、変更ファイルの3段を確認します。`Ctrl-j` / `Ctrl-k`でフォーカスを移し、上段のcommit変更時に残りの段が更新されることを確認し、bodyをscrollして下段ファイルのdiffを開きます。もう一度`b`を押して通常のHistoryへ戻ります。
 10. `t`を押し、2階層のdirectoryを展開・折りたたみ、blobの差分を開きます。
@@ -78,10 +78,11 @@ printf 'terminal accepts normal input after Q\n'
 1. `4`を押し、追跡済みのルートファイルと折り畳まれたネストdirectoryがコードペインの上に表示されることを確認します。`--view code`で直接起動した場合も繰り返します。
 2. ファイルへ移動し、現在のsyntax highlightされた内容が下段へ読み込まれることを確認します。複数ファイル間を素早く移動し、最後の内容が最後の選択と一致することを確認します。
 3. directoryで`Enter`を押して2階層以上展開し、もう一度押すとすべての子孫が折り畳まれることを確認します。
-4. `h` / `l`と`Ctrl-k` / `Ctrl-j`の両方でツリーとコード間を移動します。コードペインで`j` / `k`、`g` / `G`、`Ctrl-u` / `Ctrl-d`、`zh` / `zl`を試します。
+4. `h` / `l`と`Ctrl-k` / `Ctrl-j`の両方でツリーとコード間を移動します。コードペインで`j` / `k`、`gg` / `G`、`Ctrl-u` / `Ctrl-d`、`zh` / `zl`を試します。
 5. ツリーのファイルと下段の両方から`Enter`を押します。Code全文ウィンドウが開き、`/` / `?`と`n` / `N`が折り返し検索を行い、`Enter`、`q`、`Esc`のそれぞれでCodeへ戻ることを確認します。
-6. Codeから`Space f`と`Space g`を実行します。ネストした結果を開き、Codeへ直接戻ってツリー内のパスが展開され、内容一致行にmarkerが置かれることを確認します。
-7. binary、symbolic link、削除済み追跡パス、8 MiBを超えるファイルを開きます。安全な要約またはtruncated markerが表示され、symbolic linkのtargetを読まないことを確認します。
+6. language serverを有効にし、文字cursorをsymbolへ合わせます。`K`でhoverを開閉でき、`gd` / `gi` / `gy` / `gD`が4種類のsemantic targetを要求し、成功したjumpを`Ctrl-o` / `Ctrl-i`で前後移動できることを確認します。戻った後に新しいjumpを実行し、以前の進み先へ移動できなくなることも確認します。
+7. Codeから`Space f`と`Space g`を実行します。ネストした結果を開き、Codeへ直接戻ってツリー内のパスが展開され、内容一致行にmarkerが置かれることを確認します。
+8. binary、symbolic link、削除済み追跡パス、8 MiBを超えるファイルを開きます。安全な要約またはtruncated markerが表示され、symbolic linkのtargetを読まないことを確認します。
 
 ## サインオフ
 

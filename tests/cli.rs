@@ -90,3 +90,27 @@ fn invalid_explicit_keymap_is_reported_before_terminal_setup() {
     assert!(stderr.contains("keymap configuration failed"));
     assert!(stderr.contains("unknown action"));
 }
+
+#[test]
+fn invalid_explicit_lsp_config_is_reported_before_terminal_setup() {
+    let directory = tempfile::tempdir()
+        .unwrap_or_else(|error| panic!("could not create temporary directory: {error}"));
+    let config = directory.path().join("lsp.toml");
+    std::fs::write(
+        &config,
+        "[servers.unsafe]\nlanguage_id='x'\nextensions=['x']\ncommand=['server', '--root={workspace_root}']\n",
+    )
+    .unwrap_or_else(|error| panic!("could not write LSP config: {error}"));
+    let output = Command::new(env!("CARGO_BIN_EXE_chronogit"))
+        .arg(env!("CARGO_MANIFEST_DIR"))
+        .arg("--lsp")
+        .arg("unsafe")
+        .arg("--lsp-config")
+        .arg(&config)
+        .output()
+        .unwrap_or_else(|error| panic!("could not run chronogit: {error}"));
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("LSP configuration failed"));
+    assert!(stderr.contains("placeholder"));
+}

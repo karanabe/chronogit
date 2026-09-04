@@ -5,6 +5,7 @@ use std::fmt::{self, Display, Formatter};
 use std::io;
 
 use crate::git::GitError;
+use crate::lsp::LspConfigError;
 use crate::tui::keymap::KeyMapError;
 
 /// A failure that prevents startup or terminates the interactive application.
@@ -22,6 +23,8 @@ pub enum AppError {
     NonInteractiveTerminal,
     /// The optional or explicit keymap could not be loaded or validated.
     KeyMap(KeyMapError),
+    /// The optional or explicit trusted LSP profile file was invalid.
+    LspConfig(LspConfigError),
 }
 
 impl Display for AppError {
@@ -33,6 +36,7 @@ impl Display for AppError {
                 formatter.write_str("an interactive TTY is required; run chronogit in a terminal")
             }
             Self::KeyMap(_) => formatter.write_str("keymap configuration failed"),
+            Self::LspConfig(_) => formatter.write_str("LSP configuration failed"),
         }
     }
 }
@@ -43,6 +47,7 @@ impl Error for AppError {
             Self::Git(source) => Some(source),
             Self::Io(source) => Some(source),
             Self::KeyMap(source) => Some(source),
+            Self::LspConfig(source) => Some(source),
             Self::NonInteractiveTerminal => None,
         }
     }
@@ -63,5 +68,11 @@ impl From<io::Error> for AppError {
 impl From<KeyMapError> for AppError {
     fn from(value: KeyMapError) -> Self {
         Self::KeyMap(value)
+    }
+}
+
+impl From<LspConfigError> for AppError {
+    fn from(value: LspConfigError) -> Self {
+        Self::LspConfig(value)
     }
 }

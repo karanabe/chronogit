@@ -76,6 +76,7 @@ Codexでは`/skills`または`$`からスキルを一覧・指定できます。
 | 「現在の変更をChronoGitで開いて」 | 未ステージの作業ツリー変更を見る`--view changes`コマンドを案内します。 |
 | 「あなたが変更した内容を自分で確認したい」 | エージェントの編集後に`--view changes`コマンドを案内します。 |
 | 「このリポジトリのコミット履歴をChronoGitで見せて」 | `--view history`コマンドを案内します。 |
+| 「このリポジトリのソースをChronoGitで見たい」 | `--view code`コマンドを案内します。semantic navigationを依頼された場合だけ、信頼する`--lsp PROFILE`を追加します。 |
 | 「差分を要約して」「このpatchをレビューして回答して」 | ChronoGitは使わず、エージェントが構造化されたGit出力を読み、文章で回答します。 |
 
 エージェントがファイルを編集した、または`git diff`を実行したという理由だけではコマンドを案内しません。スキルの自動判定でも、対話型TUIやユーザー自身による視覚的確認が明確に求められている必要があります。
@@ -95,6 +96,7 @@ $chronogit 現在のリポジトリをChangesで開いてください。
 ```sh title="別の対話型ターミナル"
 chronogit /path/to/repository --view changes
 chronogit /path/to/repository --view history
+chronogit /path/to/repository --view code
 ```
 
 ## 4. エージェントとChronoGitを行き来する
@@ -105,7 +107,7 @@ chronogit /path/to/repository --view history
 2. 回答にある正確なコマンドをコピーします。
 3. 同じ環境で別のターミナルwindow、tab、split、または`tmux` paneを開いて実行します。
 4. エージェントへ戻るときは、そのターミナルの通常のwindow、tab、pane切り替えを使います。ChronoGit固有の切り替えキーはありません。
-5. ChronoGit内では`1`、`2`、`3`でChanges、History、Graphを切り替えます。`Q`または`Ctrl-C`でTUIを閉じ、shellへ戻ります。
+5. ChronoGit内では`1`、`2`、`3`、`4`でChanges、History、Graph、Codeを切り替えます。`Q`または`Ctrl-C`でTUIを閉じ、shellへ戻ります。
 
 エージェントはChronoGitへ入力したキー、選択中のファイル、TUI画面を見ることができません。確認結果をエージェントへ伝えるか、会話内で回答が必要な場合は、同じ変更を構造化されたGitコマンドで調べるよう依頼してください。
 

@@ -76,6 +76,7 @@ The companion skill prepares a ChronoGit command only when the user wants a huma
 | “Open my current changes in ChronoGit.” | Provide a `--view changes` command for unstaged working-tree changes. |
 | “Let me inspect what you changed.” | Provide a `--view changes` command after the agent's edits. |
 | “Show this repository's commits/history in ChronoGit.” | Provide a `--view history` command. |
+| “Let me browse this repository's source in ChronoGit.” | Provide a `--view code` command. Add trusted `--lsp PROFILE` options only when the user requests semantic navigation. |
 | “Summarize the diff” or “review this patch and answer here.” | Do not use ChronoGit; the agent should use structured Git output and respond with text. |
 
 The skill does **not** prepare a command merely because an agent edited a file or ran `git diff`. Automatic skill matching should still require a clear request for the interactive TUI or for the user to inspect the change visually.
@@ -95,6 +96,7 @@ The agent resolves the repository, passes its path explicitly, and returns one o
 ```sh title="Separate interactive terminal"
 chronogit /path/to/repository --view changes
 chronogit /path/to/repository --view history
+chronogit /path/to/repository --view code
 ```
 
 ## 4. Move between the agent and ChronoGit
@@ -105,7 +107,7 @@ Keep the agent conversation and ChronoGit in separate terminals or windows:
 2. Copy the exact command from the response.
 3. Open another terminal window, tab, split, or `tmux` pane in the same environment and run it.
 4. Use that terminal's normal window, tab, or pane controls to switch back to the agent. There is no ChronoGit-specific switching key.
-5. In ChronoGit, press `1`, `2`, or `3` to switch between Changes, History, and Graph. Press `Q` or `Ctrl-C` to close the TUI and return to the shell.
+5. In ChronoGit, press `1`, `2`, `3`, or `4` to switch between Changes, History, Graph, and Code. Press `Q` or `Ctrl-C` to close the TUI and return to the shell.
 
 The agent cannot receive your keystrokes, see the selected file, or read the TUI screen. Tell it what you found, or ask it to inspect the same change with structured Git commands if you need an answer in the conversation.
 

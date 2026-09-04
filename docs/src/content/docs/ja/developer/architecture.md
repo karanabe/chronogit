@@ -16,9 +16,12 @@ flowchart LR
     Terminal["crossterm events"] --> KeyMap
     KeyMap --> Update["AppState update"]
     Update --> State["typed state"]
-    Update --> Effect["GitEffect + RequestId"]
-    Effect --> Executor["bounded Tokio executor"]
+    Update --> Effect["AppEffect + RequestId"]
+    Effect --> Executor["bounded Tokio router"]
     Executor --> Service["GitService"]
+    Executor --> Manager["LspManager"]
+    Manager --> LSP["profile/workspace stdio session"]
+    LSP --> Event
     Service --> Runner["GitRunner"]
     Runner --> Git["allowlisted git process"]
     Service --> Event["typed completion Event"]
@@ -65,7 +68,7 @@ flowchart LR
 - `AppView`、`FocusedPane`、`HistoryPanel`、`Overlay`が排他的なUI状態を表します。Changes、History/本文、Graph/詳細、ファイル履歴、Codeはview、リポジトリ検索、メッセージ全文、差分全文、現在ファイル内容、Code全文はoverlayです。
 - `SearchState`は読み込み済み差分またはCode全文内の検索を所有します。`RepositorySearchState`はグローバルprompt、live query、結果、選択、戻り先viewを別に所有します。有効なpromptがSearchフォーカスを表し、Resultsへ移ってもクエリを保持するため、Searchへ戻して再編集できます。クエリ編集ごとに新しい型付きeffectを発行し、古い完了が新しい結果を置き換えないようRequestIdで防ぎます。`FileViewState`は検索結果の選択パス、履歴/現在内容、下段が内容か履歴差分かを所有します。`CodeViewState`は完全なパス集合、画面用ツリー、選択パス、上限付き内容、コード表示位置を所有します。
 - `LoadState<T>`はidle、request ID付きloading、ready、failedのいずれかです。
-- `Action`はユーザーの意図、`Event`は非同期完了、`GitEffect`は唯一のGit副作用記述です。
+- `Action`はユーザーの意図、`Event`は非同期完了、`GitEffect`は閉じたGit副作用記述です。`AppEffect`が既存`GitEffect`と常駐型`LspEffect`を、それぞれのlifecycleを混ぜずにroutingします。`SemanticNavigationState`は候補、request identity、上限付き双方向jump historyを所有し、`LspHoverState`はhover request、戻り先overlay、scroll offsetを所有します。
 - すべての要求に単調増加する`RequestId`を付けます。現在のリソースと選択コミットに一致する完了だけを適用します。
 - 差分要求には75 ms、live repository searchには100 msのdebounceがあり、Gitタスクは最大2つだけ同時実行します。
 - 差分キャッシュは最大16項目、16 MiBです。更新時に消去します。
@@ -82,7 +85,7 @@ Codeツリーは別の方法を使います。Gitから追跡済み・非ignore�
 - `KeyMapper`が組み込みまたはXDG/`--keymap`設定を使い、Vim指向のキーイベントをactionへ変換します。parserは名前付きaction/キーだけを受け付け、曖昧なprefixを拒否し、連続キーは750 msで期限切れになります。Ctrl-Cは安全な終了用に予約します。
 - `TerminalSession`がraw modeとalternate screenを有効化し、`Drop`でターミナル状態を復元します。
 - panic hookも、以前のhookへ引き渡す前に同じ復元を行います。
-- `tokio::select!`がターミナル入力、resize/tick、Ctrl-C、Git完了イベントを待ちます。
+- `tokio::select!`がターミナル入力、resize/tick、Ctrl-C、型付き非同期完了イベントを待ちます。通常終了ではterminalを復元してから上限付きLSP shutdownを待ちます。
 - 通常のHistoryはコミット、変更ファイル/ツリー、差分を全幅の3段で描画し、本文レイアウトは同じコミット一覧、コミット本文、変更ファイルを描画します。Graphは読み込んだ親IDからクライアント側でレーンを描き、その上の中央ウィンドウへ詳細2段を描画します。ファイル履歴とCodeは2段のビューです。Changesは110列以上で2ペインを表示し、それ未満ではフォーカス中のペインが横幅を使います。
 - 80×24未満では安定したサイズ案内に置き換え、終了キーを使えるままにします。
 
@@ -114,16 +117,22 @@ Git標準出力は8 MiB、標準エラーは64 KiB、コマンド時間は30秒�
 - リポジトリ設定からpager、diff、textconv、fsmonitorプログラムを起動させないこと。
 - 現在ファイルはdescriptorから相対的に読み、すべてのパス要素でシンボリックリンクを拒否すること。
 - 全読み取り操作の前後で`HEAD`、porcelain status、ワークツリーのバイト列を比較するintegration testを維持すること。
-- LinuxとmacOSが`0.3.0`のサポート境界です。Windows対応では未検証変換を加えず、Unixバイトパス境界を再設計すること。
+- LinuxとmacOSが`0.4.0`のサポート境界です。Windows対応では未検証変換を加えず、Unixバイトパス境界を再設計すること。
 - bareリポジトリと非対話ターミナルは起動時に拒否すること。
 
 将来の機能は、この境界を迂回せずdomain variantと型付きcommand/effect経路を追加してください。
 
-## 将来の言語セマンティックナビゲーション
+## 言語セマンティックナビゲーション
 
-定義、実装、型定義、宣言へのジャンプは、Git objectやsyntax highlightから信頼できる形では導出できません。将来のLanguage Server Protocol adapterで実現できます。transportとchild process lifecycleを`domain`の外へ置き、locationと要求結果をtyped valueにし、cancelと古いresponseの扱いを明示できるよう`Action -> GitEffect`と同様のapplication effect経路へ通します。
+`src/lsp.rs`と`src/lsp/`は共通のLSP 3.17 client境界です。`config`はtrusted user profileとextension/root-marker routing、`protocol`は上限付き`Content-Length` JSON-RPC framing、`position`はChronoGitのUTF-8 byte列から合意済みUTF-8/16/32 code unitへの変換、`session`はinitialize、document同期、navigation/hover request、cancel、server request、shutdown、child cleanup、`manager`はprofile/workspace sessionとLRU終了を所有します。
 
-adapterにはlanguageごとのserver検出/設定、document同期、position encodingの合意、現在位置の変換、1件または複数locationの正規化が必要です。リポジトリ外locationは拒否または明示確認します。server起動/終了、timeout、未対応language、multi-root workspace、表示中のファイル変更、定義なしをすべて可視の失敗状態として扱う必要があります。この一連のlifecycleを実装するまでは境界を追加せず、CodeをIDEではなく読み取り専用source viewerとして保ちます。
+LSPは新しいcrateではなく、既存`chronogit` crate内のmoduleに意図的に収めています。process lifecycleをapplicationの起動・終了と共有し、現在のconsumerはapp effect executorだけで、Tokio/serde/url dependencyも同じbinary内で使うためです。別crateは独立reuseやdependency隔離を生まないままmanifest、release/API surface、変換層だけを増やします。実際に別binary/libraryから利用する、またはCargo levelのdependency隔離が必要になった時点でextractを再検討します。
+
+appはRust、Java、Pythonで分岐しません。extensionは明示的に有効な1つの`ServerProfile`へ解決し、最も近いroot markerでworkspaceを決め、`(profile ID, workspace root)`をsession keyにします。rust-analyzer、JDT LS、Pyright、basedpyright、pylspも通常のprofile dataです。user-level TOMLで別languageを追加してもtransport実装は増えません。同じextensionを複数profileが担当する場合は暗黙順序を付けずrequest時に拒否します。
+
+各sessionはcapabilityとposition encodingを合意し、正確なopen documentを1つ保持し、refresh後はfull-content `didChange`、切替時は前documentの`didClose`を送ります。navigationと`textDocument/hover`は同じ同期済みposition request経路を使い、標準hover content形式をappへ渡す前に上限付き表示textへ正規化します。reader/writer taskを分離してnotificationやserver-to-client requestがresponseをdeadlockさせないようにします。標準log/progress notificationは1つのbounded footer statusへ変換します。`workspace/configuration`とwork-progress作成だけを応答し、advertiseしていないrequestはmethod-not-foundです。新しいLSP intentは`$/cancelRequest`を送り、reducerもrequest ID/path/cursorが古いcompletionを拒否します。
+
+wireの`Location`/`LocationLink`はadapter内で正規化します。repository内`file:`結果を`RepoPath`へ変換した後、`GitService`で安全に読んだ内容を使ってwire columnを変換するため、no-follow境界を維持します。非file、`jdt:`、不正、repository外URIは表示専用です。sessionは最大4、同期documentはsessionごとに最大8 MiBです。5つ目ではLRU sessionを終了します。通常終了は`shutdown`、応答待ち、`exit`の後、猶予を超えたchildを終了し、`kill_on_drop`を最終cleanup不変条件にします。
 
 ## 変更する場所
 
@@ -131,8 +140,9 @@ adapterにはlanguageごとのserver検出/設定、document同期、position en
 | --- | --- | --- |
 | ドメイン不変条件、値型 | `src/domain` | parser、app state、integration fixture |
 | Git操作 | `src/git/command.rs`、`runner.rs`、`service.rs` | 読み取り専用方針、出力上限、parser test |
+| LSP profile/protocol/session | `src/lsp/config.rs`、`protocol.rs`、`session.rs`、`manager.rs` | trust boundary、framing上限、capability/position test、cleanup |
 | 非同期読み込み、選択 | `src/app/model.rs`、`update.rs`、`effect.rs` | request ID、古い応答、cache上限 |
 | キー、操作 | `src/tui/keymap.rs`、`keymap/config.rs` | 設定例、reducer動作、help/footer、ドキュメント |
 | レイアウト、ターミナルライフサイクル | `src/tui/render.rs`、`tui/terminal.rs`、`src/tui.rs` | 最小サイズ、PTY smoke、復元 |
 
-不変条件を変える前に実装と最も近いテストを読んでください。必要な検証層は[検証ガイド](/ja/developer/validation/)で説明します。
+不変条件を変える前に実装と最も近いテストを読んでください。contribution checkは`CONTRIBUTING.md`、release固有のcheckは[リリース手順](/ja/developer/release/)に置きます。

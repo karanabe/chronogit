@@ -11,6 +11,7 @@ use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::{
     AppState, AppView, CodeEntryKind, FocusedPane, HistoryPanel, LoadState, Overlay,
@@ -532,12 +533,7 @@ fn render_code_content(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         LoadState::Failed(error) => vec![error_line(error.message())],
         LoadState::Ready(document) => code_document_lines(document, state),
     };
-    let visible = usize::from(area.height.saturating_sub(2)).max(1);
-    let cursor = state.code_view.vertical.min(lines.len().saturating_sub(1));
-    let vertical = cursor
-        .saturating_sub(visible.saturating_sub(1))
-        .min(u16::MAX as usize) as u16;
-    let horizontal = state.code_view.horizontal.min(u16::MAX as usize) as u16;
+    let (vertical, horizontal) = code_scroll(state, area, lines.len());
     frame.render_widget(
         Paragraph::new(lines)
             .block(block)
@@ -601,8 +597,46 @@ fn document_lines(
 }
 
 fn code_file_line(mut line: Line<'static>, index: usize, state: &AppState) -> Line<'static> {
-    let selected = state.code_view.vertical == index
+    let selected = usize::try_from(state.code_view.cursor.line()).ok() == Some(index)
         && (state.overlay == Overlay::CodeContent || state.focus == FocusedPane::Diff);
+    if selected
+        && let Some(source) = match &state.code_view.content {
+            LoadState::Ready(document) => document.lines().get(index),
+            LoadState::Idle | LoadState::Loading { .. } | LoadState::Failed(_) => None,
+        }
+    {
+        let mut column = state.code_view.cursor.byte_column().min(source.len());
+        while !source.is_char_boundary(column) {
+            column = column.saturating_sub(1);
+        }
+        let end = source[column..]
+            .chars()
+            .next()
+            .map_or(column, |character| column + character.len_utf8());
+        let gutter = line
+            .spans
+            .first()
+            .cloned()
+            .unwrap_or_else(|| Span::raw("       "));
+        line.spans = vec![
+            gutter,
+            Span::raw(sanitize_inline(&source[..column])),
+            Span::styled(
+                if end == column {
+                    " ".to_owned()
+                } else if UnicodeWidthStr::width(&source[column..end]) == 0 {
+                    format!("▏{}", sanitize_inline(&source[column..end]))
+                } else {
+                    sanitize_inline(&source[column..end])
+                },
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::LightCyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(sanitize_inline(&source[end..])),
+        ];
+    }
     line.spans.insert(0, navigation_marker(selected));
     if state.search.current_line() == Some(index) {
         line.style = line.style.patch(
@@ -860,8 +894,28 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let notice = state
         .notice
         .as_ref()
-        .map(|notice| format!(" | error: {}", sanitize_inline(notice.message())))
+        .map(|notice| format!(" | notice: {}", sanitize_inline(notice.message())))
         .unwrap_or_default();
+    let lsp = match (
+        &state.semantic_navigation.targets,
+        state.semantic_navigation.kind,
+    ) {
+        (LoadState::Loading { .. }, Some(kind)) => state
+            .semantic_navigation
+            .status
+            .as_deref()
+            .map(|status| format!(" | LSP: {}: {}", kind.label(), sanitize_inline(status)))
+            .unwrap_or_else(|| format!(" | LSP: locating {}…", kind.label())),
+        _ => match &state.lsp_hover.content {
+            LoadState::Loading { .. } => state
+                .lsp_hover
+                .status
+                .as_deref()
+                .map(|status| format!(" | LSP: hover: {}", sanitize_inline(status)))
+                .unwrap_or_else(|| " | LSP: loading hover…".to_owned()),
+            LoadState::Idle | LoadState::Ready(_) | LoadState::Failed(_) => String::new(),
+        },
+    };
     let comparison = selected_baseline(state).unwrap_or_else(|| "comparison pending".to_owned());
     let controls = match (state.view, area.width >= WIDE_WIDTH) {
         (AppView::CommitDetails, true) => {
@@ -877,9 +931,9 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         }
         (AppView::FileHistory, false) => "q/Esc back  j/k history  Enter full  Q quit",
         (AppView::Code, true) => {
-            "4 Code  h/l or ^j/^k pane  j/k move  Enter expand/full  Space f/g search  r refresh  Q quit"
+            "4 Code  h/l or ^j/^k pane/cursor  j/k line  K hover  gd definition  ^o/^i jump  Q quit"
         }
-        (AppView::Code, false) => "h/l pane  j/k move  Enter  Space f/g  Q quit",
+        (AppView::Code, false) => "h/l cursor/pane  j/k line  K hover  gd definition  Q quit",
         (_, true) => {
             "1/2/3 Git  4 Code  h/l or ^j/^k pane  j/k move  Enter open  Space f/g search  r refresh  m message  F1 help  Q quit"
         }
@@ -896,7 +950,7 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             Style::default().bg(Color::Blue).fg(Color::White),
         ),
         Span::raw(format!(
-            " {}{notice} | {controls}{root}",
+            " {}{notice}{lsp} | {controls}{root}",
             sanitize_inline(&comparison),
         )),
     ]);
@@ -915,12 +969,17 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                 plain("1 / 2       Changes / History"),
                 plain("3 / 4       Git graph / Code viewer"),
                 plain("Space f/g   Search files / repository content"),
-                plain("h / l       Focus previous / next pane"),
+                plain("h / l       Focus panes; move Code cursor in code content"),
                 plain("Ctrl-j / k  Focus next / previous pane"),
                 plain("j / k       Move or scroll"),
-                plain("g / G       First / last"),
+                plain("gg / G      First / last"),
                 plain("Ctrl-u/d    Half page up / down"),
                 plain("zh / zl     Diff/code horizontal scroll"),
+                plain("Left/Right  Move Code semantic cursor"),
+                plain("K           Toggle LSP hover at cursor"),
+                plain("gd / gi     Definition / implementation"),
+                plain("gy / gD     Type definition / declaration"),
+                plain("Ctrl-o/i    Older / newer semantic location"),
                 plain("r           Refresh current view"),
                 plain("m           Toggle full commit message"),
                 plain("b           History diff / body layout"),
@@ -974,7 +1033,37 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         Overlay::RepositorySearch => render_repository_search_overlay(frame, area, state),
         Overlay::FileContent => render_file_content_overlay(frame, area, state),
         Overlay::CodeContent => render_code_content_overlay(frame, area, state),
+        Overlay::SemanticTargets => render_semantic_targets(frame, area, state),
+        Overlay::LspHover => {
+            if state.lsp_hover.return_overlay == Overlay::CodeContent {
+                render_code_content_overlay(frame, area, state);
+            }
+            render_lsp_hover(frame, area, state);
+        }
     }
+}
+
+fn render_lsp_hover(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
+    let popup = centered(area, 82, 62);
+    frame.render_widget(Clear, popup);
+    let text = match &state.lsp_hover.content {
+        LoadState::Idle => "No hover request.".to_owned(),
+        LoadState::Loading { .. } => "Loading hover information…".to_owned(),
+        LoadState::Failed(error) => format!("Error: {}", sanitize_inline(error.message())),
+        LoadState::Ready(None) => "No hover information at the current cursor.".to_owned(),
+        LoadState::Ready(Some(content)) => sanitize_multiline(content),
+    };
+    frame.render_widget(
+        Paragraph::new(text)
+            .block(
+                Block::default()
+                    .title(" LSP hover [j/k: scroll, K/q/Esc: close] ")
+                    .borders(Borders::ALL),
+            )
+            .scroll((state.lsp_hover.scroll.min(usize::from(u16::MAX)) as u16, 0))
+            .wrap(Wrap { trim: false }),
+        popup,
+    );
 }
 
 fn render_repository_search_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
@@ -1101,18 +1190,84 @@ fn render_code_content_with_title(
         LoadState::Failed(error) => vec![error_line(error.message())],
         LoadState::Ready(document) => code_document_lines(document, state),
     };
-    let visible = usize::from(area.height.saturating_sub(2)).max(1);
-    let cursor = state.code_view.vertical.min(lines.len().saturating_sub(1));
-    let vertical = cursor
-        .saturating_sub(visible.saturating_sub(1))
-        .min(u16::MAX as usize) as u16;
-    let horizontal = state.code_view.horizontal.min(u16::MAX as usize) as u16;
+    let (vertical, horizontal) = code_scroll(state, area, lines.len());
     frame.render_widget(
         Paragraph::new(lines)
             .block(block)
             .scroll((vertical, horizontal)),
         area,
     );
+}
+
+fn render_semantic_targets(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
+    let popup = centered(area, 82, 72);
+    frame.render_widget(Clear, popup);
+    let operation = state
+        .semantic_navigation
+        .kind
+        .map_or("semantic", crate::domain::SemanticNavigationKind::label);
+    let lines = match &state.semantic_navigation.targets {
+        LoadState::Ready(targets) => targets
+            .iter()
+            .enumerate()
+            .map(|(index, target)| {
+                selected_line(
+                    state.semantic_navigation.selection.index() == Some(index),
+                    sanitize_inline(&target.display()),
+                )
+            })
+            .collect(),
+        LoadState::Idle => vec![plain("No targets.")],
+        LoadState::Loading { .. } => vec![plain("Loading semantic targets…")],
+        LoadState::Failed(error) => vec![error_line(error.message())],
+    };
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title(format!(
+                        " {operation} targets [j/k: move, Enter: open, q/Esc: close] "
+                    ))
+                    .borders(Borders::ALL),
+            )
+            .scroll((
+                list_scroll(state.semantic_navigation.selection.index(), popup),
+                0,
+            )),
+        popup,
+    );
+}
+
+fn code_scroll(state: &AppState, area: Rect, line_count: usize) -> (u16, u16) {
+    let visible_lines = usize::from(area.height.saturating_sub(2)).max(1);
+    let cursor_line = usize::try_from(state.code_view.cursor.line())
+        .unwrap_or(usize::MAX)
+        .min(line_count.saturating_sub(1));
+    let mut vertical = state.code_view.viewport_vertical;
+    if cursor_line < vertical {
+        vertical = cursor_line;
+    } else if cursor_line >= vertical.saturating_add(visible_lines) {
+        vertical = cursor_line.saturating_sub(visible_lines.saturating_sub(1));
+    }
+
+    let source_line = match &state.code_view.content {
+        LoadState::Ready(document) => document.lines().get(cursor_line),
+        LoadState::Idle | LoadState::Loading { .. } | LoadState::Failed(_) => None,
+    };
+    let cursor_display = source_line.map_or(0, |line| {
+        crate::lsp::display_column(line, state.code_view.cursor.byte_column()).saturating_add(8)
+    });
+    let visible_columns = usize::from(area.width.saturating_sub(2)).max(1);
+    let mut horizontal = state.code_view.viewport_horizontal;
+    if cursor_display < horizontal {
+        horizontal = cursor_display;
+    } else if cursor_display >= horizontal.saturating_add(visible_columns) {
+        horizontal = cursor_display.saturating_sub(visible_columns.saturating_sub(1));
+    }
+    (
+        vertical.min(u16::MAX as usize) as u16,
+        horizontal.min(u16::MAX as usize) as u16,
+    )
 }
 
 fn render_diff_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
@@ -1296,7 +1451,8 @@ mod tests {
     use ratatui::style::Color;
 
     use super::{
-        diff_line, diff_lines, file_document_lines, render, sanitize_inline, sanitize_multiline,
+        code_document_lines, diff_line, diff_lines, file_document_lines, render, sanitize_inline,
+        sanitize_multiline,
     };
     use crate::app::{
         Action, AppState, AppView, ErrorNotice, Event, FocusedPane, GitEffect, LoadState, Overlay,
@@ -1305,7 +1461,7 @@ mod tests {
     use crate::domain::{
         ChangeKind, ChangedFile, CommitBaseline, CommitMessage, CommitSummary, DiffDocument,
         DiffLine, DiffLineKind, DiffTarget, FileDocument, ObjectId, RepoPath, RepositoryRoot,
-        SearchHit, WorktreeChange,
+        SearchHit, SourcePosition, WorktreeChange,
     };
 
     fn state() -> AppState {
@@ -1334,6 +1490,41 @@ mod tests {
     }
 
     #[test]
+    fn renders_scrollable_lsp_hover_over_code_content() {
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend)
+            .unwrap_or_else(|error| panic!("could not create terminal: {error}"));
+        let mut state = AppState::new(
+            RepositoryRoot::new(PathBuf::from("/tmp/repo"))
+                .unwrap_or_else(|error| panic!("root: {error}")),
+            AppView::Code,
+        );
+        state.focus = FocusedPane::Diff;
+        state.code_view.path = Some(
+            RepoPath::from_bytes(b"src/main.rs".to_vec())
+                .unwrap_or_else(|error| panic!("path: {error}")),
+        );
+        state.code_view.content = LoadState::Ready(FileDocument::Text {
+            source: "struct Action;".to_owned(),
+            lines: vec!["struct Action;".to_owned()],
+            valid_utf8: true,
+            truncated: false,
+        });
+        state.lsp_hover.return_overlay = Overlay::CodeContent;
+        state.lsp_hover.content =
+            LoadState::Ready(Some("struct Action\n\nA semantic action.".to_owned()));
+        state.overlay = Overlay::LspHover;
+
+        terminal
+            .draw(|frame| render(frame, &state))
+            .unwrap_or_else(|error| panic!("could not draw: {error}"));
+        let text = buffer_text(terminal.backend());
+        assert!(text.contains("LSP hover"));
+        assert!(text.contains("A semantic action."));
+        assert!(text.contains("src/main.rs"));
+    }
+
+    #[test]
     fn renders_code_tree_preview_and_full_content_overlay() {
         let mut state = AppState::new(
             RepositoryRoot::new(PathBuf::from("/tmp/repo"))
@@ -1359,6 +1550,8 @@ mod tests {
             path,
             result: Ok(FileDocument::Text {
                 lines: vec!["code viewer content".to_owned()],
+                source: "code viewer content".to_owned(),
+                valid_utf8: true,
                 truncated: false,
             }),
         });
@@ -1654,6 +1847,8 @@ mod tests {
                 "pub fn first() {}".to_owned(),
                 "pub fn second() {}".to_owned(),
             ],
+            source: "pub fn first() {}\npub fn second() {}".to_owned(),
+            valid_utf8: true,
             truncated: false,
         };
 
@@ -1666,6 +1861,53 @@ mod tests {
         assert_eq!(second[0].spans[0].content, " ");
         assert_eq!(second[1].spans[0].content, "▌");
         assert!(second[1].spans.iter().all(|span| span.style.bg.is_none()));
+    }
+
+    #[test]
+    fn renders_the_code_cursor_at_a_multibyte_and_combining_position() {
+        let mut state = state();
+        state.view = AppView::Code;
+        state.focus = FocusedPane::Diff;
+        state.overlay = Overlay::CodeContent;
+        state.code_view.path = Some(
+            RepoPath::from_bytes(b"src/example.rs".to_vec())
+                .unwrap_or_else(|error| panic!("path: {error}")),
+        );
+        state.code_view.content = LoadState::Ready(FileDocument::Text {
+            source: "a界e\u{301}".to_owned(),
+            lines: vec!["a界e\u{301}".to_owned()],
+            valid_utf8: true,
+            truncated: false,
+        });
+        state.code_view.cursor = SourcePosition::new(0, 1);
+        let wide = code_document_lines(
+            match &state.code_view.content {
+                LoadState::Ready(document) => document,
+                _ => panic!("document must be ready"),
+            },
+            &state,
+        );
+        assert!(
+            wide[0]
+                .spans
+                .iter()
+                .any(|span| { span.content == "界" && span.style.bg == Some(Color::LightCyan) })
+        );
+
+        state.code_view.cursor = SourcePosition::new(0, "a界e".len());
+        let combining = code_document_lines(
+            match &state.code_view.content {
+                LoadState::Ready(document) => document,
+                _ => panic!("document must be ready"),
+            },
+            &state,
+        );
+        assert!(
+            combining[0]
+                .spans
+                .iter()
+                .any(|span| span.content.starts_with('▏'))
+        );
     }
 
     #[test]
@@ -1779,6 +2021,8 @@ mod tests {
         graph.file_view.selection.reset(1);
         graph.file_view.content = LoadState::Ready(FileDocument::Text {
             lines: vec!["current source line".to_owned()],
+            source: "current source line".to_owned(),
+            valid_utf8: true,
             truncated: false,
         });
         let file_text = rendered_text(&graph, 100, 30);

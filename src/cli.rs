@@ -21,6 +21,14 @@ pub struct Cli {
     /// Keymap file. Defaults to $XDG_CONFIG_HOME/chronogit/keymap.conf when present.
     #[arg(long, value_name = "PATH")]
     keymap: Option<PathBuf>,
+
+    /// Enable a trusted external language-server profile (repeatable).
+    #[arg(long = "lsp", value_name = "PROFILE")]
+    lsp: Vec<String>,
+
+    /// Trusted user-level LSP profile file. Defaults to XDG config when present.
+    #[arg(long, value_name = "PATH")]
+    lsp_config: Option<PathBuf>,
 }
 
 impl Cli {
@@ -43,6 +51,18 @@ impl Cli {
     #[must_use]
     pub fn keymap(&self) -> Option<&Path> {
         self.keymap.as_deref()
+    }
+
+    /// Returns the explicitly enabled language-server profile identifiers.
+    #[must_use]
+    pub fn lsp_profiles(&self) -> &[String] {
+        &self.lsp
+    }
+
+    /// Returns the explicitly selected trusted LSP configuration path.
+    #[must_use]
+    pub fn lsp_config(&self) -> Option<&Path> {
+        self.lsp_config.as_deref()
     }
 }
 
@@ -83,5 +103,20 @@ mod tests {
         let cli = Cli::try_parse_from(["chronogit", "--view", "code"])
             .unwrap_or_else(|error| panic!("could not parse code view: {error}"));
         assert_eq!(cli.initial_view(), AppView::Code);
+    }
+
+    #[test]
+    fn accepts_multiple_explicit_lsp_profiles() {
+        let cli = Cli::try_parse_from([
+            "chronogit",
+            "--lsp",
+            "rust-analyzer",
+            "--lsp",
+            "jdtls",
+            "--lsp",
+            "pyright",
+        ])
+        .unwrap_or_else(|error| panic!("could not parse LSP profiles: {error}"));
+        assert_eq!(cli.lsp_profiles(), &["rust-analyzer", "jdtls", "pyright"]);
     }
 }

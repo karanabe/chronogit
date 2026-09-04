@@ -58,7 +58,7 @@ Confirm typed input echoes normally, the cursor is visible, mouse selection work
 4. With Commits focused, press `Enter` and confirm focus moves directly to Changed files for the selected commit.
 5. Select changed text and binary files, press `Enter`, and confirm a large floating patch or binary summary opens. Close it once with `q`, once with `Esc`, and once with `Enter`.
 6. Open a recognized source file and confirm code tokens are syntax-highlighted, additions/removals retain muted green/red backgrounds, and the current-line gutter marker does not recolor the code. While opening an uncached long text diff, immediately press `Ctrl-d` and confirm the marker moves half a page as soon as the diff appears. Confirm `j` / `k` visibly move it one line and `Ctrl-u` moves it up without a delay.
-7. Reach the first and last diff lines with `g` / `G`. Search forward with `/`, backward with `?`, and confirm `n` / `N` wrap between highlighted matches.
+7. Reach the first and last diff lines with `gg` / `G`. Search forward with `/`, backward with `?`, and confirm `n` / `N` wrap between highlighted matches.
 8. Press `m`, scroll the complete commit-message overlay with `j` / `k`, and close it separately with `m`, `q`, and `Esc`.
 9. Press `b` and confirm the rows are the same commit list, commit body, and changed files. Use `Ctrl-j` / `Ctrl-k` to move focus, change the top-row commit and confirm the other rows update, scroll the body, and open a bottom-row file diff. Press `b` again to return to standard History.
 10. Press `t`, expand and collapse two directory levels, and open a blob diff.
@@ -78,10 +78,11 @@ Confirm typed input echoes normally, the cursor is visible, mouse selection work
 1. Press `4`, then confirm a tracked root file and a collapsed nested directory appear above the code pane. Repeat by starting with `--view code`.
 2. Move onto a file and confirm its current syntax-highlighted content loads below. Move rapidly between files and confirm the final content matches the final selection.
 3. Press `Enter` on a directory, expand at least two levels, then press it again and confirm all descendants collapse.
-4. Move between tree and code with both `h` / `l` and `Ctrl-k` / `Ctrl-j`. In the code pane use `j` / `k`, `g` / `G`, `Ctrl-u` / `Ctrl-d`, and `zh` / `zl`.
+4. Move between tree and code with both `h` / `l` and `Ctrl-k` / `Ctrl-j`. In the code pane use `j` / `k`, `gg` / `G`, `Ctrl-u` / `Ctrl-d`, and `zh` / `zl`.
 5. Press `Enter` from both a tree file and the lower pane. Confirm the full Code window opens, `/` / `?` and `n` / `N` search with wraparound, and `Enter`, `q`, and `Esc` each return to Code.
-6. Run `Space f` and `Space g` from Code. Open a nested result and confirm Code returns directly, expands the path in the tree, and places the marker on the content-match line.
-7. Open a binary, symbolic link, deleted tracked path, and file larger than 8 MiB. Confirm each displays a safe summary or truncation marker and no symbolic-link target is read.
+6. With a language server enabled, move the character cursor onto a symbol. Confirm `K` opens and closes hover, `gd` / `gi` / `gy` / `gD` request the four semantic targets, and `Ctrl-o` / `Ctrl-i` move backward and forward through successful jumps. After going backward, make a new jump and confirm the former forward location is no longer reachable.
+7. Run `Space f` and `Space g` from Code. Open a nested result and confirm Code returns directly, expands the path in the tree, and places the marker on the content-match line.
+8. Open a binary, symbolic link, deleted tracked path, and file larger than 8 MiB. Confirm each displays a safe summary or truncation marker and no symbolic-link target is read.
 
 ## Sign-off
 

@@ -2,10 +2,11 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use crate::app::{Action, Event, GitEffect, SearchState};
+use crate::app::{Action, AppEffect, Event, GitEffect, SearchState};
 use crate::domain::{
-    ChangedFile, CommitMessage, CommitSummary, DiffDocument, DiffTarget, FileDocument, ObjectId,
-    RepoPath, RepositoryRoot, SearchHit, TreeEntry, WorktreeChange,
+    ChangedFile, CommitMessage, CommitSummary, DiffDocument, DiffTarget, FileDocument,
+    NavigationTarget, ObjectId, RepoPath, RepositoryRoot, SearchHit, SemanticNavigationKind,
+    SourcePosition, TreeEntry, WorktreeChange,
 };
 
 const MAX_DIFF_CACHE_ENTRIES: usize = 16;
@@ -67,6 +68,10 @@ pub enum Overlay {
     FileContent,
     /// A full-screen file opened from the code viewer.
     CodeContent,
+    /// Multiple semantic navigation targets awaiting selection.
+    SemanticTargets,
+    /// Language-server hover information for the current Code cursor.
+    LspHover,
 }
 
 /// Repository-wide search mode.
@@ -384,9 +389,11 @@ pub(crate) struct CodeViewState {
     pub(crate) selection: Selection,
     pub(crate) path: Option<RepoPath>,
     pub(crate) content: LoadState<FileDocument>,
-    pub(crate) vertical: usize,
-    pub(crate) horizontal: usize,
+    pub(crate) cursor: SourcePosition,
+    pub(crate) viewport_vertical: usize,
+    pub(crate) viewport_horizontal: usize,
     pub(crate) pending_reveal: Option<RepoPath>,
+    pub(crate) document_revision: u64,
 }
 
 impl CodeViewState {
@@ -397,9 +404,73 @@ impl CodeViewState {
             selection: Selection::new(),
             path: None,
             content: LoadState::Idle,
-            vertical: 0,
-            horizontal: 0,
+            cursor: SourcePosition::new(0, 0),
+            viewport_vertical: 0,
+            viewport_horizontal: 0,
             pending_reveal: None,
+            document_revision: 0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct NavigationOrigin {
+    pub(crate) path: RepoPath,
+    pub(crate) cursor: SourcePosition,
+    pub(crate) viewport_vertical: usize,
+    pub(crate) viewport_horizontal: usize,
+}
+
+#[derive(Debug)]
+pub(crate) struct SemanticNavigationState {
+    pub(crate) targets: LoadState<Vec<NavigationTarget>>,
+    pub(crate) selection: Selection,
+    pub(crate) source_path: Option<RepoPath>,
+    pub(crate) source_position: SourcePosition,
+    pub(crate) source_revision: u64,
+    pub(crate) kind: Option<SemanticNavigationKind>,
+    pub(crate) status: Option<String>,
+    pub(crate) back_stack: VecDeque<NavigationOrigin>,
+    pub(crate) forward_stack: VecDeque<NavigationOrigin>,
+}
+
+#[derive(Debug)]
+pub(crate) struct LspHoverState {
+    pub(crate) content: LoadState<Option<String>>,
+    pub(crate) source_path: Option<RepoPath>,
+    pub(crate) source_position: SourcePosition,
+    pub(crate) source_revision: u64,
+    pub(crate) scroll: usize,
+    pub(crate) status: Option<String>,
+    pub(crate) return_overlay: Overlay,
+}
+
+impl LspHoverState {
+    fn new() -> Self {
+        Self {
+            content: LoadState::Idle,
+            source_path: None,
+            source_position: SourcePosition::new(0, 0),
+            source_revision: 0,
+            scroll: 0,
+            status: None,
+            return_overlay: Overlay::None,
+        }
+    }
+}
+
+impl SemanticNavigationState {
+    fn new() -> Self {
+        Self {
+            targets: LoadState::Idle,
+            selection: Selection::new(),
+            source_path: None,
+            source_position: SourcePosition::new(0, 0),
+            source_revision: 0,
+            kind: None,
+            status: None,
+            back_stack: VecDeque::new(),
+            forward_stack: VecDeque::new(),
         }
     }
 }
@@ -497,6 +568,8 @@ pub struct AppState {
     pub(crate) repository_search: RepositorySearchState,
     pub(crate) file_view: FileViewState,
     pub(crate) code_view: CodeViewState,
+    pub(crate) semantic_navigation: SemanticNavigationState,
+    pub(crate) lsp_hover: LspHoverState,
     pub(crate) notice: Option<ErrorNotice>,
     pub(crate) preferred_change: Option<RepoPath>,
     pub(crate) preferred_commit: Option<ObjectId>,
@@ -550,6 +623,8 @@ impl AppState {
             repository_search: RepositorySearchState::new(view),
             file_view: FileViewState::new(view),
             code_view: CodeViewState::new(),
+            semantic_navigation: SemanticNavigationState::new(),
+            lsp_hover: LspHoverState::new(),
             notice: None,
             preferred_change: None,
             preferred_commit: None,
@@ -573,9 +648,26 @@ impl AppState {
         }
     }
 
+    /// Starts initial loading and wraps repository work in the unified effect type.
+    pub fn start_effects(&mut self) -> Vec<AppEffect> {
+        self.start().into_iter().map(AppEffect::from).collect()
+    }
+
     /// Applies semantic user input and returns any resulting repository work.
     pub fn handle_action(&mut self, action: Action) -> Vec<GitEffect> {
         crate::app::update::apply_action(self, action)
+    }
+
+    /// Applies input through the complete Git and semantic-navigation reducer.
+    pub fn handle_app_action(&mut self, action: Action) -> Vec<AppEffect> {
+        if let Some(effects) = crate::app::semantic_navigation::apply_action(self, action) {
+            effects
+        } else {
+            self.handle_action(action)
+                .into_iter()
+                .map(AppEffect::from)
+                .collect()
+        }
     }
 
     /// Applies an asynchronous completion and returns follow-up repository work.
@@ -584,6 +676,20 @@ impl AppState {
     /// identity.
     pub fn handle_event(&mut self, event: Event) -> Vec<GitEffect> {
         crate::app::update::apply_event(self, event)
+    }
+
+    /// Applies a completion through the complete Git and LSP reducer.
+    pub fn handle_app_event(&mut self, event: Event) -> Vec<AppEffect> {
+        match event {
+            Event::SemanticNavigationCompleted { .. }
+            | Event::LspHoverCompleted { .. }
+            | Event::LspStatus { .. } => crate::app::semantic_navigation::apply_event(self, event),
+            event => self
+                .handle_event(event)
+                .into_iter()
+                .map(AppEffect::from)
+                .collect(),
+        }
     }
 
     /// Reports whether the event loop should exit without dispatching new work.

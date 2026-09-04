@@ -4,6 +4,23 @@ All notable changes to ChronoGit are documented here.
 
 ## Unreleased
 
+## 0.4.0
+
+### Added
+
+- Opt-in Language Server Protocol navigation in the current-working-tree Code viewer for definition, implementation, type definition, declaration, multiple candidates, and bounded bidirectional jump history.
+- Generic trusted user-level server profiles plus built-ins for rust-analyzer, Eclipse JDT LS, Pyright, basedpyright, and Python LSP Server; repeatable `--lsp` supports polyglot repositories without language-specific client implementations.
+- Character-accurate `h`/`l` Code cursors and capability-checked LSP hover in a scrollable floating window.
+
+### Changed
+
+- Vim-oriented defaults now use `gg`/`G` for first/last, `K` for hover, `gd`/`gi`/`gy`/`gD` for semantic navigation, and `Ctrl-o`/`Ctrl-i` for older/newer jump locations.
+
+### Security
+
+- LSP stays disabled by default, launches direct argument arrays without implicit shell expansion, bounds protocol messages and resident sessions, rejects ambiguous profiles and repository-external/virtual targets, and cleans up child processes on exit.
+- Documentation now distinguishes ChronoGit's repository read-only contract from explicitly enabled external servers that may run project tooling or write caches/build artifacts.
+
 ## 0.3.0
 
 ### Added

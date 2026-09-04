@@ -12,7 +12,7 @@ sidebar:
 ChronoGit is a read-only terminal interface for inspecting Git changes, history, and working-tree source code. This guide installs it with Cargo and opens a repository without changing it.
 
 :::note[Distribution status]
-The manifest is ready for crates.io publication. If `0.3.0` is not available from the registry yet, install it from a trusted checkout.
+The `0.4.0` manifest is ready for crates.io publication. Until that version is available from the registry, install it from a trusted checkout.
 :::
 
 ## Requirements
@@ -23,7 +23,7 @@ The manifest is ready for crates.io publication. If `0.3.0` is not available fro
 - An interactive terminal at least 80 columns by 24 rows
 - A non-bare Git repository
 
-Windows, bare repositories, pipes, captured commands, and background sessions are not supported in `0.3.0`.
+Windows, bare repositories, pipes, captured commands, and background sessions are not supported in `0.4.0`.
 
 ## Install from crates.io
 
@@ -45,7 +45,7 @@ Whichever installation method you use, confirm that the binary is available:
 
 ```sh title="Terminal"
 chronogit --version
-# chronogit 0.3.0
+# chronogit 0.4.0
 ```
 
 ## Open a repository

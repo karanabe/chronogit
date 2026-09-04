@@ -44,6 +44,14 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
             state.focus = next_pane(state.view, state.focus);
             Vec::new()
         }
+        Action::MoveCursorLeft => {
+            state.focus = previous_pane(state.view, state.focus);
+            Vec::new()
+        }
+        Action::MoveCursorRight => {
+            state.focus = next_pane(state.view, state.focus);
+            Vec::new()
+        }
         Action::MoveUp => move_selection(state, -1),
         Action::MoveDown => move_selection(state, 1),
         Action::MoveTop => move_to_edge(state, false),
@@ -52,7 +60,8 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
         Action::HalfPageDown => move_half_page(state, 10),
         Action::ScrollLeft => {
             if state.view == AppView::Code {
-                state.code_view.horizontal = state.code_view.horizontal.saturating_sub(4);
+                state.code_view.viewport_horizontal =
+                    state.code_view.viewport_horizontal.saturating_sub(4);
             } else if state.view == AppView::FileHistory && !state.file_view.showing_history_diff {
                 state.file_view.horizontal = state.file_view.horizontal.saturating_sub(4);
             } else {
@@ -62,7 +71,8 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
         }
         Action::ScrollRight => {
             if state.view == AppView::Code {
-                state.code_view.horizontal = state.code_view.horizontal.saturating_add(4);
+                state.code_view.viewport_horizontal =
+                    state.code_view.viewport_horizontal.saturating_add(4);
             } else if state.view == AppView::FileHistory && !state.file_view.showing_history_diff {
                 state.file_view.horizontal = state.file_view.horizontal.saturating_add(4);
             } else {
@@ -105,7 +115,11 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
         | Action::Tick
         | Action::Quit
         | Action::OpenFileSearch
-        | Action::OpenContentSearch => Vec::new(),
+        | Action::OpenContentSearch
+        | Action::ToggleLspHover
+        | Action::GoToSemanticTarget(_)
+        | Action::GoBackFromSemanticTarget
+        | Action::GoForwardFromSemanticTarget => Vec::new(),
     }
 }
 
@@ -302,6 +316,8 @@ fn overlay_action(state: &mut AppState, action: Action) -> Vec<GitEffect> {
         Overlay::RepositorySearch => repository_search_overlay_action(state, action),
         Overlay::FileContent => file_content_overlay_action(state, action),
         Overlay::CodeContent => crate::app::code_view::content_action(state, action),
+        Overlay::SemanticTargets => Vec::new(),
+        Overlay::LspHover => Vec::new(),
         Overlay::Help => {
             if matches!(action, Action::CloseOverlay | Action::ToggleHelp) {
                 state.overlay = Overlay::None;
@@ -619,11 +635,18 @@ fn move_selection(state: &mut AppState, delta: isize) -> Vec<GitEffect> {
 fn move_to_edge(state: &mut AppState, bottom: bool) -> Vec<GitEffect> {
     if state.view == AppView::Code {
         return if state.focus == FocusedPane::Diff {
-            state.code_view.vertical = if bottom {
+            let target = if bottom {
                 crate::app::code_view::last_line(state)
             } else {
                 0
             };
+            let current = usize::try_from(state.code_view.cursor.line()).unwrap_or(usize::MAX);
+            crate::app::code_view::move_content_cursor(
+                state,
+                isize::try_from(target)
+                    .unwrap_or(isize::MAX)
+                    .saturating_sub(isize::try_from(current).unwrap_or(isize::MAX)),
+            );
             Vec::new()
         } else {
             crate::app::code_view::move_to_edge(state, bottom)
@@ -1876,6 +1899,8 @@ mod tests {
                 path,
                 result: Ok(FileDocument::Text {
                     lines: vec!["one".to_owned(), "needle".to_owned()],
+                    source: "one\nneedle".to_owned(),
+                    valid_utf8: true,
                     truncated: false,
                 }),
             },
@@ -1979,6 +2004,8 @@ mod tests {
                 path: source,
                 result: Ok(FileDocument::Text {
                     lines: vec!["first".to_owned(), "searchable code".to_owned()],
+                    source: "first\nsearchable code".to_owned(),
+                    valid_utf8: true,
                     truncated: false,
                 }),
             },
@@ -1992,7 +2019,7 @@ mod tests {
             let _none = apply_action(&mut state, Action::InsertSearch(character));
         }
         let _none = apply_action(&mut state, Action::ConfirmSearch);
-        assert_eq!(state.code_view.vertical, 1);
+        assert_eq!(state.code_view.cursor.line(), 1);
         let _none = apply_action(&mut state, Action::CloseOverlay);
         assert_eq!(state.overlay, Overlay::None);
         assert_eq!(state.focus, FocusedPane::Diff);
@@ -2024,7 +2051,7 @@ mod tests {
         let opened = apply_action(&mut state, Action::Activate);
         assert_eq!(state.view, AppView::Code);
         assert_eq!(state.focus, FocusedPane::Diff);
-        assert_eq!(state.code_view.vertical, 1);
+        assert_eq!(state.code_view.cursor.line(), 1);
         assert!(matches!(
             opened.first(),
             Some(GitEffect::LoadCodeFile { path, .. }) if path == &match_path

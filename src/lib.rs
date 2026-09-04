@@ -8,7 +8,8 @@
 //!
 //! - [`domain`] owns validated values and has no process or terminal I/O.
 //! - [`git`] translates read-only Git output into domain values.
-//! - [`app`] turns user intent into state transitions and typed Git effects.
+//! - [`lsp`] owns optional language-server process and protocol boundaries.
+//! - [`app`] turns user intent into state transitions and typed Git/LSP effects.
 //! - [`tui`] maps terminal input to actions and renders application state.
 //!
 //! Most embedders start at [`git::GitService`] when they need repository data,
@@ -37,4 +38,5 @@ pub mod cli;
 pub mod domain;
 pub mod error;
 pub mod git;
+pub mod lsp;
 pub mod tui;

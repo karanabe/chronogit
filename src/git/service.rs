@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::Read;
 use std::os::fd::OwnedFd;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(unix)]
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
@@ -33,6 +34,7 @@ pub struct GitService<R> {
     runner: R,
     root: RepositoryRoot,
     worktree: OwnedFd,
+    retain_exact_source: AtomicBool,
 }
 
 impl<R: GitRunner> GitService<R> {
@@ -89,7 +91,12 @@ impl<R: GitRunner> GitService<R> {
             runner,
             root,
             worktree,
+            retain_exact_source: AtomicBool::new(false),
         })
+    }
+
+    pub(crate) fn enable_exact_source(&self) {
+        self.retain_exact_source.store(true, Ordering::Relaxed);
     }
 
     /// Returns the absolute root of the discovered working tree.
@@ -277,8 +284,18 @@ impl<R: GitRunner> GitService<R> {
             });
         }
         let text = bytes.to_str_lossy();
+        let valid_utf8 = self.retain_exact_source.load(Ordering::Relaxed)
+            && !truncated
+            && matches!(&text, std::borrow::Cow::Borrowed(_));
+        let source = if valid_utf8 {
+            text.as_ref().to_owned()
+        } else {
+            String::new()
+        };
         Ok(FileDocument::Text {
             lines: text.lines().map(ToOwned::to_owned).collect(),
+            source,
+            valid_utf8,
             truncated,
         })
     }

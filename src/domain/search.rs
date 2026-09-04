@@ -55,6 +55,10 @@ impl SearchHit {
 pub enum FileDocument {
     /// Text content split into display lines.
     Text {
+        /// Complete text retained only for an enabled language server.
+        source: String,
+        /// Whether `source` is complete, exact UTF-8 text.
+        valid_utf8: bool,
         /// Lines retained up to the configured read limit.
         lines: Vec<String>,
         /// Whether the file continued beyond the retained bytes.
@@ -87,6 +91,26 @@ impl FileDocument {
         }
     }
 
+    /// Returns exact decoded text only when the complete document is available.
+    ///
+    /// Truncated and non-text documents deliberately return `None` so callers
+    /// cannot synchronize a partial buffer as authoritative source.
+    #[must_use]
+    pub fn source(&self) -> Option<&str> {
+        match self {
+            Self::Text {
+                source,
+                truncated: false,
+                valid_utf8: true,
+                ..
+            } => Some(source),
+            Self::Text { .. }
+            | Self::Binary { .. }
+            | Self::Symlink { .. }
+            | Self::Unavailable { .. } => None,
+        }
+    }
+
     /// Returns the display message for a non-text outcome.
     #[must_use]
     pub fn message(&self) -> Option<&str> {
@@ -108,5 +132,30 @@ impl FileDocument {
                 ..
             }
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FileDocument;
+
+    #[test]
+    fn incomplete_or_lossy_text_is_not_an_lsp_document() {
+        for document in [
+            FileDocument::Text {
+                source: "partial".to_owned(),
+                lines: vec!["partial".to_owned()],
+                valid_utf8: true,
+                truncated: true,
+            },
+            FileDocument::Text {
+                source: "replacement �".to_owned(),
+                lines: vec!["replacement �".to_owned()],
+                valid_utf8: false,
+                truncated: false,
+            },
+        ] {
+            assert!(document.source().is_none());
+        }
     }
 }

@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use crate::app::{
     Action, AppState, CodeEntryKind, ErrorNotice, GitEffect, LoadState, Overlay, VisibleCodeEntry,
 };
-use crate::domain::{FileDocument, RepoPath};
+use crate::domain::{FileDocument, RepoPath, SourcePosition};
 use crate::git::GitError;
 
 pub(crate) fn request_tree(state: &mut AppState) -> Vec<GitEffect> {
@@ -15,9 +15,11 @@ pub(crate) fn request_tree(state: &mut AppState) -> Vec<GitEffect> {
     state.code_view.files.clear();
     state.code_view.path = None;
     state.code_view.content = LoadState::Idle;
-    state.code_view.vertical = 0;
-    state.code_view.horizontal = 0;
+    state.code_view.cursor = SourcePosition::new(0, 0);
+    state.code_view.viewport_vertical = 0;
+    state.code_view.viewport_horizontal = 0;
     state.code_view.pending_reveal = None;
+    state.code_view.document_revision = state.code_view.document_revision.saturating_add(1);
     state.search.clear();
     state.notice = None;
     vec![GitEffect::LoadCodeTree { request_id }]
@@ -56,7 +58,7 @@ pub(crate) fn file_loaded(
         Ok(document) => LoadState::Ready(document),
         Err(error) => LoadState::Failed(ErrorNotice::new(error.to_string())),
     };
-    state.code_view.vertical = state.code_view.vertical.min(last_line(state));
+    clamp_cursor(state);
     Vec::new()
 }
 
@@ -100,7 +102,7 @@ pub(crate) fn activate_tree(state: &mut AppState) -> Vec<GitEffect> {
         let effects = if state.code_view.path.as_ref() == Some(selected.path()) {
             Vec::new()
         } else {
-            load_file(state, selected.path().clone(), 0)
+            load_file(state, selected.path().clone(), SourcePosition::new(0, 0))
         };
         state.overlay = Overlay::CodeContent;
         return effects;
@@ -128,15 +130,17 @@ pub(crate) fn content_action(state: &mut AppState, action: Action) -> Vec<GitEff
         }
         Action::MoveUp => move_content_cursor(state, -1),
         Action::MoveDown => move_content_cursor(state, 1),
-        Action::MoveTop => state.code_view.vertical = 0,
-        Action::MoveBottom => state.code_view.vertical = last_line(state),
+        Action::MoveTop => set_cursor_line(state, 0, false),
+        Action::MoveBottom => set_cursor_line(state, last_line(state), false),
         Action::HalfPageUp => move_content_cursor(state, -10),
         Action::HalfPageDown => move_content_cursor(state, 10),
         Action::ScrollLeft => {
-            state.code_view.horizontal = state.code_view.horizontal.saturating_sub(4);
+            state.code_view.viewport_horizontal =
+                state.code_view.viewport_horizontal.saturating_sub(4);
         }
         Action::ScrollRight => {
-            state.code_view.horizontal = state.code_view.horizontal.saturating_add(4);
+            state.code_view.viewport_horizontal =
+                state.code_view.viewport_horizontal.saturating_add(4);
         }
         Action::StartSearch(direction) => state.search.begin(direction),
         Action::InsertSearch(character) => state.search.push(character),
@@ -146,13 +150,13 @@ pub(crate) fn content_action(state: &mut AppState, action: Action) -> Vec<GitEff
         Action::NextMatch => {
             let direction = state.search.direction();
             if let Some(line) = state.search.select_next(direction) {
-                state.code_view.vertical = line;
+                set_cursor_line(state, line, true);
             }
         }
         Action::PreviousMatch => {
             let direction = state.search.direction().reversed();
             if let Some(line) = state.search.select_next(direction) {
-                state.code_view.vertical = line;
+                set_cursor_line(state, line, true);
             }
         }
         _ => {}
@@ -161,12 +165,14 @@ pub(crate) fn content_action(state: &mut AppState, action: Action) -> Vec<GitEff
 }
 
 pub(crate) fn move_content_cursor(state: &mut AppState, delta: isize) {
-    let next = state.code_view.vertical.saturating_add_signed(delta);
-    state.code_view.vertical = match &state.code_view.content {
+    let current = usize::try_from(state.code_view.cursor.line()).unwrap_or(usize::MAX);
+    let next = current.saturating_add_signed(delta);
+    let line = match &state.code_view.content {
         LoadState::Loading { .. } => next,
         LoadState::Ready(_) => next.min(last_line(state)),
         LoadState::Idle | LoadState::Failed(_) => 0,
     };
+    set_cursor_line(state, line, false);
 }
 
 pub(crate) fn last_line(state: &AppState) -> usize {
@@ -192,7 +198,26 @@ pub(crate) fn reveal_and_load(
         reveal_path(state, &path);
     }
     state.focus = crate::app::FocusedPane::Diff;
-    load_file(state, path, line.unwrap_or(1).saturating_sub(1) as usize)
+    load_file(
+        state,
+        path,
+        SourcePosition::new(line.unwrap_or(1).saturating_sub(1), 0),
+    )
+}
+
+pub(crate) fn reveal_location(
+    state: &mut AppState,
+    path: RepoPath,
+    position: SourcePosition,
+) -> Vec<GitEffect> {
+    if matches!(state.code_view.visible, LoadState::Loading { .. }) {
+        state.code_view.pending_reveal = Some(path.clone());
+    } else {
+        reveal_path(state, &path);
+    }
+    state.focus = crate::app::FocusedPane::Diff;
+    state.overlay = Overlay::CodeContent;
+    load_file(state, path, position)
 }
 
 fn preview_selected_file(state: &mut AppState) -> Vec<GitEffect> {
@@ -203,22 +228,24 @@ fn preview_selected_file(state: &mut AppState) -> Vec<GitEffect> {
             .map(|entry| entry.path().clone()),
         _ => None,
     };
-    path.map(|path| load_file(state, path, 0))
+    path.map(|path| load_file(state, path, SourcePosition::new(0, 0)))
         .unwrap_or_default()
 }
 
-fn load_file(state: &mut AppState, path: RepoPath, vertical: usize) -> Vec<GitEffect> {
+fn load_file(state: &mut AppState, path: RepoPath, cursor: SourcePosition) -> Vec<GitEffect> {
     let request_id = state.request_id();
     state.code_view.path = Some(path.clone());
     state.code_view.content = LoadState::Loading { request_id };
-    state.code_view.vertical = vertical;
-    state.code_view.horizontal = 0;
+    state.code_view.document_revision = state.code_view.document_revision.saturating_add(1);
+    state.code_view.cursor = cursor;
+    state.code_view.viewport_vertical = usize::try_from(cursor.line()).unwrap_or(usize::MAX);
+    state.code_view.viewport_horizontal = 0;
     state.search.clear();
     vec![GitEffect::LoadCodeFile { request_id, path }]
 }
 
 fn confirm_search(state: &mut AppState) {
-    let anchor = state.code_view.vertical;
+    let anchor = usize::try_from(state.code_view.cursor.line()).unwrap_or(usize::MAX);
     let line = match &state.code_view.content {
         LoadState::Ready(document) if document.message().is_some() => {
             state.search.confirm(document.message(), anchor)
@@ -232,8 +259,71 @@ fn confirm_search(state: &mut AppState) {
         }
     };
     if let Some(line) = line {
-        state.code_view.vertical = line;
+        set_cursor_line(state, line, true);
     }
+}
+
+pub(crate) fn move_cursor_horizontally(state: &mut AppState, right: bool) {
+    let line_index = usize::try_from(state.code_view.cursor.line()).unwrap_or(usize::MAX);
+    let Some(line) = current_lines(state)
+        .and_then(|lines| lines.get(line_index))
+        .cloned()
+    else {
+        state.code_view.cursor = SourcePosition::new(state.code_view.cursor.line(), 0);
+        return;
+    };
+    let column = if right {
+        crate::lsp::next_byte_column(&line, state.code_view.cursor.byte_column())
+    } else {
+        crate::lsp::previous_byte_column(&line, state.code_view.cursor.byte_column())
+    };
+    state.code_view.cursor = SourcePosition::new(state.code_view.cursor.line(), column);
+    let display = crate::lsp::display_column(&line, column);
+    if display < state.code_view.viewport_horizontal {
+        state.code_view.viewport_horizontal = display;
+    }
+}
+
+fn set_cursor_line(state: &mut AppState, line: usize, reset_column: bool) {
+    let line = line.min(last_line(state));
+    let byte_column = if reset_column {
+        0
+    } else {
+        let requested = state.code_view.cursor.byte_column();
+        current_lines(state)
+            .and_then(|lines| lines.get(line))
+            .map_or(0, |content| clamp_byte_column(content, requested))
+    };
+    state.code_view.cursor =
+        SourcePosition::new(u32::try_from(line).unwrap_or(u32::MAX), byte_column);
+    if line < state.code_view.viewport_vertical {
+        state.code_view.viewport_vertical = line;
+    }
+}
+
+fn clamp_cursor(state: &mut AppState) {
+    let line = usize::try_from(state.code_view.cursor.line())
+        .unwrap_or(usize::MAX)
+        .min(last_line(state));
+    set_cursor_line(state, line, false);
+}
+
+fn current_lines(state: &AppState) -> Option<&[String]> {
+    match &state.code_view.content {
+        LoadState::Ready(document) if document.message().is_none() => Some(document.lines()),
+        LoadState::Idle
+        | LoadState::Loading { .. }
+        | LoadState::Ready(_)
+        | LoadState::Failed(_) => None,
+    }
+}
+
+fn clamp_byte_column(line: &str, requested: usize) -> usize {
+    let mut column = requested.min(line.len());
+    while !line.is_char_boundary(column) {
+        column = column.saturating_sub(1);
+    }
+    column
 }
 
 fn expand(state: &mut AppState, index: usize, selected: &VisibleCodeEntry) {
@@ -425,7 +515,7 @@ mod tests {
                     .and_then(|index| entries.get(index))
                     .is_some_and(|entry| entry.path() == &target)
         ));
-        assert_eq!(state.code_view.vertical, 2);
+        assert_eq!(state.code_view.cursor.line(), 2);
     }
 
     fn path(value: &str) -> RepoPath {

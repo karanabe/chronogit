@@ -21,14 +21,19 @@ close = q, esc
 quit = Q
 ```
 
-各`action = keys`行は、そのactionの標準割り当てをすべて置き換えます。連続キーは空白、代替キーはカンマで区切ります。単一文字、`space`、`enter`、`esc`、`backspace`、`up`、`down`、`left`、`right`、`home`、`end`、`f1`〜`f255`と、それらに`ctrl-`または`alt-`を付けた名前を使えます。連続キーは750 msで期限切れになります。
+各`action = keys`行は、そのactionの標準割り当てをすべて置き換えます。連続キーは空白、代替キーはカンマで区切ります。単一文字、`space`、`enter`、`esc`、`backspace`、`tab`、`up`、`down`、`left`、`right`、`home`、`end`、`f1`〜`f255`と、それらに`ctrl-`または`alt-`を付けた名前を使えます。連続キーは750 msで期限切れになります。
 
 | action名 | 用途 |
 | --- | --- |
 | `quit`, `show_changes`, `show_history`, `show_graph`, `show_code` | アプリとビューの選択 |
 | `focus_previous`, `focus_next` | ペインフォーカス |
-| `move_up`, `move_down`, `move_top`, `move_bottom` | 選択またはカーソル移動 |
+| `move_up`, `move_down`, `move_top`, `move_bottom` | 選択またはカーソル移動（`j` / `k`、`gg` / `G`） |
 | `half_page_up`, `half_page_down`, `scroll_left`, `scroll_right` | 表示範囲の移動 |
+| `cursor_left`, `cursor_right` | Code focus中はcursor移動（`h` / `l`とLeft / Right）、それ以外はpane移動 |
+| `lsp_hover` | Code cursor位置のhover解説を開閉（`K`） |
+| `go_to_definition`, `go_to_implementation` | LSPの定義 / 実装（`gd` / `gi`） |
+| `go_to_type_definition`, `go_to_declaration` | LSPの型定義 / 宣言（`gy` / `gD`） |
+| `semantic_back`, `semantic_forward` | 古い / 新しいsemantic locationへ移動（`Ctrl-o` / `Ctrl-i`。Tabは端末互換のforward alias） |
 | `refresh`, `activate`, `close` | 現在ビューの操作 |
 | `toggle_message`, `toggle_details`, `toggle_tree`, `toggle_help` | 履歴とヘルプ表示 |
 | `file_search`, `content_search` | リポジトリ全体の検索 |

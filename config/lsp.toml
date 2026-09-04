@@ -1,0 +1,32 @@
+# Copy this file to $XDG_CONFIG_HOME/chronogit/lsp.toml
+# (or ~/.config/chronogit/lsp.toml). Profiles are trusted user-level process
+# configuration and are used only when selected with --lsp PROFILE.
+
+# Built-in profiles already provide these values. Uncomment a complete table
+# only to override one, for example to select an absolute executable path.
+
+# [servers.rust-analyzer]
+# language_id = "rust"
+# extensions = ["rs"]
+# command = ["rust-analyzer"]
+# root_markers = ["Cargo.toml"]
+
+# [servers.jdtls]
+# language_id = "java"
+# extensions = ["java"]
+# command = ["jdtls", "-configuration", "{workspace_config}", "-data", "{workspace_data}"]
+# root_markers = ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", ".project"]
+# workspace_data = true
+
+# [servers.pyright]
+# language_id = "python"
+# extensions = ["py", "pyi"]
+# command = ["pyright-langserver", "--stdio"]
+# root_markers = ["pyrightconfig.json", "pyproject.toml", "setup.cfg"]
+
+# A new standard-LSP language is profile data, not a new client implementation:
+# [servers.gopls]
+# language_id = "go"
+# extensions = ["go"]
+# command = ["gopls"]
+# root_markers = ["go.mod", "go.work"]
