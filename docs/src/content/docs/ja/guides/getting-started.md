@@ -75,7 +75,7 @@ chronogit /path/to/repository --view graph
 chronogit /path/to/repository --view code
 ```
 
-起動後も`1`でChanges、`2`でHistory、`3`でGraph、`4`でCodeへ移動できます。最初の3つがGitワークフロー、Codeが独立したソース閲覧ワークフローです。どのメインビューでも`Space f`でファイル、`Space g`でワークツリー文字列を検索できます。キー一覧は`F1`、閉じる/戻る操作は`q` / `Esc`、終了は`Q` / `Ctrl-C`です。
+起動後も`\1`でChanges、`\2`でHistory、`\3`でGraph、`\4`でCodeへ移動できます。最初の3つがGitワークフロー、Codeが独立したソース閲覧ワークフローです。どのメインビューでも`\f`でファイル、`\g`でワークツリー文字列を検索できます。キー一覧は`F1`、閉じる/戻る操作は`q` / `Esc`、終了は`Q` / `Ctrl-C`です。
 
 ## 次に読む
 

@@ -11,17 +11,17 @@ sidebar:
 
 History view combines a paged commit list with each commit's changed files, patch, complete message, and repository tree.
 
-Open it with `chronogit --view history` or press `2`.
+Open it with `chronogit --view history` or press `\2`.
 
 ## Select a commit and file
 
 History displays commits, changed files/tree, and the diff preview as three full-width rows from top to bottom.
 
 1. Select a commit in the top row with `j` and `k`.
-2. Press `Enter` to confirm the commit and focus Changed files. You can also move there with `l` or `Ctrl-j`.
+2. Press `Enter` to confirm the commit and focus Changed files. You can also move there with `Ctrl-w j` / `Ctrl-w l`.
 3. Press `Enter` to open the complete patch in a large floating diff.
-4. Move the current-line gutter marker with `j` / `k`, `Ctrl-d` / `Ctrl-u`, and `gg` / `G`; the viewport follows it without recoloring syntax-highlighted code. These keys also take effect when entered while the diff is loading. Use `/` or `?` to search forward or backward, then `n` / `N` to move between matches.
-5. Press `Enter` again to close the diff, or use `q` / `Esc`.
+4. Use count-aware Vim character, word, line, buffer, structural, search, and viewport motions. `[c` / `]c` jumps between diff change blocks; the cursor remains visible without recoloring syntax-highlighted code. Vertical commands entered while the diff is loading still take effect.
+5. `Enter` moves to the next line's first nonblank. Use `q` or `Esc` to close the diff.
 
 History loads 200 commits at a time. Moving to the end of the loaded page requests the next page when one exists. Changed-file lists and diffs load only for the selected commit.
 
@@ -39,17 +39,19 @@ Merge commits are not shown as a combined or per-parent diff in `0.4.0`. When an
 
 ## Read the complete commit message
 
-Press `m` to open the selected commit's complete message in a floating overlay. Navigation keys scroll the message. Press `m` again, `q`, or `Esc` to close it.
+Messages use logical lines without wrapping so character positions and search matches stay aligned. The viewport follows the cursor horizontally; `zh` / `zl` also scroll it.
 
-For a persistent body-oriented layout, press `b`. Its three rows are the same interactive commit list, the selected commit's body (including trailers), and changed files. Use `h` / `l` or `Ctrl-k` / `Ctrl-j` to move focus. Selecting another commit in the top row refreshes both the body and file rows. Focus the bottom row and press `Enter` to open a file diff; use `j` / `k` inside the diff. Press `b` again to return to standard History.
+Press `\m` to open the selected commit's complete message in a floating overlay. It supports the same text motions and search commands. Press `\m` again, `q`, or `Esc` to close it.
+
+For a persistent body-oriented layout, press `\b`. Its three rows are the same interactive commit list, the selected commit's body (including trailers), and changed files. Use `Ctrl-w h/k/j/l` to move focus. Selecting another commit in the top row refreshes both the body and file rows. Focus the bottom row and press `Enter` to open a file diff; use Vim motions inside the diff. Press `\b` again to return to standard History.
 
 ## Follow parent lanes in Graph
 
-Press `3` or start with `chronogit --view graph` to see the same paged commits with parent lanes. `j` / `k` changes the commit, and `m` opens its complete message. Press `Enter` for a floating two-row window over Graph containing that commit's changed files and selected-file diff. Press `Enter` again for the full floating diff; `q` / `Esc` returns one level at a time.
+Press `\3` or start with `chronogit --view graph` to see the same paged commits with parent lanes. `j` / `k` changes the commit, and `\m` opens its complete message. Press `Enter` for a floating two-row window over Graph containing that commit's changed files and selected-file diff. Press `Enter` again for the full floating diff; `q` / `Esc` returns one level at a time.
 
 ## Browse the commit tree
 
-Press `t` to replace the changed-file list with the selected commit's complete tree.
+Press `\t` to replace the changed-file list with the selected commit's complete tree.
 
 - Select a directory and press `Enter` to expand or collapse it.
 - Select a file and press `Enter` to open its patch for the active commit comparison.
@@ -59,4 +61,4 @@ Press `t` to replace the changed-file list with the selected commit's complete t
 
 Tree directories load lazily. Returning to an already expanded directory reuses its entries for the selected commit.
 
-Press `t` again to return to changed files. Changing commits resets the tree to the new commit's root.
+Press `\t` again to return to changed files. Changing commits resets the tree to the new commit's root.

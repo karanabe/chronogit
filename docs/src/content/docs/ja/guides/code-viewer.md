@@ -9,7 +9,7 @@ sidebar:
   order: 4
 ---
 
-ChronoGitは、従来のGitレビュー画面とワークツリーのCode viewerを分けています。標準起動ではこれまでどおりChangesを開きます。差分やコミットではなくリポジトリを閲覧するときは`4`を押すか、`chronogit --view code`で起動します。
+ChronoGitは、従来のGitレビュー画面とワークツリーのCode viewerを分けています。標準起動ではこれまでどおりChangesを開きます。差分やコミットではなくリポジトリを閲覧するときは`\4`を押すか、`chronogit --view code`で起動します。
 
 ## ファイルツリーを操作する
 
@@ -18,7 +18,7 @@ ChronoGitは、従来のGitレビュー画面とワークツリーのCode viewer
 1. `j` / `k`、矢印キー、`gg` / `G`、Home/Endで移動します。
 2. ディレクトリ上で`Enter`を押すと、直下の項目を展開または折り畳みます。
 3. ファイルへ移動すると、現在のワークツリー内容を下段へ読み込みます。
-4. `l`または`Ctrl-j`でコードペインへ移ります。コード本文へフォーカスした後の`h` / `l`は文字カーソルを動かし、`Ctrl-k`でツリーへ戻ります。
+4. `Ctrl-w j` / `Ctrl-w l`でコードペインへ移ります。コード本文へフォーカスした後の`h` / `l`は文字カーソルを動かし、`Ctrl-w h` / `Ctrl-w k`でツリーへ戻ります。
 
 `r`を押すと、Gitが返す現在の追跡済み・非ignoreファイル一覧からツリーを作り直します。削除済みの追跡対象は一覧に残り、開くと利用できない旨の要約を表示します。バイナリはデコードせず、シンボリックリンクはたどらずに表示します。
 
@@ -26,17 +26,19 @@ ChronoGitは、従来のGitレビュー画面とワークツリーのCode viewer
 
 ツリーのファイル上、または下段へフォーカスした状態で`Enter`を押すと、ほぼ全画面のコードウィンドウが開きます。このウィンドウは意図的に差分フロートと同じキーマップを使います。
 
-- `j` / `k`、`gg` / `G`、`Ctrl-d` / `Ctrl-u`で現在行マーカーを移動します。
-- `h` / `l`または左右矢印でsemantic cursorをUTF-8文字単位に移動します。tab、全角文字、combining characterでもsource位置を保ちます。
-- `zh` / `zl`で横スクロールします。
-- `/`と`?`でsmart-caseの前方/後方検索を開始し、`n` / `N`で末尾/先頭を折り返しながら繰り返します。
-- `Enter`、`q`、`Esc`でウィンドウを閉じ、2ペインのCodeビューへ戻ります。
+- normal-mode motionでは数値countを使えます。`h` / `j` / `k` / `l`と矢印はUTF-8安全なcursorを動かし、短い行をまたいでも希望表示列を維持します。
+- `w` / `W` / `e` / `E`と`b` / `B` / `ge` / `gE`はVimのword / WORD境界を実装します。`f` / `F` / `t` / `T`は文字引数を受け、`;` / `,`で同方向 / 逆方向へ反復します。
+- 論理行、buffer、文、段落、section、delimiter、method、preprocessor、comment motionは標準Vimキーを使います。`go`は1始まりのbyte offsetを受けます。
+- `Ctrl-d` / `Ctrl-u`、`Ctrl-f` / `Ctrl-b`、`Ctrl-e` / `Ctrl-y`、`z` familyでviewportを縦横に移動・配置します。
+- `/`と`?`でsmart-caseの前方 / 後方検索を開始します。`n` / `N`はcount対応で、`*` / `#`はcursor位置のword、`g*` / `g#`は部分一致を検索します。
+- `m{char}`でmarkを設定し、`'{char}`で最初の非空白、`` `{char}``で正確な列へjumpします。`g`を前置するとjump listを維持し、`['` / `` [` ``と`]'` / `` ]` ``で前後の小文字markを探します。Code file間でも利用できます。
+- `Enter`は次行の最初の非空白へ移動します。`q`または`Esc`でwindowを閉じ、Codeの2ペイン表示へ戻ります。
 
 認識できるソース種別には組み込みのsyntax定義を使います。読み取りは8 MiBが上限で、それを超えるtextは無制限に保持せずtruncated表示になります。
 
 ## コード閲覧中に検索する
 
-Code viewerでもGit画面と同じく、`Space f`でファイルパス、`Space g`で固定文字列を検索できます。結果を開くとCodeへ直接戻り、選択ファイルが見えるまで親ディレクトリを展開して、現在内容を読み込みます。内容検索では現在行マーカーを一致行へ配置します。
+Code viewerでもGit画面と同じく、`\f`でファイルパス、`\g`で固定文字列を検索できます。結果を開くとCodeへ直接戻り、選択ファイルが見えるまで親ディレクトリを展開して、現在内容を読み込みます。内容検索では現在行マーカーを一致行へ配置します。
 
 ## LSPでsymbol間を移動する
 
@@ -58,10 +60,10 @@ ChronoGitは実行ファイルをinstallしません。[rust-analyzer](https://r
 - `gi`: 実装
 - `gy`: 型定義
 - `gD`: 宣言
-- `Ctrl-o`: 古いsemantic locationへ戻る
-- `Ctrl-i`: 新しいsemantic locationへ進む
+- `[count]Ctrl-o`: 古いVim / LSP jump位置へ戻る
+- `[count]Ctrl-i`: 新しいVim / LSP jump位置へ進む
 
-hoverはフロートウィンドウに表示します。`j` / `k`で説明文をスクロールし、`K`、`q`、`Esc`のいずれかで閉じます。hoverと各navigationが利用できるかはinitialize後のserver capabilityで決めます。serverがindex中は一時的に情報なしを返す場合があるため、フロートを閉じ、index完了後に同じ操作を再実行します。navigation結果が1件なら直接開き、複数なら`j` / `k`で選ぶlistを開きます。`Enter`で開き、`q` / `Esc`でlistを閉じます。`Ctrl-o`で戻った後に新しいsemantic jumpを実行すると、Vimのjump listと同様に新しい側の分岐は破棄します。端末が`Ctrl-i`とTabを区別できない場合、Tabも同じ「進む」操作になります。0件、未対応capability、起動失敗、timeout、crashは終了せずnoticeになります。
+hoverはフロートウィンドウに表示します。`j` / `k`で説明文をスクロールし、`K`、`q`、`Esc`のいずれかで閉じます。hoverと各navigationが利用できるかはinitialize後のserver capabilityで決めます。serverがindex中は一時的に情報なしを返す場合があるため、フロートを閉じ、index完了後に同じ操作を再実行します。navigation結果が1件なら直接開き、複数なら`j` / `k`で選ぶlistを開きます。`Enter`で開き、`q` / `Esc`でlistを閉じます。LSP target、長距離Vim motion、mark jump、検索は1つのjump listを共有し、`Ctrl-o`後の新しいjumpは新しい側の分岐を破棄します。端末が`Ctrl-i`とTabを区別できない場合、Tabも同じ「進む」操作になります。0件、未対応capability、起動失敗、timeout、crashは終了せずnoticeになります。
 
 対象は完全なUTF-8のcurrent working-tree fileだけです。repository内の`file:`結果だけをrooted no-follow readerで開きます。repository外のstandard library/dependencyと`jdt:`などのvirtual URIはunsupportedとして表示し、repository pathとして解釈しません。
 

@@ -3,9 +3,9 @@
 use crate::app::model::NavigationOrigin;
 use crate::app::{
     Action, AppEffect, AppState, AppView, ErrorNotice, Event, FocusedPane, LoadState, LspEffect,
-    Overlay,
+    Overlay, VimMotionKind,
 };
-use crate::domain::{NavigationTarget, RepositoryLocation, SemanticNavigationKind};
+use crate::domain::{NavigationTarget, RepositoryLocation, SemanticNavigationKind, SourcePosition};
 
 const MAX_JUMP_HISTORY: usize = 64;
 
@@ -29,7 +29,39 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Option<Vec<A
         Action::GoToSemanticTarget(kind) => Some(request(state, kind)),
         Action::GoBackFromSemanticTarget => Some(go_back(state)),
         Action::GoForwardFromSemanticTarget => Some(go_forward(state)),
+        Action::JumpListBack(count) => Some(jump_list(state, false, count)),
+        Action::JumpListForward(count) => Some(jump_list(state, true, count)),
         _ => None,
+    }
+}
+
+fn jump_list(state: &mut AppState, forward: bool, count: usize) -> Vec<AppEffect> {
+    let mut origin = current_origin(state);
+    let (source, destination) = if forward {
+        (
+            &mut state.semantic_navigation.forward_stack,
+            &mut state.semantic_navigation.back_stack,
+        )
+    } else {
+        (
+            &mut state.semantic_navigation.back_stack,
+            &mut state.semantic_navigation.forward_stack,
+        )
+    };
+    let steps = count.max(1).min(source.len());
+    for _ in 0..steps {
+        let next = source.pop_back();
+        if let Some(current) = origin.take() {
+            push_bounded(destination, current);
+        }
+        origin = next;
+    }
+    if steps > 0
+        && let Some(origin) = origin
+    {
+        reveal_origin(state, origin)
+    } else {
+        Vec::new()
     }
 }
 
@@ -182,6 +214,26 @@ fn hover_action(state: &mut AppState, action: Action) -> Vec<AppEffect> {
         Action::MoveDown => {
             state.lsp_hover.scroll = state.lsp_hover.scroll.saturating_add(1);
         }
+        Action::VimMotion(motion) => match motion.kind() {
+            VimMotionKind::Up
+            | VimMotionKind::PreviousLineFirstNonBlank
+            | VimMotionKind::ScrollLineUp
+            | VimMotionKind::WordBackward
+            | VimMotionKind::BigWordBackward => {
+                state.lsp_hover.scroll = state.lsp_hover.scroll.saturating_sub(motion.count());
+            }
+            VimMotionKind::Down
+            | VimMotionKind::NextLineFirstNonBlank
+            | VimMotionKind::ScrollLineDown
+            | VimMotionKind::WordForward
+            | VimMotionKind::BigWordForward => {
+                state.lsp_hover.scroll = state.lsp_hover.scroll.saturating_add(motion.count());
+            }
+            VimMotionKind::BufferTop | VimMotionKind::LineStart => {
+                state.lsp_hover.scroll = 0;
+            }
+            _ => {}
+        },
         Action::ToggleLspHover | Action::CloseOverlay => close_hover(state),
         _ => {}
     }
@@ -248,6 +300,36 @@ fn candidate_action(state: &mut AppState, action: Action) -> Vec<AppEffect> {
             let len = target_count(state);
             state.semantic_navigation.selection.bottom(len);
         }
+        Action::VimMotion(motion) => {
+            let len = target_count(state);
+            match motion.kind() {
+                VimMotionKind::Up
+                | VimMotionKind::PreviousLineFirstNonBlank
+                | VimMotionKind::WordBackward
+                | VimMotionKind::BigWordBackward => {
+                    state.semantic_navigation.selection.move_by(
+                        -(isize::try_from(motion.count()).unwrap_or(isize::MAX)),
+                        len,
+                    );
+                }
+                VimMotionKind::Down
+                | VimMotionKind::NextLineFirstNonBlank
+                | VimMotionKind::WordForward
+                | VimMotionKind::BigWordForward => {
+                    state
+                        .semantic_navigation
+                        .selection
+                        .move_by(isize::try_from(motion.count()).unwrap_or(isize::MAX), len);
+                }
+                VimMotionKind::BufferTop | VimMotionKind::LineStart => {
+                    state.semantic_navigation.selection.top(len);
+                }
+                VimMotionKind::BufferBottom | VimMotionKind::LineEnd => {
+                    state.semantic_navigation.selection.bottom(len);
+                }
+                _ => {}
+            }
+        }
         Action::Activate => {
             let target = match (
                 &state.semantic_navigation.targets,
@@ -308,19 +390,28 @@ fn jump_to_repository(state: &mut AppState, location: RepositoryLocation) -> Vec
 }
 
 fn go_back(state: &mut AppState) -> Vec<AppEffect> {
+    jump_to_previous(state, false)
+}
+
+pub(crate) fn jump_to_previous(state: &mut AppState, linewise: bool) -> Vec<AppEffect> {
     let Some(origin) = state.semantic_navigation.back_stack.pop_back() else {
-        state.notice = Some(ErrorNotice::new("No earlier semantic location."));
+        state.notice = Some(ErrorNotice::new("No earlier jump location."));
         return Vec::new();
     };
     if let Some(current) = current_origin(state) {
         push_bounded(&mut state.semantic_navigation.forward_stack, current);
+    }
+    let mut origin = origin;
+    if linewise {
+        origin.cursor = SourcePosition::new(origin.cursor.line(), origin.first_non_blank_column);
+        origin.viewport_horizontal = 0;
     }
     reveal_origin(state, origin)
 }
 
 fn go_forward(state: &mut AppState) -> Vec<AppEffect> {
     let Some(origin) = state.semantic_navigation.forward_stack.pop_back() else {
-        state.notice = Some(ErrorNotice::new("No newer semantic location."));
+        state.notice = Some(ErrorNotice::new("No newer jump location."));
         return Vec::new();
     };
     if let Some(current) = current_origin(state) {
@@ -329,10 +420,22 @@ fn go_forward(state: &mut AppState) -> Vec<AppEffect> {
     reveal_origin(state, origin)
 }
 
-fn current_origin(state: &AppState) -> Option<NavigationOrigin> {
+pub(crate) fn current_origin(state: &AppState) -> Option<NavigationOrigin> {
     state.code_view.path.clone().map(|path| NavigationOrigin {
         path,
         cursor: state.code_view.cursor,
+        first_non_blank_column: match &state.code_view.content {
+            LoadState::Ready(document) => document
+                .lines()
+                .get(usize::try_from(state.code_view.cursor.line()).unwrap_or(usize::MAX))
+                .and_then(|line| {
+                    line.char_indices()
+                        .find(|(_, character)| !character.is_whitespace())
+                        .map(|(column, _)| column)
+                })
+                .unwrap_or(0),
+            LoadState::Idle | LoadState::Loading { .. } | LoadState::Failed(_) => 0,
+        },
         viewport_vertical: state.code_view.viewport_vertical,
         viewport_horizontal: state.code_view.viewport_horizontal,
     })
@@ -348,7 +451,40 @@ fn push_bounded(
     stack.push_back(origin);
 }
 
+/// Adds a completed Vim jump to the shared jump list.
+///
+/// The caller captures `origin` before moving and calls this only when the
+/// cursor actually changed. Vim's jump list and LSP navigation therefore use
+/// the same Ctrl-O/Ctrl-I history.
+pub(crate) fn remember_jump(state: &mut AppState, origin: NavigationOrigin) {
+    if current_origin(state).as_ref() == Some(&origin) {
+        return;
+    }
+    push_bounded(&mut state.semantic_navigation.back_stack, origin);
+    state.semantic_navigation.forward_stack.clear();
+}
+
+pub(crate) fn jump_to_mark(
+    state: &mut AppState,
+    origin: NavigationOrigin,
+    linewise: bool,
+    record_jump: bool,
+) -> Vec<AppEffect> {
+    let current = current_origin(state);
+    let mut origin = origin;
+    if linewise {
+        origin.cursor = SourcePosition::new(origin.cursor.line(), origin.first_non_blank_column);
+        origin.viewport_horizontal = 0;
+    }
+    let effects = reveal_origin(state, origin);
+    if record_jump && let Some(current) = current {
+        remember_jump(state, current);
+    }
+    effects
+}
+
 fn reveal_origin(state: &mut AppState, origin: NavigationOrigin) -> Vec<AppEffect> {
+    state.view = AppView::Code;
     let effects = crate::app::code_view::reveal_location(state, origin.path, origin.cursor);
     state.code_view.viewport_vertical = origin.viewport_vertical;
     state.code_view.viewport_horizontal = origin.viewport_horizontal;
@@ -366,7 +502,9 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{apply_action, apply_event};
-    use crate::app::{Action, AppState, AppView, Event, LoadState, Overlay};
+    use crate::app::{
+        Action, AppState, AppView, Event, LoadState, Overlay, VimMotion, VimMotionKind,
+    };
     use crate::domain::{
         FileDocument, NavigationTarget, RepoPath, RepositoryLocation, RepositoryRoot,
         SemanticNavigationKind, SourcePosition, SourceRange,
@@ -402,6 +540,136 @@ mod tests {
         assert_eq!(state.code_view.cursor, SourcePosition::new(0, 2));
         let _none = apply_action(&mut state, Action::MoveCursorLeft);
         assert_eq!(state.code_view.cursor, SourcePosition::new(0, 1));
+
+        state.code_view.cursor = SourcePosition::new(0, 0);
+        assert!(
+            state
+                .handle_app_action(Action::VimMotion(VimMotion::new(
+                    VimMotionKind::WordForward,
+                )))
+                .is_empty()
+        );
+        assert_eq!(state.code_view.cursor, SourcePosition::new(0, 3));
+    }
+
+    #[test]
+    fn vim_marks_restore_exact_or_first_non_blank_positions_and_join_jump_history() {
+        let mut state = state();
+        state.code_view.content = LoadState::Ready(FileDocument::Text {
+            source: "zero\n  marked word\n".to_owned(),
+            lines: vec!["zero".to_owned(), "  marked word".to_owned()],
+            valid_utf8: true,
+            truncated: false,
+        });
+        state.code_view.cursor = SourcePosition::new(1, 9);
+        assert!(state.handle_app_action(Action::SetVimMark('a')).is_empty());
+
+        state.code_view.cursor = SourcePosition::new(0, 2);
+        let effects = state.handle_app_action(Action::JumpToVimMark {
+            mark: 'a',
+            linewise: true,
+            record_jump: true,
+        });
+        assert_eq!(effects.len(), 1);
+        assert_eq!(state.code_view.cursor, SourcePosition::new(1, 2));
+        assert_eq!(state.semantic_navigation.back_stack.len(), 1);
+        assert_eq!(
+            state
+                .semantic_navigation
+                .back_stack
+                .back()
+                .map(|origin| origin.cursor),
+            Some(SourcePosition::new(0, 2))
+        );
+    }
+
+    #[test]
+    fn mark_scans_are_counted_and_history_free_mark_jumps_do_not_push() {
+        let mut state = state();
+        state.code_view.content = LoadState::Ready(FileDocument::Text {
+            source: "zero\n  first\n    second\n".to_owned(),
+            lines: vec![
+                "zero".to_owned(),
+                "  first".to_owned(),
+                "    second".to_owned(),
+            ],
+            valid_utf8: true,
+            truncated: false,
+        });
+        state.code_view.cursor = SourcePosition::new(1, 4);
+        assert!(state.handle_app_action(Action::SetVimMark('a')).is_empty());
+        state.code_view.cursor = SourcePosition::new(2, 7);
+        assert!(state.handle_app_action(Action::SetVimMark('b')).is_empty());
+        state.code_view.cursor = SourcePosition::new(0, 0);
+
+        let _effects = state.handle_app_action(Action::VimMotion(
+            VimMotion::new(VimMotionKind::NextMarkLine).counted(2, true),
+        ));
+        assert_eq!(state.code_view.cursor, SourcePosition::new(2, 4));
+
+        let history_len = state.semantic_navigation.back_stack.len();
+        let _effects = state.handle_app_action(Action::JumpToVimMark {
+            mark: 'a',
+            linewise: false,
+            record_jump: false,
+        });
+        assert_eq!(state.code_view.cursor, SourcePosition::new(1, 4));
+        assert_eq!(state.semantic_navigation.back_stack.len(), history_len);
+    }
+
+    #[test]
+    fn counted_jump_list_navigation_continues_for_same_file_locations() {
+        let mut state = state();
+        state.code_view.content = LoadState::Ready(FileDocument::Text {
+            source: "zero\none\ntwo\n".to_owned(),
+            lines: vec!["zero".to_owned(), "one".to_owned(), "two".to_owned()],
+            valid_utf8: true,
+            truncated: false,
+        });
+        state.code_view.cursor = SourcePosition::new(1, 0);
+        assert!(
+            state
+                .handle_app_action(Action::VimMotion(VimMotion::new(
+                    VimMotionKind::BufferBottom,
+                )))
+                .is_empty()
+        );
+        assert!(
+            state
+                .handle_app_action(Action::VimMotion(VimMotion::new(VimMotionKind::BufferTop,)))
+                .is_empty()
+        );
+
+        let _effects = state.handle_app_action(Action::JumpListBack(2));
+        assert_eq!(state.code_view.cursor, SourcePosition::new(1, 0));
+
+        let _effects = state.handle_app_action(Action::JumpListForward(2));
+        assert_eq!(state.code_view.cursor, SourcePosition::new(0, 0));
+    }
+
+    #[test]
+    fn counted_jumps_preserve_intermediate_mark_columns_without_loading_them() {
+        let mut state = state();
+        state.semantic_navigation.back_stack.clear();
+        let current = super::current_origin(&state).unwrap_or_else(|| panic!("missing origin"));
+        for (line, first_non_blank_column) in [(1, 2), (2, 4)] {
+            let mut origin = current.clone();
+            origin.cursor = SourcePosition::new(line, first_non_blank_column + 1);
+            origin.first_non_blank_column = first_non_blank_column;
+            state.semantic_navigation.back_stack.push_back(origin);
+        }
+        state.view = AppView::History;
+        let effects = state.handle_app_action(Action::JumpListBack(2));
+        assert_eq!(effects.len(), 1);
+        assert_eq!(state.view, AppView::Code);
+        assert_eq!(
+            state
+                .semantic_navigation
+                .forward_stack
+                .back()
+                .map(|origin| origin.first_non_blank_column),
+            Some(4)
+        );
     }
 
     #[test]

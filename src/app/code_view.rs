@@ -3,7 +3,8 @@
 use std::collections::BTreeMap;
 
 use crate::app::{
-    Action, AppState, CodeEntryKind, ErrorNotice, GitEffect, LoadState, Overlay, VisibleCodeEntry,
+    Action, AppState, CodeEntryKind, ErrorNotice, GitEffect, LoadState, Overlay, VimMotion,
+    VimMotionKind, VisibleCodeEntry,
 };
 use crate::domain::{FileDocument, RepoPath, SourcePosition};
 use crate::git::GitError;
@@ -16,6 +17,7 @@ pub(crate) fn request_tree(state: &mut AppState) -> Vec<GitEffect> {
     state.code_view.path = None;
     state.code_view.content = LoadState::Idle;
     state.code_view.cursor = SourcePosition::new(0, 0);
+    state.code_view.desired_display_column = None;
     state.code_view.viewport_vertical = 0;
     state.code_view.viewport_horizontal = 0;
     state.code_view.pending_reveal = None;
@@ -238,6 +240,7 @@ fn load_file(state: &mut AppState, path: RepoPath, cursor: SourcePosition) -> Ve
     state.code_view.content = LoadState::Loading { request_id };
     state.code_view.document_revision = state.code_view.document_revision.saturating_add(1);
     state.code_view.cursor = cursor;
+    state.code_view.desired_display_column = None;
     state.code_view.viewport_vertical = usize::try_from(cursor.line()).unwrap_or(usize::MAX);
     state.code_view.viewport_horizontal = 0;
     state.search.clear();
@@ -282,6 +285,90 @@ pub(crate) fn move_cursor_horizontally(state: &mut AppState, right: bool) {
     if display < state.code_view.viewport_horizontal {
         state.code_view.viewport_horizontal = display;
     }
+}
+
+pub(crate) fn apply_vim_motion(
+    state: &mut AppState,
+    motion: VimMotion,
+    viewport_height: usize,
+    viewport_width: usize,
+) {
+    if matches!(state.code_view.content, LoadState::Loading { .. }) {
+        let current = usize::try_from(state.code_view.cursor.line()).unwrap_or(usize::MAX);
+        let distance = match motion.kind() {
+            VimMotionKind::Down => Some(motion.count()),
+            VimMotionKind::Up => None,
+            VimMotionKind::HalfPageDown => Some(if motion.has_explicit_count() {
+                motion.count()
+            } else {
+                viewport_height.saturating_div(2).max(1)
+            }),
+            VimMotionKind::HalfPageUp => None,
+            VimMotionKind::PageDown => Some(
+                viewport_height
+                    .saturating_sub(2)
+                    .max(1)
+                    .saturating_mul(motion.count()),
+            ),
+            VimMotionKind::PageUp => None,
+            _ => return,
+        };
+        let line = if let Some(distance) = distance {
+            current.saturating_add(distance)
+        } else {
+            let distance = match motion.kind() {
+                VimMotionKind::Up => motion.count(),
+                VimMotionKind::HalfPageUp => {
+                    if motion.has_explicit_count() {
+                        motion.count()
+                    } else {
+                        viewport_height.saturating_div(2).max(1)
+                    }
+                }
+                VimMotionKind::PageUp => viewport_height
+                    .saturating_sub(2)
+                    .max(1)
+                    .saturating_mul(motion.count()),
+                _ => 0,
+            };
+            current.saturating_sub(distance)
+        };
+        state.code_view.cursor = SourcePosition::new(
+            u32::try_from(line).unwrap_or(u32::MAX),
+            state.code_view.cursor.byte_column(),
+        );
+        state.code_view.viewport_vertical = state.code_view.viewport_vertical.min(line);
+        return;
+    }
+
+    const TRUNCATED: &str = "… file truncated at the safe output limit …";
+    let (position, viewport) = {
+        let mut lines = current_lines(state)
+            .map(|lines| lines.iter().map(String::as_str).collect::<Vec<_>>())
+            .unwrap_or_else(|| match &state.code_view.content {
+                LoadState::Ready(document) => document.message().into_iter().collect(),
+                LoadState::Idle | LoadState::Loading { .. } | LoadState::Failed(_) => Vec::new(),
+            });
+        if matches!(&state.code_view.content, LoadState::Ready(document) if document.is_truncated())
+        {
+            lines.push(TRUNCATED);
+        }
+        let mut viewport = crate::app::vim::Viewport::new(
+            state.code_view.viewport_vertical,
+            state.code_view.viewport_horizontal,
+            viewport_height,
+            viewport_width,
+            8,
+        )
+        .with_desired_column(state.code_view.desired_display_column);
+        let position =
+            crate::app::vim::apply(&lines, state.code_view.cursor, &mut viewport, motion);
+        (position, viewport)
+    };
+    state.code_view.cursor = position;
+    state.code_view.desired_display_column = viewport.desired_column;
+    state.code_view.viewport_vertical = viewport.top;
+    state.code_view.viewport_horizontal = viewport.left;
 }
 
 fn set_cursor_line(state: &mut AppState, line: usize, reset_column: bool) {

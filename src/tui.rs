@@ -41,6 +41,9 @@ pub async fn run<R: GitRunner>(
     mut keymap: KeyMapper,
 ) -> Result<(), AppError> {
     let mut terminal = TerminalSession::enter()?;
+    if let Ok((width, height)) = crossterm::terminal::size() {
+        state.set_terminal_size(width, height);
+    }
     let mut events = EventStream::new();
     let (sender, mut receiver) = mpsc::channel(64);
     dispatch_all(&executor, &sender, state.start_effects());
@@ -59,7 +62,9 @@ pub async fn run<R: GitRunner>(
                             dispatch_all(&executor, &sender, effects);
                         }
                     }
-                    Some(Ok(TerminalEvent::Resize(_, _))) => {}
+                    Some(Ok(TerminalEvent::Resize(width, height))) => {
+                        state.set_terminal_size(width, height);
+                    }
                     Some(Ok(_)) => {}
                     Some(Err(error)) => return Err(AppError::Io(error)),
                     None => return Err(AppError::Io(io::Error::new(

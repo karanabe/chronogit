@@ -271,6 +271,9 @@ pub(crate) struct DiffViewState {
     pub(crate) target: Option<DiffTarget>,
     pub(crate) content: LoadState<DiffDocument>,
     pub(crate) vertical: usize,
+    pub(crate) byte_column: usize,
+    pub(crate) desired_display_column: Option<usize>,
+    pub(crate) viewport_vertical: usize,
     pub(crate) horizontal: usize,
 }
 
@@ -279,6 +282,10 @@ pub(crate) struct MessageState {
     pub(crate) commit: Option<ObjectId>,
     pub(crate) content: LoadState<CommitMessage>,
     pub(crate) scroll: usize,
+    pub(crate) byte_column: usize,
+    pub(crate) desired_display_column: Option<usize>,
+    pub(crate) viewport_vertical: usize,
+    pub(crate) horizontal: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -327,6 +334,9 @@ pub(crate) struct FileViewState {
     pub(crate) content: LoadState<FileDocument>,
     pub(crate) showing_history_diff: bool,
     pub(crate) vertical: usize,
+    pub(crate) byte_column: usize,
+    pub(crate) desired_display_column: Option<usize>,
+    pub(crate) viewport_vertical: usize,
     pub(crate) horizontal: usize,
     pub(crate) return_view: AppView,
 }
@@ -390,6 +400,7 @@ pub(crate) struct CodeViewState {
     pub(crate) path: Option<RepoPath>,
     pub(crate) content: LoadState<FileDocument>,
     pub(crate) cursor: SourcePosition,
+    pub(crate) desired_display_column: Option<usize>,
     pub(crate) viewport_vertical: usize,
     pub(crate) viewport_horizontal: usize,
     pub(crate) pending_reveal: Option<RepoPath>,
@@ -405,6 +416,7 @@ impl CodeViewState {
             path: None,
             content: LoadState::Idle,
             cursor: SourcePosition::new(0, 0),
+            desired_display_column: None,
             viewport_vertical: 0,
             viewport_horizontal: 0,
             pending_reveal: None,
@@ -417,6 +429,7 @@ impl CodeViewState {
 pub(crate) struct NavigationOrigin {
     pub(crate) path: RepoPath,
     pub(crate) cursor: SourcePosition,
+    pub(crate) first_non_blank_column: usize,
     pub(crate) viewport_vertical: usize,
     pub(crate) viewport_horizontal: usize,
 }
@@ -484,6 +497,9 @@ impl FileViewState {
             content: LoadState::Idle,
             showing_history_diff: false,
             vertical: 0,
+            byte_column: 0,
+            desired_display_column: None,
+            viewport_vertical: 0,
             horizontal: 0,
             return_view: view,
         }
@@ -569,10 +585,13 @@ pub struct AppState {
     pub(crate) file_view: FileViewState,
     pub(crate) code_view: CodeViewState,
     pub(crate) semantic_navigation: SemanticNavigationState,
+    pub(crate) vim_marks: HashMap<char, NavigationOrigin>,
     pub(crate) lsp_hover: LspHoverState,
     pub(crate) notice: Option<ErrorNotice>,
     pub(crate) preferred_change: Option<RepoPath>,
     pub(crate) preferred_commit: Option<ObjectId>,
+    pub(crate) terminal_width: u16,
+    pub(crate) terminal_height: u16,
     next_request: u64,
     diff_cache: DiffCache,
 }
@@ -605,12 +624,19 @@ impl AppState {
                 target: None,
                 content: LoadState::Idle,
                 vertical: 0,
+                byte_column: 0,
+                desired_display_column: None,
+                viewport_vertical: 0,
                 horizontal: 0,
             },
             message: MessageState {
                 commit: None,
                 content: LoadState::Idle,
                 scroll: 0,
+                byte_column: 0,
+                desired_display_column: None,
+                viewport_vertical: 0,
+                horizontal: 0,
             },
             tree: TreeState {
                 commit: None,
@@ -624,13 +650,22 @@ impl AppState {
             file_view: FileViewState::new(view),
             code_view: CodeViewState::new(),
             semantic_navigation: SemanticNavigationState::new(),
+            vim_marks: HashMap::new(),
             lsp_hover: LspHoverState::new(),
             notice: None,
             preferred_change: None,
             preferred_commit: None,
+            terminal_width: 80,
+            terminal_height: 24,
             next_request: 1,
             diff_cache: DiffCache::new(),
         }
+    }
+
+    /// Records the current terminal dimensions for viewport-relative Vim motions.
+    pub fn set_terminal_size(&mut self, width: u16, height: u16) {
+        self.terminal_width = width;
+        self.terminal_height = height;
     }
 
     /// Starts initial loading for the configured main view.
@@ -764,6 +799,9 @@ impl AppState {
 
     pub(crate) fn request_diff(&mut self, target: DiffTarget) -> Vec<GitEffect> {
         self.diff.vertical = 0;
+        self.diff.byte_column = 0;
+        self.diff.desired_display_column = None;
+        self.diff.viewport_vertical = 0;
         self.diff.horizontal = 0;
         self.search.clear();
         if let Some(cached) = self.diff_cache.get(&target) {

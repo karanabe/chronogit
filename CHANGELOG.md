@@ -4,6 +4,15 @@ All notable changes to ChronoGit are documented here.
 
 ## Unreleased
 
+### Added
+
+- Code, file, commit-message, and diff documents now support count-aware Vim normal-mode movement, including word/WORD, line, character-find, structural, viewport, horizontal-scroll, mark, jump-list, and search motions with a visible character cursor.
+
+### Changed
+
+- The built-in leader is now `\`, leaving `Space` available for Vim's rightward motion. View, repository-search, message, layout, and tree commands use `\1` through `\4`, `\f` / `\g`, and `\m` / `\b` / `\t`. Pane focus uses `Ctrl-w h/k/j/l`; `Ctrl-w k` returns repository-search results to query editing.
+- Text overlays use `Enter` as Vim's `+` motion; `q` and `Esc` close them. List panes accept counts and the applicable Vim line, word, window, and page motions.
+
 ## 0.4.0
 
 ### Added

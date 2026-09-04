@@ -332,19 +332,18 @@ fn render_commit_body(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         LoadState::Loading { .. } => "Loading commit body…".to_owned(),
         LoadState::Failed(error) => format!("Error: {}", sanitize_inline(error.message())),
         LoadState::Ready(message) if message.body().is_empty() => "No commit body.".to_owned(),
-        LoadState::Ready(message) => sanitize_multiline(message.body()),
+        LoadState::Ready(message) => message.body().to_owned(),
     };
     let visible = usize::from(area.height.saturating_sub(2)).max(1);
     let last = text.lines().count().saturating_sub(1);
     let cursor = state.message.scroll.min(last);
-    let vertical = cursor
-        .saturating_sub(visible.saturating_sub(1))
-        .min(u16::MAX as usize) as u16;
+    let vertical = followed_scroll(cursor, state.message.viewport_vertical, visible);
+    let lines = message_cursor_lines(&text, cursor, state.message.byte_column);
     frame.render_widget(
-        Paragraph::new(text)
-            .block(block)
-            .scroll((vertical, 0))
-            .wrap(Wrap { trim: false }),
+        Paragraph::new(lines).block(block).scroll((
+            vertical,
+            state.message.horizontal.min(usize::from(u16::MAX)) as u16,
+        )),
         area,
     );
 }
@@ -361,7 +360,7 @@ fn render_files(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         frame,
         area,
         state,
-        "Changed files [t: tree]",
+        "Changed files [\\t: tree]",
         state.focus == FocusedPane::Secondary,
     );
 }
@@ -418,7 +417,7 @@ fn render_file_list(
 
 fn render_tree(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let block = pane_block(
-        "Commit tree [t: files]",
+        "Commit tree [\\t: files]",
         state.focus == FocusedPane::Secondary,
     );
     let lines = match &state.tree.visible {
@@ -482,9 +481,7 @@ fn render_diff_pane(
     };
     let visible = usize::from(area.height.saturating_sub(2)).max(1);
     let cursor = state.diff.vertical.min(lines.len().saturating_sub(1));
-    let vertical = cursor
-        .saturating_sub(visible.saturating_sub(1))
-        .min(u16::MAX as usize) as u16;
+    let vertical = followed_scroll(cursor, state.diff.viewport_vertical, visible);
     let horizontal = state.diff.horizontal.min(u16::MAX as usize) as u16;
     frame.render_widget(
         Paragraph::new(lines)
@@ -507,9 +504,7 @@ fn render_file_content(frame: &mut Frame<'_>, area: Rect, state: &AppState, titl
     };
     let visible = usize::from(area.height.saturating_sub(2)).max(1);
     let cursor = state.file_view.vertical.min(lines.len().saturating_sub(1));
-    let vertical = cursor
-        .saturating_sub(visible.saturating_sub(1))
-        .min(u16::MAX as usize) as u16;
+    let vertical = followed_scroll(cursor, state.file_view.viewport_vertical, visible);
     let horizontal = state.file_view.horizontal.min(u16::MAX as usize) as u16;
     frame.render_widget(
         Paragraph::new(lines)
@@ -605,37 +600,7 @@ fn code_file_line(mut line: Line<'static>, index: usize, state: &AppState) -> Li
             LoadState::Idle | LoadState::Loading { .. } | LoadState::Failed(_) => None,
         }
     {
-        let mut column = state.code_view.cursor.byte_column().min(source.len());
-        while !source.is_char_boundary(column) {
-            column = column.saturating_sub(1);
-        }
-        let end = source[column..]
-            .chars()
-            .next()
-            .map_or(column, |character| column + character.len_utf8());
-        let gutter = line
-            .spans
-            .first()
-            .cloned()
-            .unwrap_or_else(|| Span::raw("       "));
-        line.spans = vec![
-            gutter,
-            Span::raw(sanitize_inline(&source[..column])),
-            Span::styled(
-                if end == column {
-                    " ".to_owned()
-                } else if UnicodeWidthStr::width(&source[column..end]) == 0 {
-                    format!("▏{}", sanitize_inline(&source[column..end]))
-                } else {
-                    sanitize_inline(&source[column..end])
-                },
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::LightCyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw(sanitize_inline(&source[end..])),
-        ];
+        highlight_source_cursor(&mut line, source, state.code_view.cursor.byte_column(), 1);
     }
     line.spans.insert(0, navigation_marker(selected));
     if state.search.current_line() == Some(index) {
@@ -655,6 +620,14 @@ fn current_file_line(mut line: Line<'static>, index: usize, state: &AppState) ->
     let selected = state.file_view.vertical == index
         && (state.overlay == Overlay::FileContent || state.focus == FocusedPane::Diff);
     line.spans.insert(0, navigation_marker(selected));
+    if selected
+        && let Some(source) = match &state.file_view.content {
+            LoadState::Ready(document) => document.lines().get(index),
+            LoadState::Idle | LoadState::Loading { .. } | LoadState::Failed(_) => None,
+        }
+    {
+        highlight_source_cursor(&mut line, source, state.file_view.byte_column, 2);
+    }
     line
 }
 
@@ -696,6 +669,14 @@ fn highlight_diff_line(mut line: Line<'static>, index: usize, state: &AppState) 
     let selected = state.diff.vertical == index
         && (state.overlay == Overlay::Diff || state.focus == FocusedPane::Diff);
     line.spans.insert(0, navigation_marker(selected));
+    if selected
+        && let Some(source) = match &state.diff.content {
+            LoadState::Ready(document) => document.lines().get(index).map(DiffLine::text),
+            LoadState::Idle | LoadState::Loading { .. } | LoadState::Failed(_) => None,
+        }
+    {
+        highlight_source_cursor(&mut line, source, state.diff.byte_column, 2);
+    }
     if state.search.current_line() == Some(index) {
         line.style = line.style.patch(
             Style::default()
@@ -882,6 +863,10 @@ fn gutter_style() -> Style {
 }
 
 fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
+    if state.search.prompt_text().is_some() {
+        render_search_bar(frame, area, state);
+        return;
+    }
     let view = match state.view {
         AppView::Changes => "CHANGES",
         AppView::History => "HISTORY",
@@ -919,25 +904,25 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let comparison = selected_baseline(state).unwrap_or_else(|| "comparison pending".to_owned());
     let controls = match (state.view, area.width >= WIDE_WIDTH) {
         (AppView::CommitDetails, true) => {
-            "q/Esc History  m message  h/l or ^j/^k pane  j/k move  Enter diff  Q quit"
+            "q/Esc History  \\m message  ^w h/j pane  j/k move  Enter diff  Q quit"
         }
-        (AppView::CommitDetails, false) => "q/Esc History  m msg  Enter diff  Q quit",
+        (AppView::CommitDetails, false) => "q/Esc History  \\m msg  Enter diff  Q quit",
         (AppView::GraphDetails, true) => {
-            "q/Esc Graph  m message  h/l pane  j/k move  Enter diff  Space f/g search  Q quit"
+            "q/Esc Graph  \\m message  ^w h/j pane  j/k move  Enter diff  \\f/g search  Q quit"
         }
         (AppView::GraphDetails, false) => "q/Esc Graph  j/k file  Enter diff  Q quit",
         (AppView::FileHistory, true) => {
-            "q/Esc back  h/l pane  j/k history  Enter full  Space f/g search  Q quit"
+            "q/Esc back  ^w h/j pane  j/k history  Enter full  \\f/g search  Q quit"
         }
         (AppView::FileHistory, false) => "q/Esc back  j/k history  Enter full  Q quit",
         (AppView::Code, true) => {
-            "4 Code  h/l or ^j/^k pane/cursor  j/k line  K hover  gd definition  ^o/^i jump  Q quit"
+            "\\4 Code  h/j/k/l move  ^w h/j pane  w/b word  K hover  gd definition  ^o/^i jump  Q quit"
         }
         (AppView::Code, false) => "h/l cursor/pane  j/k line  K hover  gd definition  Q quit",
         (_, true) => {
-            "1/2/3 Git  4 Code  h/l or ^j/^k pane  j/k move  Enter open  Space f/g search  r refresh  m message  F1 help  Q quit"
+            "\\1/2/3 Git  \\4 Code  h/j/k/l move  ^w h/j pane  Enter open  \\f/g search  r refresh  \\m message  F1 help  Q quit"
         }
-        (_, false) => "1-3 Git  4 Code  Space f/g find  Q quit",
+        (_, false) => "\\1-3 Git  \\4 Code  \\f/g find  Q quit",
     };
     let root = if area.width >= 180 {
         format!(" | {}", sanitize_inline(&state.root.to_string()))
@@ -965,32 +950,24 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             frame.render_widget(Clear, popup);
             let text = vec![
                 plain("ChronoGit keys"),
-                plain(""),
-                plain("1 / 2       Changes / History"),
-                plain("3 / 4       Git graph / Code viewer"),
-                plain("Space f/g   Search files / repository content"),
-                plain("h / l       Focus panes; move Code cursor in code content"),
-                plain("Ctrl-j / k  Focus next / previous pane"),
-                plain("j / k       Move or scroll"),
-                plain("gg / G      First / last"),
-                plain("Ctrl-u/d    Half page up / down"),
-                plain("zh / zl     Diff/code horizontal scroll"),
-                plain("Left/Right  Move Code semantic cursor"),
-                plain("K           Toggle LSP hover at cursor"),
-                plain("gd / gi     Definition / implementation"),
-                plain("gy / gD     Type definition / declaration"),
-                plain("Ctrl-o/i    Older / newer semantic location"),
-                plain("r           Refresh current view"),
-                plain("m           Toggle full commit message"),
-                plain("b           History diff / body layout"),
-                plain("t           Changed files / commit tree"),
-                plain("Enter       Open details/full view; close an opened view"),
-                plain("/ , ?       Search full diff/code forward / backward"),
-                plain("n / N       Next / previous search match"),
-                plain("F1          Toggle this help"),
-                plain("q / Esc     Close or go back"),
-                plain("Q / Ctrl-C  Quit"),
-                plain(""),
+                plain("\\1..\\4    Changes / History / Graph / Code"),
+                plain("\\f / \\g    Search files / repository content"),
+                plain("Ctrl-w h/j  Focus previous / next pane (k/l/w/W also work)"),
+                plain("h j k l     Character / line motions; Space/Backspace may wrap"),
+                plain("w/W e/E b/B ge/gE   Word / WORD motions"),
+                plain("0 ^ $ g_    Line start / first nonblank / end / last nonblank"),
+                plain("f F t T     Find/till a character; ;/, repeat/reverse"),
+                plain("gg G % g% () {} [[ ]]   Buffer and structural motions"),
+                plain("Ctrl-u/d    Half page; Ctrl-b/f or PageUp/Down full page"),
+                plain("H M L; zt zz zb       Window motions and cursor placement"),
+                plain("zh/zl zH/zL zs/ze     Horizontal viewport motions"),
+                plain("/ ? n N; * # g* g#    Search and search word at cursor"),
+                plain("m{c} 'c/`c; ['/`[ ]'/`]   Mark jumps and scans"),
+                plain("K; gd/gi/gy/gD   LSP hover and target navigation"),
+                plain("Ctrl-o/i     Older / newer Vim, search, or LSP jump"),
+                plain("r; \\m/\\b/\\t  Refresh; message / layout / commit tree"),
+                plain("Enter       Open selection; move down in an opened document"),
+                plain("F1 help; q/Esc close/back; Q/Ctrl-C quit"),
                 plain("ChronoGit is read-only and never stages or commits changes."),
             ];
             frame.render_widget(
@@ -1003,31 +980,37 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         Overlay::CommitMessage => {
             let popup = centered(area, 82, 78);
             frame.render_widget(Clear, popup);
+            let sections = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(1), Constraint::Length(1)])
+                .split(popup);
             let text = match &state.message.content {
                 LoadState::Idle => "Select a commit.".to_owned(),
                 LoadState::Loading { .. } => "Loading commit message…".to_owned(),
                 LoadState::Failed(error) => {
                     format!("Error: {}", sanitize_inline(error.message()))
                 }
-                LoadState::Ready(message) => sanitize_multiline(message.as_str()),
+                LoadState::Ready(message) => message.as_str().to_owned(),
             };
-            let visible = usize::from(popup.height.saturating_sub(2)).max(1);
+            let visible = usize::from(sections[0].height.saturating_sub(2)).max(1);
             let last = text.lines().count().saturating_sub(1);
             let cursor = state.message.scroll.min(last);
-            let vertical = cursor
-                .saturating_sub(visible.saturating_sub(1))
-                .min(u16::MAX as usize) as u16;
+            let vertical = followed_scroll(cursor, state.message.viewport_vertical, visible);
+            let lines = message_cursor_lines(&text, cursor, state.message.byte_column);
             frame.render_widget(
-                Paragraph::new(text)
+                Paragraph::new(lines)
                     .block(
                         Block::default()
-                            .title(" Commit message [m/q/Esc: close] ")
+                            .title(" Commit message [q/Esc: close, Enter: next line] ")
                             .borders(Borders::ALL),
                     )
-                    .scroll((vertical, 0))
-                    .wrap(Wrap { trim: false }),
-                popup,
+                    .scroll((
+                        vertical,
+                        state.message.horizontal.min(usize::from(u16::MAX)) as u16,
+                    )),
+                sections[0],
             );
+            render_search_bar(frame, sections[1], state);
         }
         Overlay::Diff => render_diff_overlay(frame, area, state),
         Overlay::RepositorySearch => render_repository_search_overlay(frame, area, state),
@@ -1088,7 +1071,7 @@ fn render_repository_search_overlay(frame: &mut Frame<'_>, area: Rect, state: &A
     let search_title = if prompt_active {
         format!("Search {mode} [live; Enter/Ctrl-j: results, Esc: close]")
     } else {
-        format!("Search {mode} [Ctrl-k: edit again, q/Esc: close]")
+        format!("Search {mode} [Ctrl-w k: edit again, q/Esc: close]")
     };
     frame.render_widget(
         Paragraph::new(format!("> {}{cursor}", sanitize_inline(query)))
@@ -1120,7 +1103,7 @@ fn render_repository_search_overlay(frame: &mut Frame<'_>, area: Rect, state: &A
     let results_title = if prompt_active {
         "Results [live preview; Enter/Ctrl-j: focus]"
     } else {
-        "Results [j/k: move, Enter: open, Ctrl-k: search, q/Esc: close]"
+        "Results [j/k: move, Enter: open, Ctrl-w k: search, q/Esc: close]"
     };
     frame.render_widget(
         Paragraph::new(lines)
@@ -1141,13 +1124,23 @@ fn render_file_content_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppSta
         height: area.height.saturating_sub(2),
     };
     frame.render_widget(Clear, popup);
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(popup);
     let path = state
         .file_view
         .path
         .as_ref()
         .map(|path| sanitize_inline(&path.display()))
         .unwrap_or_else(|| "file".to_owned());
-    render_file_content(frame, popup, state, &format!("{path} [Enter/q/Esc: close]"));
+    render_file_content(
+        frame,
+        sections[0],
+        state,
+        &format!("{path} [q/Esc: close, Enter: next line]"),
+    );
+    render_search_bar(frame, sections[1], state);
 }
 
 fn render_code_content_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
@@ -1172,7 +1165,7 @@ fn render_code_content_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppSta
         frame,
         sections[0],
         state,
-        &format!("{path} [Enter/q/Esc: close]"),
+        &format!("{path} [q/Esc: close, Enter: next line]"),
     );
     render_search_bar(frame, sections[1], state);
 }
@@ -1284,8 +1277,8 @@ fn render_diff_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         .split(popup);
     let baseline = selected_baseline(state);
     let title = baseline.map_or_else(
-        || "Diff [Enter/q/Esc: close]".to_owned(),
-        |value| format!("Diff — {value} [Enter/q/Esc: close]"),
+        || "Diff [q/Esc: close, Enter: next line]".to_owned(),
+        |value| format!("Diff — {value} [q/Esc: close, Enter: next line]"),
     );
     render_diff_pane(frame, sections[0], state, &title, true);
     render_search_bar(frame, sections[1], state);
@@ -1415,6 +1408,103 @@ fn sanitize(value: &str, preserve_newlines: bool) -> String {
     safe
 }
 
+fn highlight_source_cursor(
+    line: &mut Line<'static>,
+    source: &str,
+    requested: usize,
+    prefix_spans: usize,
+) {
+    let mut column = requested.min(source.len());
+    while !source.is_char_boundary(column) {
+        column = column.saturating_sub(1);
+    }
+    if column == source.len() && !source.is_empty() {
+        column = source
+            .char_indices()
+            .next_back()
+            .map_or(0, |(byte, _)| byte);
+    }
+    let end = source[column..].chars().next().map_or(column, |character| {
+        column.saturating_add(character.len_utf8())
+    });
+    let rendered_start = sanitize_inline(&source[..column]).len();
+    let rendered_target = sanitize_inline(&source[column..end]);
+    let rendered_end = rendered_start.saturating_add(rendered_target.len());
+    let cursor_style = Style::default()
+        .fg(Color::Black)
+        .bg(Color::LightCyan)
+        .add_modifier(Modifier::BOLD);
+    let original = std::mem::take(&mut line.spans);
+    let prefix_spans = prefix_spans.min(original.len());
+    let mut spans = original[..prefix_spans].to_vec();
+    let mut offset = 0usize;
+    let mut inserted_width_marker = false;
+    for span in &original[prefix_spans..] {
+        let content = span.content.as_ref();
+        let span_end = offset.saturating_add(content.len());
+        let overlap_start = rendered_start.max(offset).min(span_end);
+        let overlap_end = rendered_end.max(offset).min(span_end);
+        if overlap_start >= overlap_end {
+            spans.push(span.clone());
+        } else {
+            let local_start = overlap_start.saturating_sub(offset);
+            let local_end = overlap_end.saturating_sub(offset);
+            if local_start > 0 {
+                spans.push(Span::styled(content[..local_start].to_owned(), span.style));
+            }
+            if !inserted_width_marker && UnicodeWidthStr::width(&source[column..end]) == 0 {
+                spans.push(Span::styled("▏", span.style.patch(cursor_style)));
+                inserted_width_marker = true;
+            }
+            spans.push(Span::styled(
+                content[local_start..local_end].to_owned(),
+                span.style.patch(cursor_style),
+            ));
+            if local_end < content.len() {
+                spans.push(Span::styled(content[local_end..].to_owned(), span.style));
+            }
+        }
+        offset = span_end;
+    }
+    if rendered_start == rendered_end {
+        spans.push(Span::styled(" ", cursor_style));
+    }
+    line.spans = spans;
+}
+
+fn message_cursor_lines(text: &str, cursor: usize, byte_column: usize) -> Vec<Line<'static>> {
+    let mut lines = text
+        .lines()
+        .enumerate()
+        .map(|(index, source)| {
+            if index == cursor {
+                let mut line = Line::raw(sanitize_inline(source));
+                highlight_source_cursor(&mut line, source, byte_column, 0);
+                line
+            } else {
+                Line::raw(sanitize_inline(source))
+            }
+        })
+        .collect::<Vec<_>>();
+    if lines.is_empty() {
+        let mut line = Line::raw("");
+        highlight_source_cursor(&mut line, "", 0, 0);
+        lines.push(line);
+    }
+    lines
+}
+
+fn followed_scroll(cursor: usize, requested: usize, visible: usize) -> u16 {
+    let top = if cursor < requested {
+        cursor
+    } else if cursor >= requested.saturating_add(visible) {
+        cursor.saturating_sub(visible.saturating_sub(1))
+    } else {
+        requested
+    };
+    top.min(usize::from(u16::MAX)) as u16
+}
+
 fn list_scroll(selection: Option<usize>, area: Rect) -> u16 {
     let visible = usize::from(area.height.saturating_sub(2)).max(1);
     selection
@@ -1486,6 +1576,52 @@ mod tests {
             } else {
                 assert!(text.contains("Unstaged changes"));
             }
+        }
+    }
+
+    #[test]
+    fn message_motion_cursor_stays_visible_after_tabs_and_long_lines() {
+        for overlay in [Overlay::CommitMessage, Overlay::None] {
+            let mut state = state();
+            state.view = AppView::CommitDetails;
+            state.focus = FocusedPane::Secondary;
+            state.overlay = overlay;
+            state.set_terminal_size(80, 24);
+            let body = format!("\t{}界\nnext", "x".repeat(120));
+            state.message.content =
+                LoadState::Ready(CommitMessage::new(format!("subject\n\n{body}")));
+            state.message.scroll = if overlay == Overlay::None { 0 } else { 2 };
+            let _none = state.handle_action(Action::VimMotion(crate::app::VimMotion::new(
+                crate::app::VimMotionKind::LineEnd,
+            )));
+            assert!(state.message.horizontal > 0);
+            let backend = TestBackend::new(80, 24);
+            let mut terminal = Terminal::new(backend).unwrap_or_else(|error| panic!("{error}"));
+            terminal
+                .draw(|frame| render(frame, &state))
+                .unwrap_or_else(|error| panic!("{error}"));
+            assert!(
+                terminal
+                    .backend()
+                    .buffer()
+                    .content
+                    .iter()
+                    .any(|cell| cell.symbol() == "界" && cell.bg == Color::LightCyan)
+            );
+            let _none = state.handle_action(Action::VimMotion(crate::app::VimMotion::new(
+                crate::app::VimMotionKind::NextLineFirstNonBlank,
+            )));
+            terminal
+                .draw(|frame| render(frame, &state))
+                .unwrap_or_else(|error| panic!("{error}"));
+            assert!(
+                terminal
+                    .backend()
+                    .buffer()
+                    .content
+                    .iter()
+                    .any(|cell| cell.symbol() == "n" && cell.bg == Color::LightCyan)
+            );
         }
     }
 
@@ -1564,7 +1700,7 @@ mod tests {
         let _none = state.handle_action(Action::Activate);
         assert_eq!(state.overlay, Overlay::CodeContent);
         let overlay = rendered_text(&state, 100, 30);
-        assert!(overlay.contains("Enter/q/Esc: close"));
+        assert!(overlay.contains("q/Esc: close, Enter: next line"));
         assert!(overlay.contains("forward search"));
     }
 
@@ -1580,7 +1716,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("could not draw: {error}"));
         let text = buffer_text(terminal.backend());
         assert!(text.contains("ChronoGit keys"));
-        assert!(text.contains("F1          Toggle this help"));
+        assert!(text.contains("F1 help; q/Esc close/back; Q/Ctrl-C quit"));
     }
 
     #[test]
@@ -1793,6 +1929,10 @@ mod tests {
             ],
             bytes: 45,
         };
+        state.focus = FocusedPane::Diff;
+        state.diff.vertical = 1;
+        state.diff.byte_column = 5;
+        state.diff.content = LoadState::Ready(document.clone());
 
         let lines = diff_lines(&document, &state);
         let colors = lines[1]
@@ -1804,7 +1944,7 @@ mod tests {
     }
 
     #[test]
-    fn marks_the_diff_line_selected_by_j_and_k_without_recoloring_code() {
+    fn marks_the_diff_line_and_character_selected_by_vim_motions() {
         let mut state = state();
         state.focus = FocusedPane::Diff;
         let document = DiffDocument::Text {
@@ -1819,7 +1959,14 @@ mod tests {
         let initial = diff_lines(&document, &state);
         assert_eq!(initial[0].spans[0].content, "▌");
         assert_eq!(initial[0].style.bg, None);
-        assert!(initial[0].spans.iter().all(|span| span.style.bg.is_none()));
+        assert_eq!(
+            initial[0]
+                .spans
+                .iter()
+                .filter(|span| span.style.bg == Some(Color::LightCyan))
+                .count(),
+            1
+        );
         assert_eq!(initial[1].spans[0].content, " ");
         assert_eq!(initial[1].style.bg, None);
 
@@ -2047,7 +2194,7 @@ mod tests {
 
         let text = rendered_text(&state, 100, 30);
         assert!(text.contains("Search content"));
-        assert!(text.contains("Ctrl-k: edit again"));
+        assert!(text.contains("Ctrl-w k: edit again"));
         assert!(text.contains("src/lib.rs:42"));
         assert!(text.contains("let needle = true"));
 

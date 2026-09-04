@@ -9,7 +9,7 @@ sidebar:
   order: 4
 ---
 
-ChronoGit separates its existing Git review screens from a working-tree Code viewer. The default launch still opens Changes. Press `4`, or start with `chronogit --view code`, when you want to browse the repository rather than a patch or commit.
+ChronoGit separates its existing Git review screens from a working-tree Code viewer. The default launch still opens Changes. Press `\4`, or start with `chronogit --view code`, when you want to browse the repository rather than a patch or commit.
 
 ## Navigate the file tree
 
@@ -18,7 +18,7 @@ The upper pane contains tracked files and non-ignored untracked files. At every 
 1. Move with `j` / `k`, the arrow keys, `gg` / `G`, or Home/End.
 2. Press `Enter` on a directory to expand or collapse its direct children.
 3. Moving onto a file loads its current working-tree content in the lower pane.
-4. Use `l` or `Ctrl-j` to focus the code pane. Once code content is focused, `h` / `l` move its character cursor; use `Ctrl-k` to return to the tree.
+4. Use `Ctrl-w j` / `Ctrl-w l` to focus the code pane. Once code content is focused, `h` / `l` move its character cursor; use `Ctrl-w h` / `Ctrl-w k` to return to the tree.
 
 Press `r` to rebuild the tree from Git's current tracked and non-ignored file list. Deleted tracked paths remain visible and show an unavailable-file summary when opened. ChronoGit identifies binary files and symbolic links without decoding a binary or following a link.
 
@@ -26,17 +26,19 @@ Press `r` to rebuild the tree from Git's current tracked and non-ignored file li
 
 Press `Enter` on a file in the tree, or while the lower pane is focused, to open a nearly full-screen code window. The code window deliberately shares the floating-diff keymap:
 
-- `j` / `k`, `gg` / `G`, and `Ctrl-d` / `Ctrl-u` move the current-line marker.
-- `h` / `l` or Left / Right moves the semantic cursor by one UTF-8 character; tabs and wide or combining characters retain the correct source position.
-- `zh` / `zl` scroll horizontally.
-- `/` and `?` start smart-case forward and backward searches; `n` / `N` repeat them with wraparound.
-- `Enter`, `q`, or `Esc` closes the window and returns to the two-pane Code view.
+- Counts work with normal-mode movements. `h` / `j` / `k` / `l` and the arrows move a UTF-8-safe cursor; vertical movement preserves the requested display column across shorter lines.
+- `w` / `W` / `e` / `E` and `b` / `B` / `ge` / `gE` implement Vim word and WORD boundaries. `f` / `F` / `t` / `T` accept a character argument; `;` / `,` repeat or reverse the search.
+- Logical-line, buffer, sentence, paragraph, section, delimiter, method, preprocessor, and comment motions use their standard Vim keys. `go` accepts a one-based byte offset.
+- `Ctrl-d` / `Ctrl-u`, `Ctrl-f` / `Ctrl-b`, `Ctrl-e` / `Ctrl-y`, and the `z` family move or position the viewport horizontally and vertically.
+- `/` and `?` start smart-case forward and backward searches. Counts work with `n` / `N`; `*` / `#` search the cursor word, and `g*` / `g#` allow partial-word matches.
+- `m{char}` sets a mark, `'{char}` jumps to its first nonblank, and `` `{char}`` restores its exact column. Prefix a jump with `g` to preserve jump-list history; `['` / `` [` `` and `]'` / `` ]` `` scan previous/next lowercase marks. Marks may cross Code files.
+- `Enter` moves to the next line's first nonblank. `q` or `Esc` closes the window and returns to the two-pane Code view.
 
 Recognized source types use embedded syntax definitions. Reads are bounded to 8 MiB, and the UI marks truncated text rather than growing without limit.
 
 ## Search while browsing code
 
-`Space f` searches file paths and `Space g` searches fixed text from the Code viewer just as they do from Git screens. Opening a result returns directly to Code, expands the ancestors needed to reveal the selected file, and loads its current content. A content result positions the current-line marker at the matched line.
+`\f` searches file paths and `\g` searches fixed text from the Code viewer just as they do from Git screens. Opening a result returns directly to Code, expands the ancestors needed to reveal the selected file, and loads its current content. A content result positions the current-line marker at the matched line.
 
 ## Navigate by symbol with LSP
 
@@ -58,10 +60,10 @@ Place the cursor on a symbol with `h` / `l` or Left / Right and use:
 - `gi`: implementation
 - `gy`: type definition
 - `gD`: declaration
-- `Ctrl-o`: move to an older semantic location
-- `Ctrl-i`: move to a newer semantic location
+- `[count]Ctrl-o`: move to an older Vim or LSP jump location
+- `[count]Ctrl-i`: move to a newer Vim or LSP jump location
 
-Hover opens in a floating window. Use `j` / `k` to scroll it, then press `K`, `q`, or `Esc` to close it. The initialized server's capabilities decide whether hover and each navigation operation are available. A server can temporarily return no information while it is indexing; close the float and invoke the operation again after indexing completes. A single navigation target opens directly. Multiple targets open a `j` / `k` selection list; `Enter` opens one and `q` / `Esc` closes the list. A new semantic jump after `Ctrl-o` discards the newer branch, matching Vim's jump-list behavior. In terminals that cannot distinguish `Ctrl-i` from Tab, Tab invokes the same newer-location action. No target, an unsupported capability, startup failure, timeout, or crash appears as a recoverable notice.
+Hover opens in a floating window. Use `j` / `k` to scroll it, then press `K`, `q`, or `Esc` to close it. The initialized server's capabilities decide whether hover and each navigation operation are available. A server can temporarily return no information while it is indexing; close the float and invoke the operation again after indexing completes. A single navigation target opens directly. Multiple targets open a `j` / `k` selection list; `Enter` opens one and `q` / `Esc` closes the list. LSP targets, long-distance Vim motions, mark jumps, and searches share one jump list. A new jump after `Ctrl-o` discards the newer branch. In terminals that cannot distinguish `Ctrl-i` from Tab, Tab invokes the same newer-location action. No target, an unsupported capability, startup failure, timeout, or crash appears as a recoverable notice.
 
 Only complete UTF-8 current-working-tree files participate. ChronoGit accepts only repository-contained `file:` results through its rooted no-follow reader. Standard-library/dependency paths outside the repository and virtual URIs such as `jdt:` are displayed as unsupported and are never interpreted as repository paths.
 

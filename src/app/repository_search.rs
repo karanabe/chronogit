@@ -148,6 +148,9 @@ fn open_selected_file(state: &mut AppState) -> Vec<GitEffect> {
     }
     state.file_view.return_view = state.repository_search.return_view;
     state.file_view.vertical = hit.line().unwrap_or(1).saturating_sub(1) as usize;
+    state.file_view.byte_column = 0;
+    state.file_view.desired_display_column = None;
+    state.file_view.viewport_vertical = state.file_view.vertical;
     state.overlay = Overlay::None;
     state.view = AppView::FileHistory;
     state.focus = FocusedPane::Primary;
@@ -159,6 +162,9 @@ pub(crate) fn load_file_view(state: &mut AppState, path: RepoPath) -> Vec<GitEff
     state.file_view.path = Some(path.clone());
     state.file_view.selection.reset(0);
     state.file_view.showing_history_diff = false;
+    state.file_view.byte_column = 0;
+    state.file_view.desired_display_column = None;
+    state.file_view.viewport_vertical = state.file_view.vertical;
     state.file_view.horizontal = 0;
     state.diff.target = None;
     state.diff.content = LoadState::Idle;

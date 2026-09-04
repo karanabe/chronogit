@@ -12,9 +12,10 @@ mod repository_search;
 mod search;
 mod semantic_navigation;
 mod update;
+mod vim;
 
 pub use crate::domain::SemanticNavigationKind;
-pub use action::{Action, Event};
+pub use action::{Action, Event, VimMotion, VimMotionKind};
 pub use effect::{AppEffect, EffectExecutor, GitEffect, LspEffect};
 pub use model::{
     AppState, AppView, ErrorNotice, FocusedPane, HistoryPanel, LoadState, Overlay,

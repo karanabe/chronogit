@@ -8,6 +8,268 @@ use crate::domain::{
 use crate::git::GitError;
 use crate::lsp::LspError;
 
+/// A Vim normal-mode cursor or viewport movement.
+///
+/// The key mapper attaches the optional count and character argument before an
+/// action reaches the reducer. Keeping those details here lets Code, diff, and
+/// history documents share one motion implementation without depending on
+/// terminal events.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VimMotion {
+    kind: VimMotionKind,
+    count: usize,
+    explicit_count: bool,
+    target: Option<char>,
+    repeated: bool,
+}
+
+impl VimMotion {
+    /// Creates an uncounted motion template for a key binding.
+    #[must_use]
+    pub const fn new(kind: VimMotionKind) -> Self {
+        Self {
+            kind,
+            count: 1,
+            explicit_count: false,
+            target: None,
+            repeated: false,
+        }
+    }
+
+    /// Returns the motion operation.
+    #[must_use]
+    pub const fn kind(self) -> VimMotionKind {
+        self.kind
+    }
+
+    /// Returns the normalized count (always at least one).
+    #[must_use]
+    pub const fn count(self) -> usize {
+        self.count
+    }
+
+    /// Reports whether the user supplied a count rather than using the default.
+    #[must_use]
+    pub const fn has_explicit_count(self) -> bool {
+        self.explicit_count
+    }
+
+    /// Returns the character supplied to `f`, `F`, `t`, or `T`.
+    #[must_use]
+    pub const fn target(self) -> Option<char> {
+        self.target
+    }
+
+    pub(crate) const fn counted(mut self, count: usize, explicit: bool) -> Self {
+        self.count = if count == 0 { 1 } else { count };
+        self.explicit_count = explicit;
+        self
+    }
+
+    pub(crate) const fn targeting(mut self, target: char) -> Self {
+        self.target = Some(target);
+        self
+    }
+
+    pub(crate) const fn repeating(mut self) -> Self {
+        self.repeated = true;
+        self
+    }
+
+    pub(crate) const fn is_repeated(self) -> bool {
+        self.repeated
+    }
+}
+
+/// The movement vocabulary accepted by ChronoGit's read-only Vim normal mode.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VimMotionKind {
+    /// `h` or Left.
+    Left,
+    /// Backspace or Ctrl-H with Vim's default `'whichwrap'` behavior.
+    LeftWrap,
+    /// `l` or Right.
+    Right,
+    /// Space with Vim's default `'whichwrap'` behavior.
+    RightWrap,
+    /// `k`, Up, or Ctrl-P.
+    Up,
+    /// `j`, Down, Ctrl-J, Ctrl-N, or newline.
+    Down,
+    /// `0` or Home.
+    LineStart,
+    /// `^`.
+    FirstNonBlank,
+    /// `$` or End.
+    LineEnd,
+    /// `g_`.
+    LastNonBlank,
+    /// `g0`.
+    ScreenLineStart,
+    /// `g^`.
+    ScreenFirstNonBlank,
+    /// `g$`.
+    ScreenLineEnd,
+    /// `g<End>`.
+    ScreenLastNonBlank,
+    /// `gm`.
+    ScreenMiddle,
+    /// `gM`.
+    LineMiddle,
+    /// `|`.
+    Column,
+    /// `go`.
+    ByteOffset,
+    /// `w`.
+    WordForward,
+    /// `W`.
+    BigWordForward,
+    /// `e`.
+    WordEndForward,
+    /// `E`.
+    BigWordEndForward,
+    /// `b`.
+    WordBackward,
+    /// `B`.
+    BigWordBackward,
+    /// `ge`.
+    WordEndBackward,
+    /// `gE`.
+    BigWordEndBackward,
+    /// `f{char}`.
+    FindForward,
+    /// `F{char}`.
+    FindBackward,
+    /// `t{char}`.
+    TillForward,
+    /// `T{char}`.
+    TillBackward,
+    /// `;` (resolved by the key mapper to the latest character search).
+    RepeatCharacterSearch,
+    /// `,` (resolved by the key mapper to the reversed character search).
+    ReverseCharacterSearch,
+    /// `-`.
+    PreviousLineFirstNonBlank,
+    /// `+` or Enter in a document.
+    NextLineFirstNonBlank,
+    /// `_`.
+    CountedLineFirstNonBlank,
+    /// `gg` or Ctrl-Home.
+    BufferTop,
+    /// `G`.
+    BufferBottom,
+    /// Ctrl-End.
+    BufferBottomEnd,
+    /// `{count}%`.
+    BufferPercentage,
+    /// `H`.
+    WindowTop,
+    /// `M`.
+    WindowMiddle,
+    /// `L`.
+    WindowBottom,
+    /// `(`.
+    SentenceBackward,
+    /// `)`.
+    SentenceForward,
+    /// `{`.
+    ParagraphBackward,
+    /// `}`.
+    ParagraphForward,
+    /// `[[`.
+    SectionStartBackward,
+    /// `]]`.
+    SectionStartForward,
+    /// `[]`.
+    SectionEndBackward,
+    /// `][`.
+    SectionEndForward,
+    /// `%` without a count.
+    MatchingPair,
+    /// `g%`.
+    MatchingPairBackward,
+    /// `[(` or `[{` with the delimiter supplied as the target.
+    UnmatchedOpenBackward,
+    /// `])` or `]}` with the delimiter supplied as the target.
+    UnmatchedCloseForward,
+    /// `[m` / `[M`.
+    MethodBackward,
+    /// `]m` / `]M`.
+    MethodForward,
+    /// `[#`.
+    PreprocessorBackward,
+    /// `]#`.
+    PreprocessorForward,
+    /// `[*` or `[/`.
+    CommentBackward,
+    /// `]*` or `]/`.
+    CommentForward,
+    /// `[c` in a diff.
+    DiffChangeBackward,
+    /// `]c` in a diff.
+    DiffChangeForward,
+    /// `n`.
+    SearchNext,
+    /// `N`.
+    SearchPrevious,
+    /// `*`.
+    SearchWordForward,
+    /// `#`.
+    SearchWordBackward,
+    /// `g*`.
+    SearchPartialWordForward,
+    /// `g#`.
+    SearchPartialWordBackward,
+    /// `['`.
+    PreviousMarkLine,
+    /// `` [` ``.
+    PreviousMarkExact,
+    /// `]'`.
+    NextMarkLine,
+    /// `` ]` ``.
+    NextMarkExact,
+    /// Ctrl-D.
+    HalfPageDown,
+    /// Ctrl-U.
+    HalfPageUp,
+    /// Ctrl-F or PageDown.
+    PageDown,
+    /// Ctrl-B or PageUp.
+    PageUp,
+    /// Ctrl-E.
+    ScrollLineDown,
+    /// Ctrl-Y.
+    ScrollLineUp,
+    /// `zt`.
+    CursorToWindowTop,
+    /// `z<CR>`.
+    CursorToWindowTopFirstNonBlank,
+    /// `zz`.
+    CursorToWindowMiddle,
+    /// `z.`.
+    CursorToWindowMiddleFirstNonBlank,
+    /// `zb`.
+    CursorToWindowBottom,
+    /// `z-`.
+    CursorToWindowBottomFirstNonBlank,
+    /// `z+`.
+    NextWindowTop,
+    /// `z^`.
+    PreviousWindowBottom,
+    /// `zh`.
+    ScrollColumnLeft,
+    /// `zl`.
+    ScrollColumnRight,
+    /// `zH`.
+    ScrollHalfScreenLeft,
+    /// `zL`.
+    ScrollHalfScreenRight,
+    /// `zs`.
+    CursorToWindowLeft,
+    /// `ze`.
+    CursorToWindowRight,
+}
+
 /// A semantic input handled by [`crate::app::AppState`].
 ///
 /// Key bindings map terminal-specific input to these values so state updates do
@@ -48,6 +310,19 @@ pub enum Action {
     MoveCursorLeft,
     /// Move the focused Code cursor right, or move to the following pane.
     MoveCursorRight,
+    /// Apply a count-aware Vim normal-mode movement.
+    VimMotion(VimMotion),
+    /// Set a Vim mark at the active Code cursor.
+    SetVimMark(char),
+    /// Jump to a Vim mark, either at its exact column or first non-blank.
+    JumpToVimMark {
+        /// Mark name supplied after backtick or apostrophe.
+        mark: char,
+        /// Apostrophe jumps are linewise; backtick jumps retain the column.
+        linewise: bool,
+        /// Plain mark jumps update the jump list; `g'` / `` g` `` do not.
+        record_jump: bool,
+    },
     /// Open or close language-server hover information at the Code cursor.
     ToggleLspHover,
     /// Request one standard semantic target from the enabled language server.
@@ -56,6 +331,10 @@ pub enum Action {
     GoBackFromSemanticTarget,
     /// Revisit the semantic location most recently left by a backward jump.
     GoForwardFromSemanticTarget,
+    /// Move backward through the shared Vim/LSP jump list.
+    JumpListBack(usize),
+    /// Move forward through the shared Vim/LSP jump list.
+    JumpListForward(usize),
     /// Reload data owned by the current view.
     Refresh,
     /// Open or close the selected commit's complete message.
@@ -68,7 +347,7 @@ pub enum Action {
     OpenFileSearch,
     /// Open repository-wide fixed-text content search.
     OpenContentSearch,
-    /// Activate the selected item or close a full-screen document.
+    /// Activate the selected item; open text documents interpret Enter as `+`.
     Activate,
     /// Begin in-document search in the requested direction.
     StartSearch(SearchDirection),

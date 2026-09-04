@@ -107,7 +107,7 @@ Keep the agent conversation and ChronoGit in separate terminals or windows:
 2. Copy the exact command from the response.
 3. Open another terminal window, tab, split, or `tmux` pane in the same environment and run it.
 4. Use that terminal's normal window, tab, or pane controls to switch back to the agent. There is no ChronoGit-specific switching key.
-5. In ChronoGit, press `1`, `2`, `3`, or `4` to switch between Changes, History, Graph, and Code. Press `Q` or `Ctrl-C` to close the TUI and return to the shell.
+5. In ChronoGit, press `\1`, `\2`, `\3`, or `\4` to switch between Changes, History, Graph, and Code. Press `Q` or `Ctrl-C` to close the TUI and return to the shell.
 
 The agent cannot receive your keystrokes, see the selected file, or read the TUI screen. Tell it what you found, or ask it to inspect the same change with structured Git commands if you need an answer in the conversation.
 

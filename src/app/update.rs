@@ -10,11 +10,17 @@ use crate::app::repository_search::{
 };
 use crate::app::{
     Action, AppState, AppView, ErrorNotice, Event, FocusedPane, GitEffect, HistoryPanel, LoadState,
-    Overlay, RepositorySearchKind, VisibleTreeEntry,
+    Overlay, RepositorySearchKind, VimMotion, VimMotionKind, VisibleTreeEntry,
 };
-use crate::domain::{CommitSummary, DiffTarget, RepoPath, TreeKind};
+use crate::domain::{CommitSummary, DiffTarget, RepoPath, SourcePosition, TreeKind};
 
 pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffect> {
+    if matches!(
+        action,
+        Action::FocusLeft | Action::FocusRight | Action::CancelSearch
+    ) {
+        state.search.cancel_input();
+    }
     if action == Action::Quit {
         state.should_quit = true;
         return Vec::new();
@@ -27,6 +33,71 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
         };
         crate::app::repository_search::open(state, kind);
         return Vec::new();
+    }
+    if matches!(
+        action,
+        Action::StartSearch(_)
+            | Action::InsertSearch(_)
+            | Action::DeleteSearch
+            | Action::ConfirmSearch
+            | Action::CancelSearch
+            | Action::NextMatch
+            | Action::PreviousMatch
+    ) && apply_document_search_action(state, action)
+    {
+        return Vec::new();
+    }
+    if let Action::SetVimMark(mark) = action {
+        if let Some(origin) = crate::app::semantic_navigation::current_origin(state)
+            && state.view == AppView::Code
+            && (state.focus == FocusedPane::Diff || state.overlay == Overlay::CodeContent)
+        {
+            state.vim_marks.insert(mark, origin);
+            state.notice = None;
+        } else {
+            state.notice = Some(ErrorNotice::new(
+                "Vim marks are available in the working-tree Code viewer.",
+            ));
+        }
+        return Vec::new();
+    }
+    if let Action::JumpToVimMark {
+        mark,
+        linewise,
+        record_jump,
+    } = action
+    {
+        if matches!(mark, '\'' | '`') {
+            return crate::app::semantic_navigation::jump_to_previous(state, linewise)
+                .into_iter()
+                .filter_map(|effect| match effect {
+                    crate::app::AppEffect::Git(effect) => Some(effect),
+                    crate::app::AppEffect::Lsp(_) => None,
+                })
+                .collect();
+        }
+        let Some(origin) = state.vim_marks.get(&mark).cloned() else {
+            state.notice = Some(ErrorNotice::new(format!("Mark {mark:?} is not set.")));
+            return Vec::new();
+        };
+        return crate::app::semantic_navigation::jump_to_mark(state, origin, linewise, record_jump)
+            .into_iter()
+            .filter_map(|effect| match effect {
+                crate::app::AppEffect::Git(effect) => Some(effect),
+                crate::app::AppEffect::Lsp(_) => None,
+            })
+            .collect();
+    }
+    if let Action::VimMotion(motion) = action {
+        return apply_vim_motion(state, motion);
+    }
+    if action == Action::Activate
+        && matches!(
+            state.overlay,
+            Overlay::CodeContent | Overlay::Diff | Overlay::FileContent | Overlay::CommitMessage
+        )
+    {
+        return apply_vim_motion(state, VimMotion::new(VimMotionKind::NextLineFirstNonBlank));
     }
     if state.overlay != Overlay::None {
         return overlay_action(state, action);
@@ -119,7 +190,12 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
         | Action::ToggleLspHover
         | Action::GoToSemanticTarget(_)
         | Action::GoBackFromSemanticTarget
-        | Action::GoForwardFromSemanticTarget => Vec::new(),
+        | Action::GoForwardFromSemanticTarget
+        | Action::JumpListBack(_)
+        | Action::JumpListForward(_)
+        | Action::VimMotion(_)
+        | Action::SetVimMark(_)
+        | Action::JumpToVimMark { .. } => Vec::new(),
     }
 }
 
@@ -211,10 +287,15 @@ pub(crate) fn apply_event(state: &mut AppState, event: Event) -> Vec<GitEffect> 
                     }
                     state.diff.content = LoadState::Ready(document);
                     state.diff.vertical = state.diff.vertical.min(diff_last_line(state));
+                    state.diff.viewport_vertical =
+                        state.diff.viewport_vertical.min(state.diff.vertical);
                 }
                 Err(error) => {
                     state.diff.content = LoadState::Failed(ErrorNotice::new(error.to_string()));
                     state.diff.vertical = 0;
+                    state.diff.byte_column = 0;
+                    state.diff.desired_display_column = None;
+                    state.diff.viewport_vertical = 0;
                 }
             }
             Vec::new()
@@ -524,6 +605,930 @@ fn switch_view(state: &mut AppState, view: AppView) -> Vec<GitEffect> {
     }
 }
 
+fn apply_vim_motion(state: &mut AppState, motion: VimMotion) -> Vec<GitEffect> {
+    if matches!(
+        motion.kind(),
+        VimMotionKind::PreviousMarkLine
+            | VimMotionKind::PreviousMarkExact
+            | VimMotionKind::NextMarkLine
+            | VimMotionKind::NextMarkExact
+    ) {
+        return apply_mark_motion(state, motion);
+    }
+    let (height, width) = focused_viewport_dimensions(state);
+    if is_search_motion(motion.kind())
+        && let Some(document) = active_text_document(state)
+    {
+        apply_document_search_motion(state, document, motion, height, width);
+        return Vec::new();
+    }
+    match state.overlay {
+        Overlay::CodeContent => {
+            apply_code_vim_motion(state, motion, height, width);
+            return Vec::new();
+        }
+        Overlay::Diff => {
+            apply_diff_vim_motion(state, motion, height, width);
+            return Vec::new();
+        }
+        Overlay::FileContent => {
+            apply_file_vim_motion(state, motion, height, width);
+            return Vec::new();
+        }
+        Overlay::CommitMessage => {
+            apply_message_vim_motion(state, motion, height, width, true);
+            return Vec::new();
+        }
+        Overlay::RepositorySearch if state.repository_search.prompt.is_none() => {
+            return apply_list_vim_motion(state, motion, height);
+        }
+        Overlay::None => {}
+        Overlay::Help
+        | Overlay::RepositorySearch
+        | Overlay::SemanticTargets
+        | Overlay::LspHover => return Vec::new(),
+    }
+
+    if state.view == AppView::Code && state.focus == FocusedPane::Diff {
+        apply_code_vim_motion(state, motion, height, width);
+        return Vec::new();
+    }
+    if state.view == AppView::FileHistory && state.focus == FocusedPane::Diff {
+        if state.file_view.showing_history_diff {
+            apply_diff_vim_motion(state, motion, height, width);
+        } else {
+            apply_file_vim_motion(state, motion, height, width);
+        }
+        return Vec::new();
+    }
+    if state.view == AppView::CommitDetails && state.focus == FocusedPane::Secondary {
+        apply_message_vim_motion(state, motion, height, width, false);
+        return Vec::new();
+    }
+    if state.focus == FocusedPane::Diff
+        && matches!(
+            state.view,
+            AppView::Changes | AppView::History | AppView::GraphDetails
+        )
+    {
+        apply_diff_vim_motion(state, motion, height, width);
+        return Vec::new();
+    }
+    apply_list_vim_motion(state, motion, height)
+}
+
+fn apply_mark_motion(state: &mut AppState, motion: VimMotion) -> Vec<GitEffect> {
+    let code_active = state.view == AppView::Code
+        && (state.focus == FocusedPane::Diff || state.overlay == Overlay::CodeContent);
+    let Some(current) = code_active
+        .then(|| crate::app::semantic_navigation::current_origin(state))
+        .flatten()
+    else {
+        state.notice = Some(ErrorNotice::new(
+            "Vim marks are available in the working-tree Code viewer.",
+        ));
+        return Vec::new();
+    };
+    let linewise = matches!(
+        motion.kind(),
+        VimMotionKind::PreviousMarkLine | VimMotionKind::NextMarkLine
+    );
+    let forward = matches!(
+        motion.kind(),
+        VimMotionKind::NextMarkLine | VimMotionKind::NextMarkExact
+    );
+    let mut candidates = state
+        .vim_marks
+        .iter()
+        .filter(|(mark, origin)| mark.is_ascii_lowercase() && origin.path == current.path)
+        .map(|(_, origin)| origin.clone())
+        .filter(|origin| {
+            let ordering = if linewise {
+                origin.cursor.line().cmp(&current.cursor.line())
+            } else {
+                (origin.cursor.line(), origin.cursor.byte_column())
+                    .cmp(&(current.cursor.line(), current.cursor.byte_column()))
+            };
+            if forward {
+                ordering.is_gt()
+            } else {
+                ordering.is_lt()
+            }
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|origin| (origin.cursor.line(), origin.cursor.byte_column()));
+    if !forward {
+        candidates.reverse();
+    }
+    let Some(origin) = candidates.get(motion.count().saturating_sub(1)).cloned() else {
+        state.notice = Some(ErrorNotice::new("No Vim mark in that direction."));
+        return Vec::new();
+    };
+    crate::app::semantic_navigation::jump_to_mark(state, origin, linewise, true)
+        .into_iter()
+        .filter_map(|effect| match effect {
+            crate::app::AppEffect::Git(effect) => Some(effect),
+            crate::app::AppEffect::Lsp(_) => None,
+        })
+        .collect()
+}
+
+#[derive(Clone, Copy)]
+enum TextDocument {
+    Code,
+    Diff,
+    File,
+    Message { complete: bool },
+}
+
+fn active_text_document(state: &AppState) -> Option<TextDocument> {
+    match state.overlay {
+        Overlay::CodeContent => return Some(TextDocument::Code),
+        Overlay::Diff => return Some(TextDocument::Diff),
+        Overlay::FileContent => return Some(TextDocument::File),
+        Overlay::CommitMessage => return Some(TextDocument::Message { complete: true }),
+        Overlay::None => {}
+        Overlay::Help
+        | Overlay::RepositorySearch
+        | Overlay::SemanticTargets
+        | Overlay::LspHover => return None,
+    }
+    match (state.view, state.focus) {
+        (AppView::Code, FocusedPane::Diff) => Some(TextDocument::Code),
+        (AppView::FileHistory, FocusedPane::Diff) if state.file_view.showing_history_diff => {
+            Some(TextDocument::Diff)
+        }
+        (AppView::FileHistory, FocusedPane::Diff) => Some(TextDocument::File),
+        (AppView::CommitDetails, FocusedPane::Secondary) => {
+            Some(TextDocument::Message { complete: false })
+        }
+        (AppView::Changes | AppView::History | AppView::GraphDetails, FocusedPane::Diff) => {
+            Some(TextDocument::Diff)
+        }
+        _ => None,
+    }
+}
+
+fn document_lines(state: &AppState, document: TextDocument) -> Vec<String> {
+    match document {
+        TextDocument::Code => match &state.code_view.content {
+            LoadState::Ready(content) if content.message().is_some() => {
+                content.message().into_iter().map(str::to_owned).collect()
+            }
+            LoadState::Ready(content) => content.lines().to_vec(),
+            _ => Vec::new(),
+        },
+        TextDocument::Diff => match &state.diff.content {
+            LoadState::Ready(content) if content.message().is_some() => {
+                content.message().into_iter().map(str::to_owned).collect()
+            }
+            LoadState::Ready(content) => content
+                .lines()
+                .iter()
+                .map(|line| line.text().to_owned())
+                .collect(),
+            _ => Vec::new(),
+        },
+        TextDocument::File => match &state.file_view.content {
+            LoadState::Ready(content) if content.message().is_some() => {
+                content.message().into_iter().map(str::to_owned).collect()
+            }
+            LoadState::Ready(content) => content.lines().to_vec(),
+            _ => Vec::new(),
+        },
+        TextDocument::Message { complete } => match &state.message.content {
+            LoadState::Ready(message) if complete => {
+                message.as_str().lines().map(str::to_owned).collect()
+            }
+            LoadState::Ready(message) => message.body().lines().map(str::to_owned).collect(),
+            _ => Vec::new(),
+        },
+    }
+}
+
+fn document_position(state: &AppState, document: TextDocument) -> SourcePosition {
+    match document {
+        TextDocument::Code => state.code_view.cursor,
+        TextDocument::Diff => SourcePosition::new(
+            u32::try_from(state.diff.vertical).unwrap_or(u32::MAX),
+            state.diff.byte_column,
+        ),
+        TextDocument::File => SourcePosition::new(
+            u32::try_from(state.file_view.vertical).unwrap_or(u32::MAX),
+            state.file_view.byte_column,
+        ),
+        TextDocument::Message { .. } => SourcePosition::new(
+            u32::try_from(state.message.scroll).unwrap_or(u32::MAX),
+            state.message.byte_column,
+        ),
+    }
+}
+
+fn set_document_position(
+    state: &mut AppState,
+    document: TextDocument,
+    position: SourcePosition,
+    lines: &[&str],
+    height: usize,
+    width: usize,
+) {
+    let (top, left, gutter) = match document {
+        TextDocument::Code => (
+            state.code_view.viewport_vertical,
+            state.code_view.viewport_horizontal,
+            8,
+        ),
+        TextDocument::Diff => (state.diff.viewport_vertical, state.diff.horizontal, 14),
+        TextDocument::File => (
+            state.file_view.viewport_vertical,
+            state.file_view.horizontal,
+            8,
+        ),
+        TextDocument::Message { .. } => {
+            (state.message.viewport_vertical, state.message.horizontal, 0)
+        }
+    };
+    let desired = match document {
+        TextDocument::Code => state.code_view.desired_display_column,
+        TextDocument::Diff => state.diff.desired_display_column,
+        TextDocument::File => state.file_view.desired_display_column,
+        TextDocument::Message { .. } => state.message.desired_display_column,
+    };
+    let mut viewport = crate::app::vim::Viewport::new(top, left, height, width, gutter)
+        .with_desired_column(desired);
+    crate::app::vim::reveal(lines, position, &mut viewport);
+    let desired = lines
+        .get(usize::try_from(position.line()).unwrap_or(usize::MAX))
+        .map(|line| crate::lsp::display_column(line, position.byte_column()));
+    match document {
+        TextDocument::Code => {
+            state.code_view.cursor = position;
+            state.code_view.desired_display_column = desired;
+            state.code_view.viewport_vertical = viewport.top;
+            state.code_view.viewport_horizontal = viewport.left;
+        }
+        TextDocument::Diff => {
+            state.diff.vertical = usize::try_from(position.line()).unwrap_or(usize::MAX);
+            state.diff.byte_column = position.byte_column();
+            state.diff.desired_display_column = desired;
+            state.diff.viewport_vertical = viewport.top;
+            state.diff.horizontal = viewport.left;
+        }
+        TextDocument::File => {
+            state.file_view.vertical = usize::try_from(position.line()).unwrap_or(usize::MAX);
+            state.file_view.byte_column = position.byte_column();
+            state.file_view.desired_display_column = desired;
+            state.file_view.viewport_vertical = viewport.top;
+            state.file_view.horizontal = viewport.left;
+        }
+        TextDocument::Message { .. } => {
+            state.message.scroll = usize::try_from(position.line()).unwrap_or(usize::MAX);
+            state.message.byte_column = position.byte_column();
+            state.message.desired_display_column = desired;
+            state.message.viewport_vertical = viewport.top;
+            state.message.horizontal = viewport.left;
+        }
+    }
+}
+
+fn apply_document_search_action(state: &mut AppState, action: Action) -> bool {
+    let Some(document) = active_text_document(state) else {
+        return false;
+    };
+    match action {
+        Action::StartSearch(direction) => state.search.begin(direction),
+        Action::InsertSearch(character) => state.search.push(character),
+        Action::DeleteSearch => state.search.pop(),
+        Action::CancelSearch => state.search.cancel_input(),
+        Action::ConfirmSearch => {
+            let owned = document_lines(state, document);
+            let lines = owned.iter().map(String::as_str).collect::<Vec<_>>();
+            let anchor = document_position(state, document);
+            if let Some(position) = state.search.confirm_position(lines.iter().copied(), anchor) {
+                let origin = matches!(document, TextDocument::Code)
+                    .then(|| crate::app::semantic_navigation::current_origin(state))
+                    .flatten();
+                let (height, width) = focused_viewport_dimensions(state);
+                set_document_position(state, document, position, &lines, height, width);
+                if position != anchor
+                    && let Some(origin) = origin
+                {
+                    crate::app::semantic_navigation::remember_jump(state, origin);
+                }
+            }
+        }
+        Action::NextMatch | Action::PreviousMatch => {
+            let direction = if action == Action::NextMatch {
+                state.search.direction()
+            } else {
+                state.search.direction().reversed()
+            };
+            let kind = if direction == state.search.direction() {
+                VimMotionKind::SearchNext
+            } else {
+                VimMotionKind::SearchPrevious
+            };
+            let (height, width) = focused_viewport_dimensions(state);
+            apply_document_search_motion(state, document, VimMotion::new(kind), height, width);
+        }
+        _ => return false,
+    }
+    true
+}
+
+fn is_search_motion(kind: VimMotionKind) -> bool {
+    matches!(
+        kind,
+        VimMotionKind::SearchNext
+            | VimMotionKind::SearchPrevious
+            | VimMotionKind::SearchWordForward
+            | VimMotionKind::SearchWordBackward
+            | VimMotionKind::SearchPartialWordForward
+            | VimMotionKind::SearchPartialWordBackward
+    )
+}
+
+fn apply_document_search_motion(
+    state: &mut AppState,
+    document: TextDocument,
+    motion: VimMotion,
+    height: usize,
+    width: usize,
+) {
+    let owned = document_lines(state, document);
+    let lines = owned.iter().map(String::as_str).collect::<Vec<_>>();
+    let anchor = document_position(state, document);
+    let position = match motion.kind() {
+        VimMotionKind::SearchNext => state.search.repeat_position(
+            lines.iter().copied(),
+            anchor,
+            state.search.direction(),
+            motion.count(),
+        ),
+        VimMotionKind::SearchPrevious => state.search.repeat_position(
+            lines.iter().copied(),
+            anchor,
+            state.search.direction().reversed(),
+            motion.count(),
+        ),
+        VimMotionKind::SearchWordForward
+        | VimMotionKind::SearchWordBackward
+        | VimMotionKind::SearchPartialWordForward
+        | VimMotionKind::SearchPartialWordBackward => {
+            let Some((word, column)) = word_at_or_after(&lines, anchor) else {
+                return;
+            };
+            let direction = if matches!(
+                motion.kind(),
+                VimMotionKind::SearchWordBackward | VimMotionKind::SearchPartialWordBackward
+            ) {
+                crate::app::SearchDirection::Backward
+            } else {
+                crate::app::SearchDirection::Forward
+            };
+            let whole_word = matches!(
+                motion.kind(),
+                VimMotionKind::SearchWordForward | VimMotionKind::SearchWordBackward
+            );
+            state.search.search_word(
+                lines.iter().copied(),
+                &word,
+                whole_word,
+                SourcePosition::new(anchor.line(), column),
+                direction,
+                motion.count(),
+            )
+        }
+        _ => None,
+    };
+    if let Some(position) = position {
+        let origin = matches!(document, TextDocument::Code)
+            .then(|| crate::app::semantic_navigation::current_origin(state))
+            .flatten();
+        set_document_position(state, document, position, &lines, height, width);
+        if let Some(origin) = origin {
+            crate::app::semantic_navigation::remember_jump(state, origin);
+        }
+    }
+}
+
+fn word_at_or_after(lines: &[&str], position: SourcePosition) -> Option<(String, usize)> {
+    let line = lines.get(usize::try_from(position.line()).ok()?)?;
+    let mut requested = position.byte_column().min(line.len());
+    while !line.is_char_boundary(requested) {
+        requested = requested.saturating_sub(1);
+    }
+    if let Some(found) = line
+        .char_indices()
+        .find(|(column, character)| *column >= requested && is_keyword(*character))
+        .map(|(column, _)| column)
+    {
+        return Some(token_at(line, found, is_keyword));
+    }
+    let found = line
+        .char_indices()
+        .find(|(column, character)| *column >= requested && !character.is_whitespace())?
+        .0;
+    Some(token_at(line, found, |character| {
+        !character.is_whitespace()
+    }))
+}
+
+fn token_at(line: &str, found: usize, belongs: impl Fn(char) -> bool + Copy) -> (String, usize) {
+    let mut start = found;
+    for (column, character) in line[..found].char_indices().rev() {
+        if !belongs(character) {
+            break;
+        }
+        start = column;
+    }
+    let end = line[start..]
+        .char_indices()
+        .find(|(_, character)| !belongs(*character))
+        .map_or(line.len(), |(offset, _)| start.saturating_add(offset));
+    (line[start..end].to_owned(), start)
+}
+
+fn is_keyword(character: char) -> bool {
+    character.is_alphanumeric() || character == '_'
+}
+
+fn apply_code_vim_motion(state: &mut AppState, motion: VimMotion, height: usize, width: usize) {
+    let origin = is_jump_motion(motion.kind())
+        .then(|| crate::app::semantic_navigation::current_origin(state))
+        .flatten();
+    crate::app::code_view::apply_vim_motion(state, motion, height, width);
+    if let Some(origin) = origin {
+        crate::app::semantic_navigation::remember_jump(state, origin);
+    }
+}
+
+fn is_jump_motion(kind: VimMotionKind) -> bool {
+    matches!(
+        kind,
+        VimMotionKind::BufferTop
+            | VimMotionKind::BufferBottom
+            | VimMotionKind::BufferBottomEnd
+            | VimMotionKind::BufferPercentage
+            | VimMotionKind::WindowTop
+            | VimMotionKind::WindowMiddle
+            | VimMotionKind::WindowBottom
+            | VimMotionKind::MatchingPair
+            | VimMotionKind::MatchingPairBackward
+            | VimMotionKind::SentenceBackward
+            | VimMotionKind::SentenceForward
+            | VimMotionKind::ParagraphBackward
+            | VimMotionKind::ParagraphForward
+            | VimMotionKind::SectionStartBackward
+            | VimMotionKind::SectionStartForward
+            | VimMotionKind::SectionEndBackward
+            | VimMotionKind::SectionEndForward
+            | VimMotionKind::UnmatchedOpenBackward
+            | VimMotionKind::UnmatchedCloseForward
+            | VimMotionKind::MethodBackward
+            | VimMotionKind::MethodForward
+            | VimMotionKind::PreprocessorBackward
+            | VimMotionKind::PreprocessorForward
+            | VimMotionKind::CommentBackward
+            | VimMotionKind::CommentForward
+    )
+}
+
+fn apply_diff_vim_motion(state: &mut AppState, motion: VimMotion, height: usize, width: usize) {
+    if matches!(state.diff.content, LoadState::Loading { .. })
+        && let Some(delta) = loading_vertical_delta(motion, height)
+    {
+        state.diff.vertical = state.diff.vertical.saturating_add_signed(delta);
+        state.diff.viewport_vertical = state.diff.viewport_vertical.min(state.diff.vertical);
+        return;
+    }
+    const TRUNCATED: &str = "… diff truncated at the safe output limit …";
+    let (position, viewport) = {
+        let mut lines = match &state.diff.content {
+            LoadState::Ready(document) if document.message().is_some() => {
+                document.message().into_iter().collect::<Vec<_>>()
+            }
+            LoadState::Ready(document) => document
+                .lines()
+                .iter()
+                .map(crate::domain::DiffLine::text)
+                .collect::<Vec<_>>(),
+            LoadState::Idle | LoadState::Loading { .. } | LoadState::Failed(_) => Vec::new(),
+        };
+        if matches!(&state.diff.content, LoadState::Ready(document) if document.is_truncated()) {
+            lines.push(TRUNCATED);
+        }
+        let mut viewport = crate::app::vim::Viewport::new(
+            state.diff.viewport_vertical,
+            state.diff.horizontal,
+            height,
+            width,
+            14,
+        )
+        .with_desired_column(state.diff.desired_display_column);
+        let position = crate::app::vim::apply(
+            &lines,
+            SourcePosition::new(
+                u32::try_from(state.diff.vertical).unwrap_or(u32::MAX),
+                state.diff.byte_column,
+            ),
+            &mut viewport,
+            motion,
+        );
+        (position, viewport)
+    };
+    state.diff.vertical = usize::try_from(position.line()).unwrap_or(usize::MAX);
+    state.diff.byte_column = position.byte_column();
+    state.diff.desired_display_column = viewport.desired_column;
+    state.diff.viewport_vertical = viewport.top;
+    state.diff.horizontal = viewport.left;
+}
+
+fn apply_file_vim_motion(state: &mut AppState, motion: VimMotion, height: usize, width: usize) {
+    if matches!(state.file_view.content, LoadState::Loading { .. })
+        && let Some(delta) = loading_vertical_delta(motion, height)
+    {
+        state.file_view.vertical = state.file_view.vertical.saturating_add_signed(delta);
+        state.file_view.viewport_vertical = state
+            .file_view
+            .viewport_vertical
+            .min(state.file_view.vertical);
+        return;
+    }
+    const TRUNCATED: &str = "… file truncated at the safe output limit …";
+    let (position, viewport) = {
+        let mut lines = match &state.file_view.content {
+            LoadState::Ready(document) if document.message().is_some() => {
+                document.message().into_iter().collect::<Vec<_>>()
+            }
+            LoadState::Ready(document) => document.lines().iter().map(String::as_str).collect(),
+            LoadState::Idle | LoadState::Loading { .. } | LoadState::Failed(_) => Vec::new(),
+        };
+        if matches!(&state.file_view.content, LoadState::Ready(document) if document.is_truncated())
+        {
+            lines.push(TRUNCATED);
+        }
+        let mut viewport = crate::app::vim::Viewport::new(
+            state.file_view.viewport_vertical,
+            state.file_view.horizontal,
+            height,
+            width,
+            8,
+        )
+        .with_desired_column(state.file_view.desired_display_column);
+        let position = crate::app::vim::apply(
+            &lines,
+            SourcePosition::new(
+                u32::try_from(state.file_view.vertical).unwrap_or(u32::MAX),
+                state.file_view.byte_column,
+            ),
+            &mut viewport,
+            motion,
+        );
+        (position, viewport)
+    };
+    state.file_view.vertical = usize::try_from(position.line()).unwrap_or(usize::MAX);
+    state.file_view.byte_column = position.byte_column();
+    state.file_view.desired_display_column = viewport.desired_column;
+    state.file_view.viewport_vertical = viewport.top;
+    state.file_view.horizontal = viewport.left;
+}
+
+fn apply_message_vim_motion(
+    state: &mut AppState,
+    motion: VimMotion,
+    height: usize,
+    width: usize,
+    complete: bool,
+) {
+    if matches!(state.message.content, LoadState::Loading { .. })
+        && let Some(delta) = loading_vertical_delta(motion, height)
+    {
+        state.message.scroll = state.message.scroll.saturating_add_signed(delta);
+        state.message.viewport_vertical = state.message.viewport_vertical.min(state.message.scroll);
+        return;
+    }
+    let (position, viewport) = {
+        let lines = match &state.message.content {
+            LoadState::Ready(message) if complete => message.as_str().lines().collect::<Vec<_>>(),
+            LoadState::Ready(message) => message.body().lines().collect::<Vec<_>>(),
+            LoadState::Idle | LoadState::Loading { .. } | LoadState::Failed(_) => Vec::new(),
+        };
+        let mut viewport = crate::app::vim::Viewport::new(
+            state.message.viewport_vertical,
+            state.message.horizontal,
+            height,
+            width,
+            0,
+        )
+        .with_desired_column(state.message.desired_display_column);
+        let position = crate::app::vim::apply(
+            &lines,
+            SourcePosition::new(
+                u32::try_from(state.message.scroll).unwrap_or(u32::MAX),
+                state.message.byte_column,
+            ),
+            &mut viewport,
+            motion,
+        );
+        (position, viewport)
+    };
+    state.message.scroll = usize::try_from(position.line()).unwrap_or(usize::MAX);
+    state.message.byte_column = position.byte_column();
+    state.message.desired_display_column = viewport.desired_column;
+    state.message.viewport_vertical = viewport.top;
+    state.message.horizontal = viewport.left;
+}
+
+fn apply_list_vim_motion(
+    state: &mut AppState,
+    motion: VimMotion,
+    viewport_height: usize,
+) -> Vec<GitEffect> {
+    if matches!(
+        motion.kind(),
+        VimMotionKind::Left | VimMotionKind::LeftWrap | VimMotionKind::ScreenLineStart
+    ) {
+        state.focus = previous_pane(state.view, state.focus);
+        return Vec::new();
+    }
+    if matches!(
+        motion.kind(),
+        VimMotionKind::Right
+            | VimMotionKind::RightWrap
+            | VimMotionKind::ScreenLineEnd
+            | VimMotionKind::ScreenLastNonBlank
+    ) {
+        state.focus = next_pane(state.view, state.focus);
+        return Vec::new();
+    }
+
+    let count = motion.count().max(1);
+    let relative = match motion.kind() {
+        VimMotionKind::Up
+        | VimMotionKind::PreviousLineFirstNonBlank
+        | VimMotionKind::WordBackward
+        | VimMotionKind::BigWordBackward
+        | VimMotionKind::WordEndBackward
+        | VimMotionKind::BigWordEndBackward
+        | VimMotionKind::SentenceBackward
+        | VimMotionKind::ParagraphBackward
+        | VimMotionKind::ScrollLineUp => Some(-(count_as_isize(count))),
+        VimMotionKind::Down
+        | VimMotionKind::NextLineFirstNonBlank
+        | VimMotionKind::WordForward
+        | VimMotionKind::BigWordForward
+        | VimMotionKind::WordEndForward
+        | VimMotionKind::BigWordEndForward
+        | VimMotionKind::SentenceForward
+        | VimMotionKind::ParagraphForward
+        | VimMotionKind::ScrollLineDown => Some(count_as_isize(count)),
+        VimMotionKind::CountedLineFirstNonBlank => Some(count_as_isize(count.saturating_sub(1))),
+        VimMotionKind::HalfPageUp => {
+            Some(-(count_as_isize(half_page_distance(motion, viewport_height))))
+        }
+        VimMotionKind::HalfPageDown => {
+            Some(count_as_isize(half_page_distance(motion, viewport_height)))
+        }
+        VimMotionKind::PageUp => Some(
+            -(count_as_isize(
+                viewport_height
+                    .saturating_sub(2)
+                    .max(1)
+                    .saturating_mul(count),
+            )),
+        ),
+        VimMotionKind::PageDown => Some(count_as_isize(
+            viewport_height
+                .saturating_sub(2)
+                .max(1)
+                .saturating_mul(count),
+        )),
+        _ => None,
+    };
+    if let Some(delta) = relative {
+        return move_active_selection(state, delta);
+    }
+
+    let Some((current, len)) = active_list_position(state) else {
+        return Vec::new();
+    };
+    let last = len.saturating_sub(1);
+    let top = current.saturating_sub(viewport_height.saturating_sub(1));
+    let target = match motion.kind() {
+        VimMotionKind::LineStart | VimMotionKind::FirstNonBlank => 0,
+        VimMotionKind::LineEnd | VimMotionKind::LastNonBlank => last,
+        VimMotionKind::BufferTop => {
+            if motion.has_explicit_count() {
+                count.saturating_sub(1).min(last)
+            } else {
+                0
+            }
+        }
+        VimMotionKind::BufferBottom | VimMotionKind::BufferBottomEnd => last,
+        VimMotionKind::BufferPercentage => count
+            .min(100)
+            .saturating_mul(len)
+            .saturating_add(99)
+            .saturating_div(100)
+            .saturating_sub(1)
+            .min(last),
+        VimMotionKind::WindowTop => top.saturating_add(count.saturating_sub(1)).min(last),
+        VimMotionKind::WindowMiddle => top
+            .saturating_add(viewport_height.saturating_sub(1) / 2)
+            .min(last),
+        VimMotionKind::WindowBottom => top
+            .saturating_add(viewport_height.saturating_sub(count))
+            .min(last),
+        _ => return Vec::new(),
+    };
+    move_active_selection(
+        state,
+        count_as_isize(target).saturating_sub(count_as_isize(current)),
+    )
+}
+
+fn move_active_selection(state: &mut AppState, delta: isize) -> Vec<GitEffect> {
+    if state.overlay == Overlay::RepositorySearch {
+        if let LoadState::Ready(items) = &state.repository_search.results {
+            state
+                .repository_search
+                .selection
+                .move_by(delta, items.len());
+        }
+        Vec::new()
+    } else {
+        move_selection(state, delta)
+    }
+}
+
+fn active_list_position(state: &AppState) -> Option<(usize, usize)> {
+    match (state.overlay, state.view, state.focus, state.history_panel) {
+        (Overlay::RepositorySearch, _, _, _) => match &state.repository_search.results {
+            LoadState::Ready(items) => {
+                Some((state.repository_search.selection.index()?, items.len()))
+            }
+            _ => None,
+        },
+        (Overlay::None, AppView::Code, FocusedPane::Primary | FocusedPane::Secondary, _) => {
+            match &state.code_view.visible {
+                LoadState::Ready(items) => Some((state.code_view.selection.index()?, items.len())),
+                _ => None,
+            }
+        }
+        (Overlay::None, AppView::Changes, FocusedPane::Primary, _) => match &state.changes {
+            LoadState::Ready(items) => Some((state.change_selection.index()?, items.len())),
+            _ => None,
+        },
+        (
+            Overlay::None,
+            AppView::History | AppView::CommitDetails | AppView::Graph,
+            FocusedPane::Primary,
+            _,
+        ) => match &state.commits {
+            LoadState::Ready(items) => Some((state.commit_selection.index()?, items.len())),
+            _ => None,
+        },
+        (Overlay::None, AppView::History, FocusedPane::Secondary, HistoryPanel::ChangedFiles)
+        | (Overlay::None, AppView::CommitDetails, FocusedPane::Diff, _)
+        | (Overlay::None, AppView::GraphDetails, FocusedPane::Secondary, _) => match &state.files {
+            LoadState::Ready(items) => Some((state.file_selection.index()?, items.len())),
+            _ => None,
+        },
+        (Overlay::None, AppView::History, FocusedPane::Secondary, HistoryPanel::Tree) => {
+            match &state.tree.visible {
+                LoadState::Ready(items) => Some((state.tree.selection.index()?, items.len())),
+                _ => None,
+            }
+        }
+        (Overlay::None, AppView::FileHistory, FocusedPane::Primary, _) => {
+            match &state.file_view.commits {
+                LoadState::Ready(items) => Some((state.file_view.selection.index()?, items.len())),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn focused_viewport_dimensions(state: &AppState) -> (usize, usize) {
+    let terminal_height = usize::from(state.terminal_height);
+    let terminal_width = usize::from(state.terminal_width);
+    let main_height = terminal_height.saturating_sub(1);
+    let content = |height: usize, width: usize| {
+        (
+            height.saturating_sub(2).max(1),
+            width.saturating_sub(2).max(1),
+        )
+    };
+    match state.overlay {
+        Overlay::CodeContent | Overlay::Diff | Overlay::FileContent => {
+            return content(
+                terminal_height.saturating_sub(3),
+                terminal_width.saturating_sub(2),
+            );
+        }
+        Overlay::CommitMessage => {
+            return content(
+                percent(terminal_height, 78).saturating_sub(1),
+                percent(terminal_width, 82),
+            );
+        }
+        Overlay::RepositorySearch if state.repository_search.prompt.is_none() => {
+            return content(
+                percent(terminal_height, 82).saturating_sub(3),
+                percent(terminal_width, 86),
+            );
+        }
+        _ => {}
+    }
+    match (state.view, state.focus) {
+        (AppView::Changes, FocusedPane::Diff) if terminal_width >= 110 => {
+            content(main_height, percent(terminal_width, 68))
+        }
+        (AppView::Changes, _) => content(main_height, terminal_width),
+        (AppView::History, FocusedPane::Primary) => {
+            content(percent(main_height, 25), terminal_width)
+        }
+        (AppView::History, FocusedPane::Secondary) => {
+            content(percent(main_height, 25), terminal_width)
+        }
+        (AppView::History, FocusedPane::Diff) => content(percent(main_height, 50), terminal_width),
+        (AppView::CommitDetails, FocusedPane::Primary) => {
+            content(percent(main_height, 25), terminal_width)
+        }
+        (AppView::CommitDetails, FocusedPane::Secondary) => {
+            content(percent(main_height, 45), terminal_width)
+        }
+        (AppView::CommitDetails, FocusedPane::Diff) => {
+            content(percent(main_height, 30), terminal_width)
+        }
+        (AppView::Graph, _) => content(main_height, terminal_width),
+        (AppView::GraphDetails, FocusedPane::Secondary) => content(
+            percent(percent(main_height, 88), 38),
+            percent(terminal_width, 90),
+        ),
+        (AppView::GraphDetails, FocusedPane::Diff) => content(
+            percent(percent(main_height, 88), 62),
+            percent(terminal_width, 90),
+        ),
+        (AppView::FileHistory, FocusedPane::Primary) => {
+            content(percent(main_height, 38), terminal_width)
+        }
+        (AppView::FileHistory, FocusedPane::Diff) => {
+            content(percent(main_height, 62), terminal_width)
+        }
+        (AppView::Code, FocusedPane::Primary | FocusedPane::Secondary) => {
+            content(percent(main_height, 42), terminal_width)
+        }
+        (AppView::Code, FocusedPane::Diff) => content(percent(main_height, 58), terminal_width),
+        _ => content(main_height, terminal_width),
+    }
+}
+
+fn percent(value: usize, percentage: usize) -> usize {
+    value.saturating_mul(percentage).saturating_div(100)
+}
+
+fn count_as_isize(count: usize) -> isize {
+    isize::try_from(count).unwrap_or(isize::MAX)
+}
+
+fn half_page_distance(motion: VimMotion, viewport_height: usize) -> usize {
+    if motion.has_explicit_count() {
+        motion.count()
+    } else {
+        viewport_height.saturating_div(2).max(1)
+    }
+}
+
+fn loading_vertical_delta(motion: VimMotion, viewport_height: usize) -> Option<isize> {
+    let count = motion.count().max(1);
+    match motion.kind() {
+        VimMotionKind::Up => Some(-count_as_isize(count)),
+        VimMotionKind::Down => Some(count_as_isize(count)),
+        VimMotionKind::HalfPageUp => {
+            Some(-count_as_isize(half_page_distance(motion, viewport_height)))
+        }
+        VimMotionKind::HalfPageDown => {
+            Some(count_as_isize(half_page_distance(motion, viewport_height)))
+        }
+        VimMotionKind::PageUp => Some(-count_as_isize(
+            viewport_height
+                .saturating_sub(2)
+                .max(1)
+                .saturating_mul(count),
+        )),
+        VimMotionKind::PageDown => Some(count_as_isize(
+            viewport_height
+                .saturating_sub(2)
+                .max(1)
+                .saturating_mul(count),
+        )),
+        _ => None,
+    }
+}
+
 fn move_selection(state: &mut AppState, delta: isize) -> Vec<GitEffect> {
     if state.view == AppView::Code {
         return if state.focus == FocusedPane::Diff {
@@ -788,6 +1793,9 @@ fn refresh(state: &mut AppState) -> Vec<GitEffect> {
         target: None,
         content: LoadState::Idle,
         vertical: 0,
+        byte_column: 0,
+        desired_display_column: None,
+        viewport_vertical: 0,
         horizontal: 0,
     };
     match state.view {
@@ -819,6 +1827,10 @@ fn toggle_details(state: &mut AppState) -> Vec<GitEffect> {
     state.view = AppView::CommitDetails;
     state.focus = FocusedPane::Primary;
     state.message.scroll = 0;
+    state.message.byte_column = 0;
+    state.message.desired_display_column = None;
+    state.message.viewport_vertical = 0;
+    state.message.horizontal = 0;
     request_message(state, commit)
 }
 
@@ -833,6 +1845,10 @@ fn toggle_message(state: &mut AppState) -> Vec<GitEffect> {
         return Vec::new();
     };
     state.message.scroll = 0;
+    state.message.byte_column = 0;
+    state.message.desired_display_column = None;
+    state.message.viewport_vertical = 0;
+    state.message.horizontal = 0;
     state.overlay = Overlay::CommitMessage;
     request_message(state, commit)
 }
@@ -845,6 +1861,10 @@ fn request_message(state: &mut AppState, commit: crate::domain::ObjectId) -> Vec
     }
     if state.message.commit.as_ref() != Some(&commit) {
         state.message.scroll = 0;
+        state.message.byte_column = 0;
+        state.message.desired_display_column = None;
+        state.message.viewport_vertical = 0;
+        state.message.horizontal = 0;
     }
     let request_id = state.request_id();
     state.message.commit = Some(commit.clone());
@@ -1181,12 +2201,12 @@ mod tests {
     use super::{apply_action, apply_event};
     use crate::app::{
         Action, AppState, AppView, Event, FocusedPane, GitEffect, HistoryPanel, LoadState, Overlay,
-        RepositorySearchKind, SearchDirection,
+        RepositorySearchKind, SearchDirection, VimMotion, VimMotionKind,
     };
     use crate::domain::{
         ChangeKind, ChangedFile, CommitMessage, CommitSummary, DiffDocument, DiffLine,
         DiffLineKind, DiffTarget, FileDocument, ObjectId, RepoPath, RepositoryRoot, SearchHit,
-        TreeEntry, TreeKind, WorktreeChange,
+        SourcePosition, TreeEntry, TreeKind, WorktreeChange,
     };
 
     fn state() -> AppState {
@@ -1483,6 +2503,15 @@ mod tests {
         let _none = apply_action(&mut state, Action::MoveUp);
         assert_eq!(state.diff.vertical, 0);
 
+        state.diff.vertical = 1;
+        state.diff.byte_column = 0;
+        let _none = apply_action(
+            &mut state,
+            Action::VimMotion(VimMotion::new(VimMotionKind::WordForward)),
+        );
+        assert_eq!(state.diff.vertical, 1);
+        assert_eq!(state.diff.byte_column, 1);
+
         let _none = apply_action(&mut state, Action::StartSearch(SearchDirection::Forward));
         for character in "needle".chars() {
             let _none = apply_action(&mut state, Action::InsertSearch(character));
@@ -1496,7 +2525,7 @@ mod tests {
         let _none = apply_action(&mut state, Action::PreviousMatch);
         assert_eq!(state.diff.vertical, 1);
 
-        let _none = apply_action(&mut state, Action::Activate);
+        let _none = apply_action(&mut state, Action::CloseOverlay);
         assert_eq!(state.overlay, Overlay::None);
         assert!(state.search.query().is_empty());
     }
@@ -2020,6 +3049,15 @@ mod tests {
         }
         let _none = apply_action(&mut state, Action::ConfirmSearch);
         assert_eq!(state.code_view.cursor.line(), 1);
+        assert_eq!(state.semantic_navigation.back_stack.len(), 1);
+        assert_eq!(
+            state
+                .semantic_navigation
+                .back_stack
+                .back()
+                .map(|origin| origin.cursor),
+            Some(SourcePosition::new(0, 0))
+        );
         let _none = apply_action(&mut state, Action::CloseOverlay);
         assert_eq!(state.overlay, Overlay::None);
         assert_eq!(state.focus, FocusedPane::Diff);
@@ -2056,6 +3094,101 @@ mod tests {
             opened.first(),
             Some(GitEffect::LoadCodeFile { path, .. }) if path == &match_path
         ));
+    }
+
+    #[test]
+    fn star_search_word_selection_falls_back_to_the_nearest_nonblank_word() {
+        assert_eq!(
+            super::word_at_or_after(&["foo -> bar"], SourcePosition::new(0, 4)),
+            Some(("bar".to_owned(), 7))
+        );
+        assert_eq!(
+            super::word_at_or_after(&["foo ---"], SourcePosition::new(0, 4)),
+            Some(("---".to_owned(), 4))
+        );
+    }
+
+    fn searchable_code(lines: &[&str]) -> AppState {
+        let mut state = state();
+        state.view = AppView::Code;
+        state.focus = FocusedPane::Diff;
+        state.code_view.content = LoadState::Ready(FileDocument::Text {
+            source: lines.join("\n"),
+            lines: lines.iter().map(|line| (*line).to_owned()).collect(),
+            valid_utf8: true,
+            truncated: false,
+        });
+        state
+    }
+
+    #[test]
+    fn repeated_search_uses_the_current_cursor_after_a_motion() {
+        let mut state = searchable_code(&["cat", "cat", "cat", "cat"]);
+        let _none = apply_action(&mut state, Action::StartSearch(SearchDirection::Forward));
+        for character in "cat".chars() {
+            let _none = apply_action(&mut state, Action::InsertSearch(character));
+        }
+        let _none = apply_action(&mut state, Action::ConfirmSearch);
+        assert_eq!(state.code_view.cursor.line(), 1);
+        let _none = apply_action(
+            &mut state,
+            Action::VimMotion(VimMotion::new(VimMotionKind::Down)),
+        );
+        let _none = apply_action(
+            &mut state,
+            Action::VimMotion(VimMotion::new(VimMotionKind::SearchNext)),
+        );
+        assert_eq!(state.code_view.cursor.line(), 3);
+        let _none = apply_action(
+            &mut state,
+            Action::VimMotion(VimMotion::new(VimMotionKind::Up)),
+        );
+        let _none = apply_action(&mut state, Action::PreviousMatch);
+        assert_eq!(state.code_view.cursor.line(), 1);
+    }
+
+    #[test]
+    fn backward_word_search_skips_the_word_containing_the_cursor() {
+        let mut state = searchable_code(&["cat cat cat"]);
+        state.code_view.cursor = SourcePosition::new(0, 5);
+        let _none = apply_action(
+            &mut state,
+            Action::VimMotion(VimMotion::new(VimMotionKind::SearchWordBackward)),
+        );
+        assert_eq!(state.code_view.cursor, SourcePosition::new(0, 0));
+    }
+
+    #[test]
+    fn repeat_search_rebuilds_matches_for_the_active_document() {
+        let mut state = searchable_code(&["cat", "cat", "cat"]);
+        let _none = apply_action(
+            &mut state,
+            Action::VimMotion(VimMotion::new(VimMotionKind::SearchWordForward)),
+        );
+        state.view = AppView::FileHistory;
+        state.file_view.content = LoadState::Ready(FileDocument::Text {
+            source: "catfish cat".to_owned(),
+            lines: vec!["catfish cat".to_owned()],
+            valid_utf8: true,
+            truncated: false,
+        });
+        let _none = apply_action(
+            &mut state,
+            Action::VimMotion(VimMotion::new(VimMotionKind::SearchNext)),
+        );
+        assert_eq!(
+            (state.file_view.vertical, state.file_view.byte_column),
+            (0, 8)
+        );
+    }
+
+    #[test]
+    fn leaving_document_search_does_not_trap_input_in_an_unfocused_pane() {
+        let mut state = searchable_code(&["cat"]);
+        let _none = apply_action(&mut state, Action::StartSearch(SearchDirection::Forward));
+        let _none = apply_action(&mut state, Action::FocusLeft);
+        let _none = apply_action(&mut state, Action::CancelSearch);
+        assert!(!state.search.is_input_active());
     }
 
     fn commit(value: char, subject: &str) -> CommitSummary {

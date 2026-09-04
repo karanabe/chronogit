@@ -75,7 +75,7 @@ chronogit /path/to/repository --view graph
 chronogit /path/to/repository --view code
 ```
 
-Press `1` for Changes, `2` for History, `3` for Graph, or `4` for Code at any time. The first three form the Git workflow; Code provides the separate source-browsing workflow. `Space f` searches files and `Space g` searches working-tree text from any main view. Press `F1` for the in-app key guide, `q` / `Esc` to close or go back, and `Q` / `Ctrl-C` to exit.
+Press `\1` for Changes, `\2` for History, `\3` for Graph, or `\4` for Code at any time. The first three form the Git workflow; Code provides the separate source-browsing workflow. `\f` searches files and `\g` searches working-tree text from any main view. Press `F1` for the in-app key guide, `q` / `Esc` to close or go back, and `Q` / `Ctrl-C` to exit.
 
 ## Next steps
 

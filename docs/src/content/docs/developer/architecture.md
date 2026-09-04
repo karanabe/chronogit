@@ -65,8 +65,10 @@ The repository object format is not assumed to be SHA-1. ChronoGit retains compl
 
 Owns interactive state and transitions.
 
+`app::vim` applies count-aware cursor and viewport motions to borrowed document lines. Search repetition uses the current cursor and rebuilds matches for the active document; counts wrap by match index. Code marks and searches share the bounded LSP jump history, and counted traversal loads only the final destination.
+
 - `AppView`, `FocusedPane`, `HistoryPanel`, and `Overlay` model mutually exclusive UI states. Changes, History/body, Graph/details, file history, and Code are views; repository search, complete messages, full diffs, current file content, and full Code content are overlays.
-- `SearchState` owns search inside a loaded diff or full Code file. `RepositorySearchState` separately owns the global prompt, live query, results, selection, and return view. An active prompt represents Search focus; moving to Results retains the query so returning to Search can restore and edit it. Every query edit issues a new typed effect; request IDs prevent an older completion from replacing newer results. `FileViewState` owns the selected search-result path, its history/current content, and whether the lower pane shows content or a historical diff. `CodeViewState` owns the complete path set, projected visible tree, selected path, bounded content, and code viewport.
+- `SearchState` owns smart-case positional search inside the active Code, diff, file, or commit-message document. `RepositorySearchState` separately owns the global prompt, live query, results, selection, and return view. An active prompt represents Search focus; moving to Results retains the query so returning to Search can restore and edit it. Every query edit issues a new typed effect; request IDs prevent an older completion from replacing newer results. `FileViewState` owns the selected search-result path, its history/current content, and whether the lower pane shows content or a historical diff. `CodeViewState` owns the complete path set, projected visible tree, selected path, bounded content, and code viewport.
 - `LoadState<T>` is idle, loading with a request ID, ready, or failed.
 - `Action` represents user intent, `Event` an asynchronous completion, and `GitEffect` a closed Git side-effect description.
 - `AppEffect` routes existing `GitEffect` values and persistent `LspEffect` values without mixing their lifecycle policies. `SemanticNavigationState` owns candidates, request identity, and a bounded bidirectional jump history; `LspHoverState` owns the hover request, return overlay, and scroll offset.
@@ -83,7 +85,7 @@ The Code tree is different: Git enumerates all tracked and non-ignored worktree 
 
 Owns key translation, terminal lifecycle, layout, rendering, and the event loop.
 
-- `KeyMapper` converts Vim-oriented key events to actions through built-in or XDG/`--keymap` bindings. The parser accepts only named actions and keys, rejects ambiguous prefixes, and uses a 750 ms sequence timeout. Ctrl-C remains reserved for safe exit.
+- `KeyMapper` converts Vim normal-mode keys to count- and argument-aware actions through built-in or XDG/`--keymap` bindings. It preserves character arguments for find/till and marks, remembers character-search direction, rejects ambiguous prefixes, and times ordinary sequences out after 750 ms. Ctrl-C remains reserved for safe exit.
 - `TerminalSession` enables raw mode and the alternate screen and restores terminal state from `Drop`.
 - A panic hook performs the same restoration before forwarding to the previous hook.
 - `tokio::select!` waits for terminal input, resize/tick events, Ctrl-C, and typed asynchronous completion events.

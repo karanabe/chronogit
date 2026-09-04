@@ -107,7 +107,7 @@ chronogit /path/to/repository --view code
 2. 回答にある正確なコマンドをコピーします。
 3. 同じ環境で別のターミナルwindow、tab、split、または`tmux` paneを開いて実行します。
 4. エージェントへ戻るときは、そのターミナルの通常のwindow、tab、pane切り替えを使います。ChronoGit固有の切り替えキーはありません。
-5. ChronoGit内では`1`、`2`、`3`、`4`でChanges、History、Graph、Codeを切り替えます。`Q`または`Ctrl-C`でTUIを閉じ、shellへ戻ります。
+5. ChronoGit内では`\1`、`\2`、`\3`、`\4`でChanges、History、Graph、Codeを切り替えます。`Q`または`Ctrl-C`でTUIを閉じ、shellへ戻ります。
 
 エージェントはChronoGitへ入力したキー、選択中のファイル、TUI画面を見ることができません。確認結果をエージェントへ伝えるか、会話内で回答が必要な場合は、同じ変更を構造化されたGitコマンドで調べるよう依頼してください。
 
