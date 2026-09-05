@@ -15,7 +15,8 @@ ChronoGit is operated entirely from the keyboard. Press `F1` inside the applicat
 
 | Key | Action |
 | --- | --- |
-| `q` / `Esc` | Close the current float or go back |
+| `q` | Close the current float or go back immediately |
+| `Esc` | Cancel input; in Diff/Code dismiss search highlights first, then close/back |
 | `Q` / `Ctrl-C` | Quit |
 | `\1` / `\2` / `\3` / `\4` | Open Changes / History / Graph / Code |
 | `\f` / `\g` | Search repository file names / working-tree content |
@@ -59,8 +60,10 @@ The highlighted border identifies the focused pane. Selection and scrolling comm
 
 ## Overlays
 
-Help, Graph details, repository search, complete commit messages, current file content, Code files, and selected-file diffs open above the main panes. Press `\m` again to close a message. Text overlays retain the Vim character cursor and movement vocabulary. `Enter` moves to the next line's first nonblank like `+`; `q` or `Esc` closes the overlay. In repository search, `Enter` or `Ctrl-j` moves from Search to Results, while `Ctrl-w k` returns to Search with the current query ready to edit. Outside text entry, `q` and `Esc` close the current float or return from a detail/file view. While a search prompt is active, `q` and `Q` are query text, `Esc` cancels input, and `Ctrl-C` quits. `/` starts a forward search and `?` a backward search; `n` / `N` repeat it with counts and wraparound. `*` / `#` search for the whole word at the cursor, while `g*` / `g#` allow a partial-word match. Lowercase queries ignore case, while any uppercase character makes the query case-sensitive.
+Help, Graph details, repository search, complete commit messages, current file content, Code files, and selected-file diffs open above the main panes. Press `\m` again to close a message. Text overlays retain the Vim character cursor and movement vocabulary. `Enter` moves to the next line's first nonblank like `+`; `q` closes the overlay immediately. In Diff/Code, `Esc` first dismisses search highlights, then closes on the next press. In repository search, `Enter` or `Ctrl-j` moves from Search to Results, while `Ctrl-w k` returns to Search with the current query ready to edit. Outside text entry, `q` closes the current float or returns from a detail/file view. `Esc` does the same when no search highlights remain. While a search prompt is active, `q` and `Q` are query text, `Esc` cancels input, and `Ctrl-C` quits. `/` starts a forward search and `?` a backward search; `n` / `N` repeat it with counts and wraparound. `*` / `#` search for the whole word at the cursor, while `g*` / `g#` allow a partial-word match. Lowercase queries ignore case, while any uppercase character makes the query case-sensitive.
 
 ## Exit and terminal restoration
 
 Startup failures occur before raw mode is enabled and leave the terminal untouched. Once the TUI is active, normal exit, `Q`, `Ctrl-C`, runtime errors, and panics are designed to restore raw mode, the cursor, mouse capture, and the alternate screen. If your shell still looks incorrect after a forced kill or terminal failure, see [Troubleshooting](/troubleshooting/common-problems/#the-terminal-was-not-restored).
+
+Diff and Code panes and floats decorate only matched strings: the current match has a yellow background, other matches are underlined, and the cursor stays cyan. Default `Esc` removes only search decoration, preserving the query, direction, focus, cursor and scroll position. `n` / `N` or a confirmed search restores it. No matches means no extra Esc. Prompt and find/till/mark cancellation preserve the previous search and its visible or dismissed state. Frontmost help, hover and repository search close before any underlying highlights are dismissed.

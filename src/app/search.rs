@@ -45,12 +45,14 @@ pub(crate) struct SearchState {
     whole_word: bool,
     matches: Vec<SearchMatch>,
     current: Option<usize>,
+    highlights_visible: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct SearchMatch {
     line: usize,
     byte_column: usize,
+    byte_end: usize,
 }
 
 impl SearchMatch {
@@ -71,6 +73,7 @@ impl SearchState {
             whole_word: false,
             matches: Vec::new(),
             current: None,
+            highlights_visible: false,
         }
     }
 
@@ -103,6 +106,7 @@ impl SearchState {
         self.whole_word = false;
         self.matches.clear();
         self.current = None;
+        self.highlights_visible = false;
     }
 
     pub(crate) fn is_input_active(&self) -> bool {
@@ -142,10 +146,31 @@ impl SearchState {
             .map(SearchMatch::position)
     }
 
-    pub(crate) fn is_match(&self, line: usize) -> bool {
-        self.matches
-            .binary_search_by_key(&line, |found| found.line)
-            .is_ok()
+    pub(crate) fn has_highlights(&self) -> bool {
+        self.highlights_visible && !self.matches.is_empty()
+    }
+
+    pub(crate) fn dismiss_highlights(&mut self) -> bool {
+        let dismissed = self.has_highlights();
+        self.highlights_visible = false;
+        dismissed
+    }
+
+    pub(crate) fn highlighted_ranges(
+        &self,
+        line: usize,
+    ) -> impl Iterator<Item = (std::ops::Range<usize>, bool)> + '_ {
+        let start = self.matches.partition_point(|found| found.line < line);
+        self.matches[start..]
+            .iter()
+            .enumerate()
+            .take_while(move |(_, found)| self.has_highlights() && found.line == line)
+            .map(move |(offset, found)| {
+                (
+                    found.byte_column..found.byte_end,
+                    self.current == Some(start + offset),
+                )
+            })
     }
 
     pub(crate) fn confirm<'a>(
@@ -162,17 +187,18 @@ impl SearchState {
         self.matches = matching_positions(values, &self.query, self.whole_word);
         self.current = select_match(
             &self.matches,
-            SearchMatch {
-                line: anchor,
-                byte_column: if self.direction == SearchDirection::Backward {
+            (
+                anchor,
+                if self.direction == SearchDirection::Backward {
                     usize::MAX
                 } else {
                     0
                 },
-            },
+            ),
             self.direction,
             true,
         );
+        self.highlights_visible = self.current.is_some();
         self.current_line()
     }
 
@@ -190,13 +216,14 @@ impl SearchState {
         self.matches = matching_positions(values, &self.query, self.whole_word);
         self.current = select_match(
             &self.matches,
-            SearchMatch {
-                line: usize::try_from(anchor.line()).unwrap_or(usize::MAX),
-                byte_column: anchor.byte_column(),
-            },
+            (
+                usize::try_from(anchor.line()).unwrap_or(usize::MAX),
+                anchor.byte_column(),
+            ),
             self.direction,
             false,
         );
+        self.highlights_visible = self.current.is_some();
         self.current_position()
     }
 
@@ -231,10 +258,10 @@ impl SearchState {
         direction: SearchDirection,
         count: usize,
     ) -> Option<SourcePosition> {
-        let anchor = SearchMatch {
-            line: usize::try_from(anchor.line()).unwrap_or(usize::MAX),
-            byte_column: anchor.byte_column(),
-        };
+        let anchor = (
+            usize::try_from(anchor.line()).unwrap_or(usize::MAX),
+            anchor.byte_column(),
+        );
         self.current = select_match(&self.matches, anchor, direction, false);
         if let Some(first) = self.current {
             let len = self.matches.len();
@@ -244,6 +271,7 @@ impl SearchState {
                 SearchDirection::Backward => (first + len - offset) % len,
             });
         }
+        self.highlights_visible = self.current.is_some();
         self.current_position()
     }
 
@@ -289,7 +317,11 @@ fn matching_positions<'a>(
             match_starts(value, query, case_sensitive)
                 .into_iter()
                 .filter(move |(start, end)| !whole_word || is_whole_word(value, *start, *end))
-                .map(move |(byte_column, _)| SearchMatch { line, byte_column })
+                .map(move |(byte_column, byte_end)| SearchMatch {
+                    line,
+                    byte_column,
+                    byte_end,
+                })
         })
         .collect()
 }
@@ -350,7 +382,7 @@ fn is_keyword(character: char) -> bool {
 
 fn select_match(
     matches: &[SearchMatch],
-    anchor: SearchMatch,
+    anchor: (usize, usize),
     direction: SearchDirection,
     include_anchor: bool,
 ) -> Option<usize> {
@@ -361,20 +393,22 @@ fn select_match(
         SearchDirection::Forward => matches
             .iter()
             .position(|found| {
+                let found = (found.line, found.byte_column);
                 if include_anchor {
-                    *found >= anchor
+                    found >= anchor
                 } else {
-                    *found > anchor
+                    found > anchor
                 }
             })
             .or(Some(0)),
         SearchDirection::Backward => matches
             .iter()
             .rposition(|found| {
+                let found = (found.line, found.byte_column);
                 if include_anchor {
-                    *found <= anchor
+                    found <= anchor
                 } else {
-                    *found < anchor
+                    found < anchor
                 }
             })
             .or_else(|| matches.len().checked_sub(1)),

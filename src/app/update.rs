@@ -15,6 +15,15 @@ use crate::app::{
 use crate::domain::{CommitSummary, DiffTarget, RepoPath, SourcePosition, TreeKind};
 
 pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffect> {
+    let action = if action == Action::DismissSearchOrClose {
+        if state.has_active_search_highlights() {
+            state.search.dismiss_highlights();
+            return Vec::new();
+        }
+        Action::CloseOverlay
+    } else {
+        action
+    };
     if matches!(
         action,
         Action::FocusLeft | Action::FocusRight | Action::CancelSearch
@@ -183,6 +192,7 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
         | Action::NextMatch
         | Action::PreviousMatch
         | Action::CloseOverlay
+        | Action::DismissSearchOrClose
         | Action::Tick
         | Action::Quit
         | Action::OpenFileSearch
@@ -739,6 +749,13 @@ enum TextDocument {
     Diff,
     File,
     Message { complete: bool },
+}
+
+pub(super) fn has_active_search_highlights(state: &AppState) -> bool {
+    matches!(
+        active_text_document(state),
+        Some(TextDocument::Code | TextDocument::Diff)
+    ) && state.search.has_highlights()
 }
 
 fn active_text_document(state: &AppState) -> Option<TextDocument> {
@@ -3119,6 +3136,220 @@ mod tests {
             truncated: false,
         });
         state
+    }
+
+    fn search_key(state: &mut AppState, mapper: &mut crate::tui::keymap::KeyMapper, key: char) {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let code = match key {
+            '\u{1b}' => KeyCode::Esc,
+            '\n' => KeyCode::Enter,
+            character => KeyCode::Char(character),
+        };
+        if let Some(action) = mapper.map(
+            KeyEvent::new(code, KeyModifiers::NONE),
+            state.is_search_input_active(),
+        ) {
+            assert!(state.handle_app_action(action).is_empty());
+        }
+    }
+
+    fn search_keys(state: &mut AppState, mapper: &mut crate::tui::keymap::KeyMapper, keys: &str) {
+        for key in keys.chars() {
+            search_key(state, mapper, key);
+        }
+    }
+
+    #[test]
+    fn search_escape_preserves_position_and_resumes_in_panes_and_floats() {
+        for code in [false, true] {
+            for float in [false, true] {
+                for (prompt, direction) in [
+                    ('/', SearchDirection::Forward),
+                    ('?', SearchDirection::Backward),
+                ] {
+                    let mut state = searchable_code(&["cat cat", "cat cat", "cat cat"]);
+                    if !code {
+                        state.view = AppView::GraphDetails;
+                        state.diff.content = LoadState::Ready(DiffDocument::Text {
+                            lines: (0..3)
+                                .map(|_| {
+                                    DiffLine::new(
+                                        DiffLineKind::Context,
+                                        None,
+                                        None,
+                                        "cat cat".to_owned(),
+                                    )
+                                })
+                                .collect(),
+                            bytes: 21,
+                        });
+                    }
+                    state.overlay = match (code, float) {
+                        (true, true) => Overlay::CodeContent,
+                        (false, true) => Overlay::Diff,
+                        _ => Overlay::None,
+                    };
+                    let mut mapper = crate::tui::keymap::KeyMapper::new();
+                    search_keys(&mut state, &mut mapper, &format!("{prompt}cat\n"));
+                    assert_eq!(state.search.direction(), direction);
+                    assert_eq!(state.search.match_count(), 6);
+                    // Non-default viewport coordinates must survive dismissal exactly.
+                    state.code_view.viewport_vertical = 1;
+                    state.code_view.viewport_horizontal = 4;
+                    state.diff.viewport_vertical = 1;
+                    state.diff.horizontal = 4;
+                    let before = (
+                        state.view,
+                        state.overlay,
+                        state.focus,
+                        state.code_view.cursor,
+                        state.code_view.viewport_vertical,
+                        state.code_view.viewport_horizontal,
+                        state.diff.vertical,
+                        state.diff.byte_column,
+                        state.diff.viewport_vertical,
+                        state.diff.horizontal,
+                    );
+                    let ordinal = state.search.current_ordinal();
+                    search_key(&mut state, &mut mapper, '\u{1b}');
+                    assert!(!state.search.has_highlights());
+                    assert_eq!(
+                        before,
+                        (
+                            state.view,
+                            state.overlay,
+                            state.focus,
+                            state.code_view.cursor,
+                            state.code_view.viewport_vertical,
+                            state.code_view.viewport_horizontal,
+                            state.diff.vertical,
+                            state.diff.byte_column,
+                            state.diff.viewport_vertical,
+                            state.diff.horizontal
+                        )
+                    );
+                    assert_eq!(state.search.query(), "cat");
+                    assert_eq!(state.search.direction(), direction);
+                    assert_eq!(state.search.current_ordinal(), ordinal);
+                    // Six hits: a counted repeat wraps to the same hit, then N
+                    // goes in the opposite direction without changing the query direction.
+                    search_keys(&mut state, &mut mapper, "6n");
+                    assert!(state.search.has_highlights());
+                    assert_eq!(state.search.current_ordinal(), ordinal);
+                    search_keys(&mut state, &mut mapper, "\u{1b}N");
+                    assert!(state.search.has_highlights());
+                    let previous = ordinal.unwrap_or(0);
+                    let expected = if direction == SearchDirection::Forward {
+                        (previous + 4) % 6 + 1
+                    } else {
+                        previous % 6 + 1
+                    };
+                    assert_eq!(state.search.current_ordinal(), Some(expected));
+                    assert_eq!(state.search.direction(), direction);
+                    search_keys(&mut state, &mut mapper, "\u{1b}/at\n");
+                    assert!(state.search.has_highlights());
+                    assert_eq!(state.search.query(), "at");
+                    search_keys(&mut state, &mut mapper, "\u{1b}\u{1b}");
+                    assert_eq!(state.overlay, Overlay::None);
+                    assert_eq!(
+                        state.view,
+                        if code {
+                            AppView::Code
+                        } else if float {
+                            AppView::GraphDetails
+                        } else {
+                            AppView::Graph
+                        }
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn search_cancel_and_frontmost_screens_keep_underlying_highlights() {
+        let mut state = searchable_code(&["cat cat"]);
+        let mut mapper = crate::tui::keymap::KeyMapper::new();
+        search_keys(&mut state, &mut mapper, "/cat\n");
+        for visible in [true, false] {
+            if !visible {
+                search_key(&mut state, &mut mapper, '\u{1b}');
+            }
+            let position = state.code_view.cursor;
+            for pending in ["/new", "?new", "f", "F", "t", "T", "m", "'", "`"] {
+                search_keys(&mut state, &mut mapper, pending);
+                search_key(&mut state, &mut mapper, '\u{1b}');
+                assert!(!state.search.is_input_active());
+                assert_eq!(state.search.has_highlights(), visible, "{pending}");
+                assert_eq!(state.search.query(), "cat");
+                assert_eq!(state.search.direction(), SearchDirection::Forward);
+                assert_eq!(state.code_view.cursor, position);
+                assert_eq!(state.overlay, Overlay::None);
+            }
+        }
+        search_key(&mut state, &mut mapper, 'n');
+        for overlay in [
+            Overlay::Help,
+            Overlay::RepositorySearch,
+            Overlay::LspHover,
+            Overlay::SemanticTargets,
+            Overlay::CommitMessage,
+            Overlay::FileContent,
+        ] {
+            state.overlay = overlay;
+            state.repository_search.prompt = None;
+            search_key(&mut state, &mut mapper, '\u{1b}');
+            assert_ne!(state.overlay, overlay, "{overlay:?}");
+            assert!(state.search.has_highlights(), "{overlay:?}");
+        }
+        state.overlay = Overlay::RepositorySearch;
+        state.repository_search.prompt = Some("cat".to_owned());
+        search_key(&mut state, &mut mapper, '\u{1b}');
+        assert_ne!(state.overlay, Overlay::RepositorySearch);
+        assert!(state.search.has_highlights());
+    }
+
+    #[test]
+    fn search_q_no_match_and_custom_close_need_no_dismissal() {
+        for code in [false, true] {
+            for (query, close) in [("cat", "q"), ("missing", "\u{1b}")] {
+                let mut state = searchable_code(&["cat cat"]);
+                state.overlay = if code {
+                    Overlay::CodeContent
+                } else {
+                    Overlay::Diff
+                };
+                state.diff.content = LoadState::Ready(DiffDocument::Text {
+                    lines: vec![DiffLine::new(
+                        DiffLineKind::Context,
+                        None,
+                        None,
+                        "cat cat".to_owned(),
+                    )],
+                    bytes: 7,
+                });
+                let mut mapper = crate::tui::keymap::KeyMapper::new();
+                search_keys(&mut state, &mut mapper, &format!("/{query}\n{close}"));
+                assert_eq!(state.overlay, Overlay::None);
+            }
+        }
+        let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("{error}"));
+        let path = directory.path().join("keymap.conf");
+        for (config, close) in [
+            ("close = x", "x"),
+            ("close = q, esc", "\u{1b}"),
+            ("close = x\nrefresh = esc", "x"),
+        ] {
+            std::fs::write(&path, config).unwrap_or_else(|error| panic!("{error}"));
+            let mut mapper = crate::tui::keymap::KeyMapper::load(Some(&path))
+                .unwrap_or_else(|error| panic!("{error}"));
+            let mut state = searchable_code(&["cat cat"]);
+            state.overlay = Overlay::CodeContent;
+            search_keys(&mut state, &mut mapper, "/cat\n");
+            assert!(state.search.has_highlights());
+            search_keys(&mut state, &mut mapper, close);
+            assert_eq!(state.overlay, Overlay::None, "{config}");
+        }
     }
 
     #[test]

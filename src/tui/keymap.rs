@@ -564,7 +564,7 @@ mod tests {
         );
         assert_eq!(
             mapper.map(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), false),
-            Some(Action::CloseOverlay)
+            Some(Action::DismissSearchOrClose)
         );
         assert_eq!(
             mapper.map(
@@ -978,6 +978,25 @@ mod tests {
             None,
             "an explicit semantic_forward binding replaces its defaults"
         );
+    }
+
+    #[test]
+    fn explicit_close_preserves_the_meaning_of_removed_or_reassigned_escape() {
+        let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("{error}"));
+        let path = directory.path().join("keymap.conf");
+        for (source, expected) in [
+            ("close = x", None),
+            ("close = q, esc", Some(Action::CloseOverlay)),
+            ("close = x\nrefresh = esc", Some(Action::Refresh)),
+            ("refresh = esc\nclose = x", Some(Action::Refresh)),
+            ("refresh = x", Some(Action::DismissSearchOrClose)),
+        ] {
+            fs::write(&path, source).unwrap_or_else(|error| panic!("{error}"));
+            let mut mapper = KeyMapper::load(Some(&path)).unwrap_or_else(|error| panic!("{error}"));
+            let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+            assert_eq!(mapper.map(esc, false), expected, "{source}");
+            assert_eq!(mapper.map(esc, true), Some(Action::CancelSearch));
+        }
     }
 
     #[test]

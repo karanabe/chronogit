@@ -17,7 +17,7 @@ show_graph = x
 show_code = c
 file_search = alt-p
 content_search = alt-s
-close = q, esc
+# close = q, esc
 quit = Q
 ```
 
@@ -59,4 +59,6 @@ Unmodified `1` through `9` are reserved for counts and cannot start a binding. U
 | `search_forward`, `search_backward`, `next_match`, `previous_match` | Prompt search and count-aware repetition in the active text document |
 | `search_word_forward`, `search_word_backward`, `search_partial_word_forward`, `search_partial_word_backward` | `*`, `#`, `g*`, and `g#` word-derived searches |
 
-ChronoGit rejects an unknown action/key, an unreadable explicit file, duplicate keys, and a binding that is a prefix of another binding. These errors are reported before terminal raw mode starts. By default, `close` uses `q` and `Esc`, while `quit` uses uppercase `Q`; `Ctrl-C` is always reserved as an emergency safe-exit binding even when `quit` is replaced. Query editing reserves `Enter`, `Ctrl-j`, `Ctrl-k`, `Esc`, Backspace, and `Ctrl-C`; printable `q` and uppercase `Q` remain available as query text. In-app help describes the built-in defaults, not custom bindings.
+ChronoGit rejects an unknown action/key, an unreadable explicit file, duplicate keys, and a binding that is a prefix of another binding. These errors are reported before terminal raw mode starts. By default, `q` closes/backs immediately and `Esc` first dismisses active Diff/Code search highlights before close/back, while `quit` uses uppercase `Q`; `Ctrl-C` is always reserved as an emergency safe-exit binding even when `quit` is replaced. Query editing reserves `Enter`, `Ctrl-j`, `Ctrl-k`, `Esc`, Backspace, and `Ctrl-C`; printable `q` and uppercase `Q` remain available as query text. In-app help describes the built-in defaults, not custom bindings.
+
+An explicit `close` assignment replaces both default `q` and `Esc` bindings. Every assigned key closes/backs immediately: even `close = q, esc` makes Esc close without dismissing highlights first. With `close = x`, default Esc is removed and can be bound to another action. Leave `close` unset to retain the default two-step Esc. Prompt and character-wait cancellation by Esc remains reserved regardless of configuration.

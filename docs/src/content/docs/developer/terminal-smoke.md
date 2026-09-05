@@ -56,7 +56,7 @@ Confirm typed input echoes normally, the cursor is visible, mouse selection work
 2. At both 140×40 and 80×24, confirm commits, changed files/tree, and diff are visible as three full-width rows and long subjects/paths remain readable.
 3. Visit root, normal, and merge commits. Confirm the footer and diff title describe `empty tree`, `parent`, or `first parent` as appropriate.
 4. With Commits focused, press `Enter` and confirm focus moves directly to Changed files for the selected commit.
-5. Select changed text and binary files, press `Enter`, and confirm a large floating patch or binary summary opens. In text, confirm `Enter` moves to the next line's first nonblank. Close it once with `q` and once with `Esc`.
+5. Select changed text and binary files, press `Enter`, and confirm a large floating patch or binary summary opens. In text, confirm `Enter` moves to the next line's first nonblank. Close it with `q` and, when no search highlights are present, `Esc`.
 6. Open a recognized source file and confirm code tokens are syntax-highlighted, additions/removals retain muted green/red backgrounds, and the current-line gutter marker does not recolor the code. While opening an uncached long text diff, immediately press `Ctrl-d` and confirm the marker moves half a page as soon as the diff appears. Confirm `j` / `k` visibly move it one line and `Ctrl-u` moves it up without a delay.
 7. Exercise counts plus `w/W/e/E`, `b/B/ge/gE`, `0/^/$/g_`, `f/F/t/T` with `;` / `,`, `gg/G/%/go/H/M/L`, sentence/paragraph/section and delimiter motions, page/scroll/`z` motions, and `[c` / `]c`. Search with `/`, `?`, `n/N`, `*` / `#`, and `g*` / `g#`.
 8. Press `\m`, move through the complete commit message with character and word motions, and close it separately with `\m`, `q`, and `Esc`.
@@ -79,10 +79,41 @@ Confirm typed input echoes normally, the cursor is visible, mouse selection work
 2. Move onto a file and confirm its current syntax-highlighted content loads below. Move rapidly between files and confirm the final content matches the final selection.
 3. Press `Enter` on a directory, expand at least two levels, then press it again and confirm all descendants collapse.
 4. Move between tree and code with `Ctrl-w h/k/j/l`. In the code pane exercise the complete count-aware motion set, including wanted-column behavior across short lines.
-5. Press `Enter` from both a tree file and the lower pane. Confirm the full Code window opens, `Enter` moves like `+`, searches wrap, and `q` / `Esc` return to Code.
+5. Press `Enter` from both a tree file and the lower pane. Confirm the full Code window opens, `Enter` moves like `+`, searches wrap, and `q` returns to Code immediately; `Esc` first dismisses search highlights when present.
 6. With a language server enabled, move the character cursor onto a symbol. Confirm `K` opens and closes hover, `gd` / `gi` / `gy` / `gD` request the four semantic targets, and `Ctrl-o` / `Ctrl-i` move backward and forward through successful jumps. After going backward, make a new jump and confirm the former forward location is no longer reachable.
 7. Run `\f` and `\g` from Code. Open a nested result and confirm Code returns directly, expands the path in the tree, and places the marker on the content-match line. Set lowercase and uppercase marks, jump with apostrophe and backtick, cross files, and traverse the combined history with counted `Ctrl-o` / `Ctrl-i`.
 8. Open a binary, symbolic link, deleted tracked path, and file larger than 8 MiB. Confirm each displays a safe summary or truncation marker and no symbolic-link target is read.
+
+## Search highlight dismissal
+
+Record the version/revision, OS, terminal, dimensions, query, pane/float and keymap.
+Compare before and after using the same file and operation sequence. If the
+reported environment cannot be reproduced, record that limitation.
+
+1. In both Diff and Code, test the ordinary pane and full float at 140×40 and
+   80×24. Use `/needle`, `Enter`, `n`, `Esc`, then repeat with `?needle` and `N`.
+   Read the surrounding text before and after Esc: only matched strings should
+   carry search styling, the current and other matches must be distinguishable,
+   and syntax colors, added/removed diff meaning, cursor, focus and scroll must
+   survive dismissal. Check gutters and end-of-line padding too.
+2. Resume with `n` / `N`, including counts and wraparound, without retyping.
+   Dismiss again and confirm a different search. Compare a second Esc after
+   dismissal with `q` during highlighting: both follow the existing close/back
+   path. A no-match query must not require an extra Esc.
+3. Cancel `/` and `?` input with both visible and dismissed previous highlights.
+   Cancel find/till and mark character waits. Confirm those Esc presses cancel
+   only input. Close frontmost help and repository search (prompt and results).
+   Check hover if an existing opt-in server setup is available; otherwise record
+   why it was not observed.
+4. Include Japanese, tabs, matching whitespace, several hits on one line and
+   horizontal scrolling through a hit. Confirm styling stays attached to the
+   visible match and still permits reading the surrounding context.
+5. Read F1 help and the active search hints. Repeat with `close = x`,
+   `close = q, esc`, and `close = x` plus `refresh = esc`; record the actual
+   mappings and check immediate close and explicit Esc reassignment.
+
+Record each result and any confusing behavior. Automated cell/key checks and
+agent-operated terminal sessions do not establish maintainer visual/use sign-off.
 
 ## Sign-off
 

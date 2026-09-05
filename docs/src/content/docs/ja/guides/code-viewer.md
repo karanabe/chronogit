@@ -32,7 +32,7 @@ ChronoGitは、従来のGitレビュー画面とワークツリーのCode viewer
 - `Ctrl-d` / `Ctrl-u`、`Ctrl-f` / `Ctrl-b`、`Ctrl-e` / `Ctrl-y`、`z` familyでviewportを縦横に移動・配置します。
 - `/`と`?`でsmart-caseの前方 / 後方検索を開始します。`n` / `N`はcount対応で、`*` / `#`はcursor位置のword、`g*` / `g#`は部分一致を検索します。
 - `m{char}`でmarkを設定し、`'{char}`で最初の非空白、`` `{char}``で正確な列へjumpします。`g`を前置するとjump listを維持し、`['` / `` [` ``と`]'` / `` ]` ``で前後の小文字markを探します。Code file間でも利用できます。
-- `Enter`は次行の最初の非空白へ移動します。`q`または`Esc`でwindowを閉じ、Codeの2ペイン表示へ戻ります。
+- `Enter`は次行の最初の非空白へ移動します。`q`でwindowを即座に閉じ、Codeの2ペイン表示へ戻ります。`Esc`は検索強調を先に解除し、次のEscで閉じます。
 
 認識できるソース種別には組み込みのsyntax定義を使います。読み取りは8 MiBが上限で、それを超えるtextは無制限に保持せずtruncated表示になります。
 

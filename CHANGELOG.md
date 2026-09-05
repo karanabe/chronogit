@@ -10,8 +10,14 @@ All notable changes to ChronoGit are documented here.
 
 ### Changed
 
+- Diff and Code search decoration is confined to matched strings. Default `Esc` hides it without losing the query, direction or viewing position; `n` / `N` and confirmed searches restore it. Explicit `close` bindings retain immediate close/back behavior.
+
 - The built-in leader is now `\`, leaving `Space` available for Vim's rightward motion. View, repository-search, message, layout, and tree commands use `\1` through `\4`, `\f` / `\g`, and `\m` / `\b` / `\t`. Pane focus uses `Ctrl-w h/k/j/l`; `Ctrl-w k` returns repository-search results to query editing.
-- Text overlays use `Enter` as Vim's `+` motion; `q` and `Esc` close them. List panes accept counts and the applicable Vim line, word, window, and page motions.
+- Text overlays use `Enter` as Vim's `+` motion; `q` closes them immediately, while default `Esc` first dismisses active Diff/Code search highlights. List panes accept counts and the applicable Vim line, word, window, and page motions.
+
+### Fixed
+
+- Document-search prompts and confirmed search status appear once when a text float is open, without a duplicate in the main footer.
 
 ## 0.4.0
 

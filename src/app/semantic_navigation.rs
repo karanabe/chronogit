@@ -234,7 +234,9 @@ fn hover_action(state: &mut AppState, action: Action) -> Vec<AppEffect> {
             }
             _ => {}
         },
-        Action::ToggleLspHover | Action::CloseOverlay => close_hover(state),
+        Action::ToggleLspHover | Action::CloseOverlay | Action::DismissSearchOrClose => {
+            close_hover(state)
+        }
         _ => {}
     }
     Vec::new()
@@ -342,7 +344,7 @@ fn candidate_action(state: &mut AppState, action: Action) -> Vec<AppEffect> {
                 return jump_to(state, target);
             }
         }
-        Action::CloseOverlay => state.overlay = Overlay::CodeContent,
+        Action::CloseOverlay | Action::DismissSearchOrClose => state.overlay = Overlay::CodeContent,
         _ => {}
     }
     Vec::new()

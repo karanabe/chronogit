@@ -367,6 +367,8 @@ pub enum Action {
     ToggleHelp,
     /// Close the topmost overlay or return one navigation level.
     CloseOverlay,
+    /// Dismiss active Diff/Code search highlights, otherwise close/back (default Esc).
+    DismissSearchOrClose,
     /// Advance timers used for pending key sequences and deferred work.
     Tick,
 }

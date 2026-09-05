@@ -32,7 +32,7 @@ Press `Enter` on a file in the tree, or while the lower pane is focused, to open
 - `Ctrl-d` / `Ctrl-u`, `Ctrl-f` / `Ctrl-b`, `Ctrl-e` / `Ctrl-y`, and the `z` family move or position the viewport horizontally and vertically.
 - `/` and `?` start smart-case forward and backward searches. Counts work with `n` / `N`; `*` / `#` search the cursor word, and `g*` / `g#` allow partial-word matches.
 - `m{char}` sets a mark, `'{char}` jumps to its first nonblank, and `` `{char}`` restores its exact column. Prefix a jump with `g` to preserve jump-list history; `['` / `` [` `` and `]'` / `` ]` `` scan previous/next lowercase marks. Marks may cross Code files.
-- `Enter` moves to the next line's first nonblank. `q` or `Esc` closes the window and returns to the two-pane Code view.
+- `Enter` moves to the next line's first nonblank. `q` closes the window immediately and returns to the two-pane Code view. `Esc` first dismisses search highlights, then closes on the next press.
 
 Recognized source types use embedded syntax definitions. Reads are bounded to 8 MiB, and the UI marks truncated text rather than growing without limit.
 

@@ -592,6 +592,21 @@ fn document_lines(
 }
 
 fn code_file_line(mut line: Line<'static>, index: usize, state: &AppState) -> Line<'static> {
+    if let LoadState::Ready(document) = &state.code_view.content
+        && let Some(source) = document
+            .lines()
+            .get(index)
+            .map(String::as_str)
+            .or(document.message())
+    {
+        highlight_search_ranges(
+            &mut line,
+            source,
+            index,
+            usize::from(document.message().is_none()),
+            state,
+        );
+    }
     let selected = usize::try_from(state.code_view.cursor.line()).ok() == Some(index)
         && (state.overlay == Overlay::CodeContent || state.focus == FocusedPane::Diff);
     if selected
@@ -603,16 +618,6 @@ fn code_file_line(mut line: Line<'static>, index: usize, state: &AppState) -> Li
         highlight_source_cursor(&mut line, source, state.code_view.cursor.byte_column(), 1);
     }
     line.spans.insert(0, navigation_marker(selected));
-    if state.search.current_line() == Some(index) {
-        line.style = line.style.patch(
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        );
-    } else if state.search.is_match(index) {
-        line.style = line.style.add_modifier(Modifier::UNDERLINED);
-    }
     line
 }
 
@@ -666,6 +671,21 @@ fn diff_lines(document: &DiffDocument, state: &AppState) -> Vec<Line<'static>> {
 }
 
 fn highlight_diff_line(mut line: Line<'static>, index: usize, state: &AppState) -> Line<'static> {
+    if let LoadState::Ready(document) = &state.diff.content
+        && let Some(source) = document
+            .lines()
+            .get(index)
+            .map(DiffLine::text)
+            .or(document.message())
+    {
+        highlight_search_ranges(
+            &mut line,
+            source,
+            index,
+            usize::from(document.message().is_none()),
+            state,
+        );
+    }
     let selected = state.diff.vertical == index
         && (state.overlay == Overlay::Diff || state.focus == FocusedPane::Diff);
     line.spans.insert(0, navigation_marker(selected));
@@ -676,16 +696,6 @@ fn highlight_diff_line(mut line: Line<'static>, index: usize, state: &AppState) 
         }
     {
         highlight_source_cursor(&mut line, source, state.diff.byte_column, 2);
-    }
-    if state.search.current_line() == Some(index) {
-        line.style = line.style.patch(
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        );
-    } else if state.search.is_match(index) {
-        line.style = line.style.add_modifier(Modifier::UNDERLINED);
     }
     line
 }
@@ -863,7 +873,10 @@ fn gutter_style() -> Style {
 }
 
 fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
-    if state.search.prompt_text().is_some() {
+    // Text overlays render their own search bar inside the floating window.
+    if state.overlay == Overlay::None
+        && (state.search.prompt_text().is_some() || state.has_active_search_highlights())
+    {
         render_search_bar(frame, area, state);
         return;
     }
@@ -962,12 +975,13 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                 plain("H M L; zt zz zb       Window motions and cursor placement"),
                 plain("zh/zl zH/zL zs/ze     Horizontal viewport motions"),
                 plain("/ ? n N; * # g* g#    Search and search word at cursor"),
+                plain("Esc: clear Diff/Code search, then close/back; q: close now"),
                 plain("m{c} 'c/`c; ['/`[ ]'/`]   Mark jumps and scans"),
                 plain("K; gd/gi/gy/gD   LSP hover and target navigation"),
                 plain("Ctrl-o/i     Older / newer Vim, search, or LSP jump"),
                 plain("r; \\m/\\b/\\t  Refresh; message / layout / commit tree"),
                 plain("Enter       Open selection; move down in an opened document"),
-                plain("F1 help; q/Esc close/back; Q/Ctrl-C quit"),
+                plain("F1 help; q close/back immediately; Q/Ctrl-C quit"),
                 plain("ChronoGit is read-only and never stages or commits changes."),
             ];
             frame.render_widget(
@@ -1165,7 +1179,7 @@ fn render_code_content_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppSta
         frame,
         sections[0],
         state,
-        &format!("{path} [q/Esc: close, Enter: next line]"),
+        &format!("{path} [{}]", document_close_hint(state)),
     );
     render_search_bar(frame, sections[1], state);
 }
@@ -1276,12 +1290,21 @@ fn render_diff_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(popup);
     let baseline = selected_baseline(state);
+    let hint = document_close_hint(state);
     let title = baseline.map_or_else(
-        || "Diff [q/Esc: close, Enter: next line]".to_owned(),
-        |value| format!("Diff — {value} [q/Esc: close, Enter: next line]"),
+        || format!("Diff [{hint}]"),
+        |value| format!("Diff — {value} [{hint}]"),
     );
     render_diff_pane(frame, sections[0], state, &title, true);
     render_search_bar(frame, sections[1], state);
+}
+
+fn document_close_hint(state: &AppState) -> &'static str {
+    if state.has_active_search_highlights() {
+        "Esc: clear search, q: close, Enter: next line"
+    } else {
+        "q/Esc: close, Enter: next line"
+    }
 }
 
 fn render_search_bar(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
@@ -1300,8 +1323,13 @@ fn render_search_bar(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         Line::raw(" / forward search  ? backward search  n/N next/previous")
     } else {
         let position = state.search.current_ordinal().unwrap_or(0);
+        let controls = if state.has_active_search_highlights() {
+            "n/N: next/previous, Esc: clear search, q: close/back"
+        } else {
+            "n/N: next/previous"
+        };
         Line::raw(format!(
-            " {}{}  {position}/{}  [n/N: next/previous]",
+            " {}{}  {position}/{}  [{controls}]",
             state.search.direction().prompt(),
             sanitize_inline(state.search.query()),
             state.search.match_count(),
@@ -1406,6 +1434,110 @@ fn sanitize(value: &str, preserve_newlines: bool) -> String {
         }
     }
     safe
+}
+
+// Search offsets refer to original UTF-8 bytes. Convert only the matched
+// boundaries through the same sanitization as the source spans; Ratatui then
+// handles display widths and horizontal clipping. Cursor styling is applied last.
+fn highlight_search_ranges(
+    line: &mut Line<'static>,
+    source: &str,
+    index: usize,
+    prefix_spans: usize,
+    state: &AppState,
+) {
+    let mut ranges: Vec<std::ops::Range<usize>> = Vec::new();
+    let mut current = None;
+    for (range, selected) in state.search.highlighted_ranges(index) {
+        if source.get(range.clone()).is_none() {
+            continue;
+        }
+        if selected {
+            current = Some(range.clone());
+        }
+        if let Some(previous) = ranges.last_mut()
+            && previous.end >= range.start
+        {
+            previous.end = previous.end.max(range.end);
+        } else {
+            ranges.push(range);
+        }
+    }
+    let mut source_offset = 0;
+    let mut rendered_offset = 0;
+    let rendered = ranges.into_iter().map(|range| {
+        rendered_offset += sanitize_inline(&source[source_offset..range.start]).len();
+        let start = rendered_offset;
+        rendered_offset += sanitize_inline(&source[range.clone()]).len();
+        source_offset = range.end;
+        start..rendered_offset
+    });
+    style_source_ranges(
+        line,
+        prefix_spans,
+        rendered,
+        Style::default().add_modifier(Modifier::UNDERLINED),
+    );
+    if let Some(range) = current {
+        let start = sanitize_inline(&source[..range.start]).len();
+        let end = start + sanitize_inline(&source[range]).len();
+        style_source_ranges(
+            line,
+            prefix_spans,
+            std::iter::once(start..end),
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
+    }
+}
+
+// Sorted, non-overlapping rendered byte ranges are painted in one pass through
+// the syntax spans, preserving every style outside the ranges and the gutters.
+fn style_source_ranges(
+    line: &mut Line<'static>,
+    prefix_spans: usize,
+    ranges: impl Iterator<Item = std::ops::Range<usize>>,
+    style: Style,
+) {
+    let mut ranges = ranges.peekable();
+    if ranges.peek().is_none() {
+        return;
+    }
+    let original = std::mem::take(&mut line.spans);
+    let mut spans = Vec::with_capacity(original.len());
+    let mut offset = 0;
+    for (index, span) in original.into_iter().enumerate() {
+        if index < prefix_spans {
+            spans.push(span);
+            continue;
+        }
+        let content = span.content.as_ref();
+        let end = offset + content.len();
+        let mut position = offset;
+        while position < end {
+            while ranges.peek().is_some_and(|range| range.end <= position) {
+                ranges.next();
+            }
+            let (boundary, selected) = match ranges.peek() {
+                Some(range) if range.start <= position => (end.min(range.end), true),
+                Some(range) => (end.min(range.start), false),
+                None => (end, false),
+            };
+            spans.push(Span::styled(
+                content[position - offset..boundary - offset].to_owned(),
+                if selected {
+                    span.style.patch(style)
+                } else {
+                    span.style
+                },
+            ));
+            position = boundary;
+        }
+        offset = end;
+    }
+    line.spans = spans;
 }
 
 fn highlight_source_cursor(
@@ -1561,6 +1693,223 @@ mod tests {
     }
 
     #[test]
+    fn search_highlights_only_matching_cells_and_restores_original_styles() {
+        use crate::app::SearchDirection;
+        use ratatui::style::Modifier;
+        // Includes smart-case expansion, tabs, matched spaces, multiple/overlapping
+        // occurrences, and matches crossing syntax spans (the quoted string).
+        for query in [
+            "needle",
+            "日本",
+            "\tlet",
+            " needle",
+            "\"日本 needle\"",
+            "ana",
+            "i\u{307}",
+        ] {
+            for code in [true, false] {
+                let source = "\tlet needle = \"日本 needle\"; banana İ // needle";
+                let texts: Vec<String> = if code {
+                    vec![source.to_owned(), source.to_owned()]
+                } else {
+                    vec![format!("+{source}"), format!("-{source}")]
+                };
+                let path = RepoPath::from_bytes(b"example.rs".to_vec())
+                    .unwrap_or_else(|error| panic!("{error}"));
+                let mut state = state();
+                state.view = if code {
+                    AppView::Code
+                } else {
+                    AppView::Changes
+                };
+                state.focus = FocusedPane::Diff;
+                state.code_view.path = Some(path.clone());
+                state.diff.target = Some(DiffTarget::Worktree {
+                    path,
+                    untracked: false,
+                });
+                state.code_view.content = LoadState::Ready(FileDocument::Text {
+                    lines: texts.clone(),
+                    source: texts.join("\n"),
+                    valid_utf8: true,
+                    truncated: false,
+                });
+                state.diff.content = LoadState::Ready(DiffDocument::Text {
+                    lines: texts
+                        .iter()
+                        .enumerate()
+                        .map(|(index, text)| {
+                            DiffLine::new(
+                                if index == 0 {
+                                    DiffLineKind::Added
+                                } else {
+                                    DiffLineKind::Removed
+                                },
+                                Some(crate::domain::LineNumber::new(1)),
+                                Some(crate::domain::LineNumber::new(1)),
+                                text.clone(),
+                            )
+                        })
+                        .collect(),
+                    bytes: 200,
+                });
+                state.search.begin(SearchDirection::Forward);
+                for character in query.chars() {
+                    state.search.push(character);
+                }
+                let current = state
+                    .search
+                    .confirm_position(texts.iter().map(String::as_str), SourcePosition::new(0, 0))
+                    .unwrap_or_else(|| panic!("expected match for {query:?}"));
+                state.code_view.cursor = current;
+                state.diff.vertical = current.line() as usize;
+                state.diff.byte_column = current.byte_column();
+                let draw = |state: &AppState, horizontal: u16| {
+                    let lines = if code {
+                        let LoadState::Ready(document) = &state.code_view.content else {
+                            unreachable!()
+                        };
+                        code_document_lines(document, state)
+                    } else {
+                        let LoadState::Ready(document) = &state.diff.content else {
+                            unreachable!()
+                        };
+                        diff_lines(document, state)
+                    };
+                    let mut terminal = Terminal::new(TestBackend::new(90, 3))
+                        .unwrap_or_else(|error| panic!("{error}"));
+                    terminal
+                        .draw(|frame| {
+                            frame.render_widget(
+                                ratatui::widgets::Paragraph::new(lines).scroll((0, horizontal)),
+                                frame.area(),
+                            )
+                        })
+                        .unwrap_or_else(|error| panic!("{error}"));
+                    terminal.backend().buffer().clone()
+                };
+                // Expected ranges use independently selected literal byte ranges;
+                // smart-case expansion maps the three-byte query back to the İ.
+                let literal = if query == "i\u{307}" { "İ" } else { query };
+                let expected: Vec<Vec<std::ops::Range<usize>>> = texts
+                    .iter()
+                    .map(|text| {
+                        text.char_indices()
+                            .filter_map(|(byte, _)| {
+                                text[byte..]
+                                    .starts_with(literal)
+                                    .then_some(byte..byte + literal.len())
+                            })
+                            .collect()
+                    })
+                    .collect();
+                for horizontal in [0, 13, 29, 38] {
+                    let highlighted = draw(&state, horizontal);
+                    assert!(state.search.dismiss_highlights());
+                    let dismissed = draw(&state, horizontal);
+                    for (line, text) in texts.iter().enumerate() {
+                        let prefix = if code { 8 } else { 13 };
+                        // A scroll into a wide glyph retains that whole glyph;
+                        // the visible source starts at its leading cell.
+                        let mut effective_scroll = 0;
+                        let displayed = format!("{}{}", " ".repeat(prefix), sanitize_inline(text));
+                        for character in displayed.chars() {
+                            let width =
+                                unicode_width::UnicodeWidthChar::width(character).unwrap_or(0);
+                            if effective_scroll + width > usize::from(horizontal) {
+                                break;
+                            }
+                            effective_scroll += width;
+                        }
+                        let cells: Vec<_> = expected[line]
+                            .iter()
+                            .map(|range| {
+                                let start = prefix
+                                    + unicode_width::UnicodeWidthStr::width(
+                                        sanitize_inline(&text[..range.start]).as_str(),
+                                    );
+                                let end = start
+                                    + unicode_width::UnicodeWidthStr::width(
+                                        sanitize_inline(&text[range.clone()]).as_str(),
+                                    );
+                                start..end
+                            })
+                            .collect();
+                        for x in 0..90 {
+                            let before = &highlighted[(x, line as u16)];
+                            let after = &dismissed[(x, line as u16)];
+                            assert_eq!(before.symbol(), after.symbol());
+                            // Ratatui resets continuation cells for wide glyphs.
+                            if before.symbol() == " "
+                                && x > 0
+                                && unicode_width::UnicodeWidthStr::width(
+                                    highlighted[(x - 1, line as u16)].symbol(),
+                                ) == 2
+                            {
+                                continue;
+                            }
+                            let matched = cells
+                                .iter()
+                                .any(|range| range.contains(&(usize::from(x) + effective_scroll)));
+                            assert_eq!(
+                                before.modifier.contains(Modifier::UNDERLINED),
+                                matched,
+                                "{query:?}, code={code}, scroll={horizontal}, line={line}, x={x}"
+                            );
+                            assert!(!after.modifier.contains(Modifier::UNDERLINED));
+                            if !matched {
+                                assert_eq!(before, after, "non-match changed at {x}");
+                            }
+                        }
+                    }
+                    // Showing the retained query again must reproduce the same cells.
+                    state.search.begin(SearchDirection::Forward);
+                    state.search.confirm_position(
+                        texts.iter().map(String::as_str),
+                        SourcePosition::new(0, 0),
+                    );
+                    assert_eq!(highlighted, draw(&state, horizontal));
+                }
+                let highlighted = draw(&state, 0);
+                let cursor_cells = highlighted
+                    .content
+                    .iter()
+                    .filter(|cell| cell.bg == Color::LightCyan)
+                    .count();
+                assert!(cursor_cells > 0);
+                if query == "needle" {
+                    assert!(
+                        highlighted
+                            .content
+                            .iter()
+                            .any(|cell| cell.bg == Color::Yellow)
+                    );
+                }
+                assert!(state.search.dismiss_highlights());
+                let dismissed = draw(&state, 0);
+                assert_eq!(
+                    cursor_cells,
+                    dismissed
+                        .content
+                        .iter()
+                        .filter(|cell| cell.bg == Color::LightCyan)
+                        .count()
+                );
+                if !code {
+                    assert_eq!(dismissed[(13, 0)].bg, Color::Rgb(33, 58, 43));
+                    assert_eq!(dismissed[(13, 1)].bg, Color::Rgb(74, 34, 29));
+                }
+                state.search.clear();
+                assert_eq!(
+                    dismissed,
+                    draw(&state, 0),
+                    "dismissal must restore syntax/diff/cursor styles exactly"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn renders_supported_and_too_small_sizes() {
         for (width, height) in [(80, 24), (140, 40), (40, 10)] {
             let backend = TestBackend::new(width, height);
@@ -1705,6 +2054,50 @@ mod tests {
     }
 
     #[test]
+    fn document_search_bar_is_rendered_once_in_panes_and_overlays() {
+        use crate::app::SearchDirection;
+
+        for (view, overlay) in [
+            (AppView::Changes, Overlay::None),
+            (AppView::Code, Overlay::None),
+            (AppView::Changes, Overlay::Diff),
+            (AppView::Code, Overlay::CodeContent),
+            (AppView::FileHistory, Overlay::FileContent),
+            (AppView::History, Overlay::CommitMessage),
+        ] {
+            for direction in [SearchDirection::Forward, SearchDirection::Backward] {
+                for (width, height) in [(80, 24), (140, 40)] {
+                    let mut state = state();
+                    state.view = view;
+                    state.overlay = overlay;
+                    state.focus = FocusedPane::Diff;
+                    state.search.begin(direction);
+                    for character in "needle".chars() {
+                        state.search.push(character);
+                    }
+                    let query = format!("{}needle", direction.prompt());
+                    let text = rendered_text(&state, width, height);
+                    assert_eq!(
+                        text.matches(&query).count(),
+                        1,
+                        "input: {view:?}/{overlay:?} at {width}x{height}"
+                    );
+
+                    state
+                        .search
+                        .confirm_position(["needle"], SourcePosition::new(0, 0));
+                    let text = rendered_text(&state, width, height);
+                    assert_eq!(
+                        text.matches(&query).count(),
+                        1,
+                        "confirmed: {view:?}/{overlay:?} at {width}x{height}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn renders_help_overlay() {
         let backend = TestBackend::new(100, 30);
         let mut terminal = Terminal::new(backend)
@@ -1716,7 +2109,10 @@ mod tests {
             .unwrap_or_else(|error| panic!("could not draw: {error}"));
         let text = buffer_text(terminal.backend());
         assert!(text.contains("ChronoGit keys"));
-        assert!(text.contains("F1 help; q/Esc close/back; Q/Ctrl-C quit"));
+        assert!(text.contains("F1 help; q close/back immediately; Q/Ctrl-C quit"));
+        assert!(text.contains("Esc: clear Diff/Code search, then close/back; q: close now"));
+        let compact = rendered_text(&state, 80, 24);
+        assert!(compact.contains("Esc: clear Diff/Code search, then close/back; q: close now"));
     }
 
     #[test]

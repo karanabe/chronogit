@@ -68,19 +68,19 @@ The active comparison is shown in both the diff pane title and the footer.
 - Press `\b` to switch History to a three-row body layout: the same commit list, commit body, and changed files. Press `\b` again to return to the diff layout.
 - Press `\t` to switch between changed files and the selected commit's tree.
 - Press `Enter` to expand a directory or open a selected file in the floating diff. An unchanged tree file reports that it has no change in the selected commit.
-- The floating diff supports Vim normal-mode movement: counts, `h` / `j` / `k` / `l`, word motions, line and buffer motions, character find/till, sentence/paragraph/section motions, matching pairs, viewport positioning, and `[c` / `]c` change-block jumps. The character cursor is drawn without replacing syntax colors. `/` and `?` search; `n` / `N`, `*` / `#`, and `g*` / `g#` repeat or derive searches. `Enter` acts like `+` and moves to the next line's first nonblank; use `q` or `Esc` to close the diff.
+- The floating diff supports Vim normal-mode movement: counts, `h` / `j` / `k` / `l`, word motions, line and buffer motions, character find/till, sentence/paragraph/section motions, matching pairs, viewport positioning, and `[c` / `]c` change-block jumps. The character cursor is drawn without replacing syntax colors. `/` and `?` search; `n` / `N`, `*` / `#`, and `g*` / `g#` repeat or derive searches. `Enter` acts like `+` and moves to the next line's first nonblank; use `q` to close the diff immediately. `Esc` first clears visible search highlights, then closes on the next press.
 
 Symlinks and submodules are identified in the tree. ChronoGit does not enter a submodule repository.
 
 ### Follow the Git graph
 
-Press `\3`, or start with `chronogit --view graph`. The graph uses commit parent relationships to display active branch lanes. `\m` opens the selected commit message. `Enter` opens a floating two-row detail window over the graph, with changed files above the selected file's diff; another `Enter` opens the complete diff. Press `q` or `Esc` to return one level at a time.
+Press `\3`, or start with `chronogit --view graph`. The graph uses commit parent relationships to display active branch lanes. `\m` opens the selected commit message. `Enter` opens a floating two-row detail window over the graph, with changed files above the selected file's diff; another `Enter` opens the complete diff. Press `q` to return one level at a time. `Esc` first dismisses active diff search highlights, then returns.
 
 ### Browse the complete working tree
 
 Press `\4`, or start with `chronogit --view code`, to enter the Code viewer. The upper pane is an expandable tree containing tracked files and non-ignored untracked files; the lower pane previews the selected file with line numbers and syntax highlighting. Press `Enter` on a directory to expand or collapse it. Use `Ctrl-w h` / `Ctrl-w k` and `Ctrl-w j` / `Ctrl-w l` to move between the tree and code panes.
 
-Press `Enter` on a file in the tree, or from the code pane, to open the current content in a large floating view. It shares the read-only Vim movement vocabulary with diffs, including word motions, counts, character searches, marks, the jump list, and viewport commands. `Enter` moves down inside the document; `q` or `Esc` returns. `\f` and `\g` search from the Code viewer; selecting a result reveals the file in the tree and opens its current content at the matching line when available.
+Press `Enter` on a file in the tree, or from the code pane, to open the current content in a large floating view. It shares the read-only Vim movement vocabulary with diffs, including word motions, counts, character searches, marks, the jump list, and viewport commands. `Enter` moves down inside the document; `q` returns immediately. `Esc` first dismisses search highlights, then returns. `\f` and `\g` search from the Code viewer; selecting a result reveals the file in the tree and opens its current content at the matching line when available.
 
 In focused Code content, Vim movements operate on a UTF-8-safe character cursor. Set a mark with `m{letter}`, jump linewise with `'{letter}`, or jump to its exact column with `` `{letter}``. With an explicitly enabled language server, `K` opens hover information; `gd`, `gi`, `gy`, and `gD` navigate to definition, implementation, type definition, and declaration. `Ctrl-o` / `Ctrl-i` traverse a shared jump list containing Vim motions, marks, searches, and LSP targets. Results outside the repository, including virtual `jdt:` documents, are reported but never passed to the file reader.
 
@@ -90,13 +90,14 @@ Press `\f` from any main view to find tracked and untracked file names. Press `\
 
 While entering a search query, `q` and `Q` are ordinary query characters. Use `Esc` to cancel the prompt and `Ctrl-C` to quit.
 
-The file view shows its commit history above its current working-tree content. Changing the selected history commit replaces the lower pane with that commit's first-parent diff. `Enter` opens the current content or diff full-screen; `q` or `Esc` closes the float and then returns to the originating view.
+The file view shows its commit history above its current working-tree content. Changing the selected history commit replaces the lower pane with that commit's first-parent diff. `Enter` opens the current content or diff full-screen; `q` closes the float and then returns to the originating view; `Esc` first dismisses active diff search highlights when present.
 
 ## Keys
 
 | Key | Action |
 |---|---|
-| `q` / `Esc` | Close the current float or go back |
+| `q` | Close the current float or go back immediately |
+| `Esc` | Cancel input; in Diff/Code dismiss search highlights first, then close/back |
 | `Q` / `Ctrl-C` | Quit |
 | `\1` / `\2` / `\3` / `\4` | Changes / History / Graph / Code |
 | `\f` / `\g` | Search repository files / working-tree text |
@@ -119,6 +120,8 @@ The file view shows its commit history above its current working-tree content. C
 | `/` / `?`, `n` / `N`, `*` / `#`, `g*` / `g#` | Search within the active text document |
 | `F1` | Toggle in-app help |
 
+Diff and Code highlight each matched string: the current match has a yellow background, other matches are underlined, and the cursor stays cyan. Default `Esc` removes only search decoration, keeping the query, direction, focus, cursor and scroll position. `n` / `N` or a confirmed search restores it. With no highlights, `Esc` follows the existing close/back behavior; `q` always closes/backs immediately outside input. Prompt and find/till/mark cancellation and frontmost help, hover or repository search take priority.
+
 History always stacks its three panes vertically at the supported terminal sizes. In Changes, widths below 110 columns show the focused pane at full width; use `Ctrl-w h` and `Ctrl-w l` to move between panes.
 
 ## Keymap configuration
@@ -131,9 +134,12 @@ show_graph = x
 show_code = c
 file_search = ctrl-p
 content_search = space s
-close = q, esc
+# Optional: immediate close even on Esc (replaces its dismissal behavior)
+# close = q, esc
 quit = Q
 ```
+
+An explicit `close` assignment replaces both default close keys. Every assigned key closes immediately, including an explicitly listed `esc`; omitting `esc` removes its default action so it can be rebound. Leave `close` unset to keep the default two-step Esc.
 
 Key sequences are space-separated and alternatives are comma-separated. Invalid, duplicate, or ambiguous bindings fail before raw terminal mode starts. `Ctrl-C` always remains available for safe exit. The complete action and key syntax is in the [keymap reference](docs/src/content/docs/reference/keymap.md).
 

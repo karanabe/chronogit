@@ -95,7 +95,13 @@ fn parse_bindings(path: &Path, source: &str) -> Result<Vec<Binding>, KeyMapError
             }
             replacements.push(Binding::new(sequence, action));
         }
-        bindings.retain(|binding| binding.action != action);
+        // An explicit close assignment replaces both default close keys. Its
+        // keys (including Esc) keep immediate close semantics.
+        bindings.retain(|binding| {
+            binding.action != action
+                && !(action == Action::CloseOverlay
+                    && binding.action == Action::DismissSearchOrClose)
+        });
         bindings.extend(replacements);
     }
     validate_bindings(path, &bindings)?;
@@ -739,7 +745,7 @@ pub(super) fn default_bindings() -> Vec<Binding> {
         ),
         single(
             KeyStroke::new(KeyCode::Esc, KeyModifiers::NONE),
-            Action::CloseOverlay,
+            Action::DismissSearchOrClose,
         ),
     ]
 }

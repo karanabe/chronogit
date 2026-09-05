@@ -759,6 +759,10 @@ impl AppState {
                 && self.repository_search.prompt.is_some())
     }
 
+    pub(crate) fn has_active_search_highlights(&self) -> bool {
+        crate::app::update::has_active_search_highlights(self)
+    }
+
     pub(crate) fn request_id(&mut self) -> RequestId {
         let id = RequestId(self.next_request);
         self.next_request = self.next_request.saturating_add(1);
