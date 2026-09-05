@@ -4,6 +4,8 @@ All notable changes to ChronoGit are documented here.
 
 ## Unreleased
 
+## 0.5.0
+
 ### Added
 
 - Code, file, commit-message, and diff documents now support count-aware Vim normal-mode movement, including word/WORD, line, character-find, structural, viewport, horizontal-scroll, mark, jump-list, and search motions with a visible character cursor.
@@ -11,10 +13,9 @@ All notable changes to ChronoGit are documented here.
 ### Changed
 
 - Empty document-search prompts can be cancelled with Backspace. Deleting the last character still allows replacement input; cancellation preserves the previous search and viewing position.
-
 - Diff and Code search decoration is confined to matched strings. Default `Esc` hides it without losing the query, direction or viewing position; `n` / `N` and confirmed searches restore it. Explicit `close` bindings retain immediate close/back behavior.
-
 - The built-in leader is now `\`, leaving `Space` available for Vim's rightward motion. View, repository-search, message, layout, and tree commands use `\1` through `\4`, `\f` / `\g`, and `\m` / `\b` / `\t`. Pane focus uses `Ctrl-w h/k/j/l`; `Ctrl-w k` returns repository-search results to query editing.
+- Unmodified `1` through `9` are reserved for counts and cannot start custom key bindings; use a leader sequence or modifier instead.
 - Text overlays use `Enter` as Vim's `+` motion; `q` closes them immediately, while default `Esc` first dismisses active Diff/Code search highlights. List panes accept counts and the applicable Vim line, word, window, and page motions.
 
 ### Fixed

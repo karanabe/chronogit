@@ -11,9 +11,11 @@ ChronoGit is a read-only terminal UI with two complementary workflows: Git histo
 
 ## Status
 
-ChronoGit is prepared as `0.4.0`. Linux and macOS are supported. Windows, bare repositories, and non-interactive terminals are not supported yet.
+ChronoGit is prepared as `0.5.0`. Linux and macOS are supported. Windows, bare repositories, and non-interactive terminals are not supported yet.
 
 The manifest is prepared to publish this release to crates.io. Publishing remains a separate maintainer action.
+
+Upgrading from `0.4.0` changes the default keys: `\` is the leader, pane focus uses `Ctrl-w` sequences, and `Enter` moves within open text documents. Review the [upgrade notes](docs/src/content/docs/guides/getting-started.md#upgrade-from-040), especially if you use a custom keymap.
 
 ## Requirements
 

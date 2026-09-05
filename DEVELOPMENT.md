@@ -7,7 +7,7 @@ guidelines, and required checks, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Current Implementation Status
 
-The current implementation covers the `0.4.0` scope described in
+The current implementation covers the `0.5.0` scope described in
 [`README.md`](README.md):
 
 - unstaged tracked and untracked worktree changes
@@ -19,7 +19,8 @@ The current implementation covers the `0.4.0` scope described in
 - optional validated XDG or explicit keymap configuration
 - opt-in profile-driven LSP navigation and hover for current source files
 - bounded, asynchronous Git reads through a typed command allowlist
-- Vim-oriented navigation and responsive terminal layouts
+- count-aware Vim movement, document search, Code marks, and shared Vim/LSP jump history
+- responsive terminal layouts
 - terminal restoration on normal exit, errors, Ctrl-C, and panics
 
 ## Module Map
