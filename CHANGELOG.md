@@ -10,6 +10,8 @@ All notable changes to ChronoGit are documented here.
 
 ### Changed
 
+- Empty document-search prompts can be cancelled with Backspace. Deleting the last character still allows replacement input; cancellation preserves the previous search and viewing position.
+
 - Diff and Code search decoration is confined to matched strings. Default `Esc` hides it without losing the query, direction or viewing position; `n` / `N` and confirmed searches restore it. Explicit `close` bindings retain immediate close/back behavior.
 
 - The built-in leader is now `\`, leaving `Space` available for Vim's rightward motion. View, repository-search, message, layout, and tree commands use `\1` through `\4`, `\f` / `\g`, and `\m` / `\b` / `\t`. Pane focus uses `Ctrl-w h/k/j/l`; `Ctrl-w k` returns repository-search results to query editing.

@@ -91,8 +91,10 @@ impl SearchState {
     }
 
     pub(crate) fn pop(&mut self) {
-        if let Some(prompt) = &mut self.prompt {
-            prompt.input.pop();
+        if let Some(prompt) = &mut self.prompt
+            && prompt.input.pop().is_none()
+        {
+            self.cancel_input();
         }
     }
 
@@ -463,6 +465,34 @@ mod tests {
         search.begin(SearchDirection::Backward);
         assert_eq!(search.confirm(values, 1), Some(1));
         assert_eq!(search.query(), "hit");
+    }
+
+    #[test]
+    fn backspace_cancels_only_when_the_prompt_was_already_empty() {
+        for direction in [SearchDirection::Forward, SearchDirection::Backward] {
+            for input in ["a", "日本 /?", " ", "/", "?"] {
+                let mut search = SearchState::new();
+                search.begin(direction);
+                for character in input.chars() {
+                    search.push(character);
+                }
+                let mut remaining = input.to_owned();
+                while !remaining.is_empty() {
+                    remaining.pop();
+                    search.pop();
+                    assert_eq!(search.prompt_text(), Some((direction, remaining.as_str())));
+                }
+                // Deleting the last character still permits replacement input.
+                search.push('新');
+                assert_eq!(search.prompt_text(), Some((direction, "新")));
+                search.pop();
+                assert!(search.is_input_active());
+                search.pop();
+                assert!(!search.is_input_active());
+                assert!(search.query().is_empty());
+                assert_eq!(search.match_count(), 0);
+            }
+        }
     }
 
     #[test]

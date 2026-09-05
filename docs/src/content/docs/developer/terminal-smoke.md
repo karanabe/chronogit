@@ -115,6 +115,29 @@ reported environment cannot be reproduced, record that limitation.
 Record each result and any confusing behavior. Automated cell/key checks and
 agent-operated terminal sessions do not establish maintainer visual/use sign-off.
 
+## Empty document-search cancellation
+
+At 80×24 and 140×40, test Code, Diff, current file content and commit messages
+in their existing panes and floats, using the actual terminal Backspace key.
+Record the revision, terminal, keymap, operation sequence and observations.
+
+1. Try `/`, Backspace, `j` / `k`, then repeat with `?`. The input cursor must
+   disappear without changing focus, cursor or either scroll offset; movement
+   must resume in the same pane/float without closing it or moving left on cancel.
+2. Try `/a`, Backspace, replacement text, Enter; then `/a`, Backspace, Backspace.
+   Repeat backward, including Japanese, spaces and literal `/` / `?` characters.
+   The last deletion must leave the prompt open, and only the next Backspace
+   cancels. Check that the empty-prompt hint describes this boundary.
+3. With a previous search visible and dismissed, cancel same/opposite prompts.
+   Compare positions and highlights, then resume with `n` / `N`. A previous
+   status may remain, but the input cursor must be absent. Also test no prior
+   search, Esc cancellation, empty Enter, normal Backspace and custom keys.
+4. Confirm repository-search empty queries, live edits and Search/Results focus
+   still work. Keep frontmost help, hover and target-list input independent.
+
+Record maintainer use feedback separately from automated and agent-operated
+checks, including anything confusing about replacement input or resumed browsing.
+
 ## Sign-off
 
 Do not mark a platform complete from automated tests alone.

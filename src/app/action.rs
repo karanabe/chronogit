@@ -354,6 +354,7 @@ pub enum Action {
     /// Append one character to an active search prompt.
     InsertSearch(char),
     /// Delete the last character from an active search prompt.
+    /// An already empty in-document prompt is cancelled; repository search stays open.
     DeleteSearch,
     /// Accept an active search prompt or move into repository search results.
     ConfirmSearch,

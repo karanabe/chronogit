@@ -1318,6 +1318,11 @@ fn render_search_bar(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             ),
             Span::raw(sanitize_inline(input)),
             Span::styled("█", Style::default().fg(Color::Yellow)),
+            Span::raw(if input.is_empty() {
+                "  [Backspace/Esc: cancel]"
+            } else {
+                "  [Esc: cancel]"
+            }),
         ])
     } else if state.search.query().is_empty() {
         Line::raw(" / forward search  ? backward search  n/N next/previous")
@@ -2092,6 +2097,91 @@ mod tests {
                         1,
                         "confirmed: {view:?}/{overlay:?} at {width}x{height}"
                     );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn search_backspace_removes_the_input_cursor_and_restores_the_previous_frame() {
+        use crate::app::SearchDirection;
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        for (view, overlay, focus) in [
+            (AppView::Changes, Overlay::None, FocusedPane::Diff),
+            (AppView::Code, Overlay::None, FocusedPane::Diff),
+            (AppView::Changes, Overlay::Diff, FocusedPane::Primary),
+            (AppView::Code, Overlay::CodeContent, FocusedPane::Primary),
+            (AppView::FileHistory, Overlay::None, FocusedPane::Diff),
+            (
+                AppView::FileHistory,
+                Overlay::FileContent,
+                FocusedPane::Primary,
+            ),
+            (
+                AppView::CommitDetails,
+                Overlay::None,
+                FocusedPane::Secondary,
+            ),
+            (
+                AppView::History,
+                Overlay::CommitMessage,
+                FocusedPane::Primary,
+            ),
+        ] {
+            for (width, height) in [(80, 24), (140, 40)] {
+                for previous in [None, Some(true), Some(false)] {
+                    let mut state = state();
+                    state.view = view;
+                    state.overlay = overlay;
+                    state.focus = focus;
+                    if let Some(visible) = previous {
+                        state.search.begin(SearchDirection::Backward);
+                        state.search.push('旧');
+                        state
+                            .search
+                            .confirm_position(["旧"], SourcePosition::new(0, 0));
+                        if !visible {
+                            state.search.dismiss_highlights();
+                        }
+                    }
+                    let mut terminal = Terminal::new(TestBackend::new(width, height))
+                        .unwrap_or_else(|error| panic!("{error}"));
+                    terminal
+                        .draw(|frame| render(frame, &state))
+                        .unwrap_or_else(|error| panic!("{error}"));
+                    let before = terminal.backend().buffer().clone();
+                    let mut mapper = crate::tui::keymap::KeyMapper::new();
+                    for prompt in ['/', '?'] {
+                        for (key, expected_input) in [
+                            (KeyCode::Char(prompt), true),
+                            (KeyCode::Char('新'), true),
+                            (KeyCode::Backspace, true),
+                            (KeyCode::Backspace, false),
+                        ] {
+                            let action = mapper
+                                .map(
+                                    KeyEvent::new(key, KeyModifiers::NONE),
+                                    state.is_search_input_active(),
+                                )
+                                .unwrap_or_else(|| panic!("expected search key"));
+                            assert!(state.handle_app_action(action).is_empty());
+                            terminal
+                                .draw(|frame| render(frame, &state))
+                                .unwrap_or_else(|error| panic!("{error}"));
+                            let text = buffer_text(terminal.backend());
+                            assert_eq!(text.contains('█'), expected_input);
+                            assert_eq!(
+                                text.contains("Backspace/Esc: cancel"),
+                                expected_input && key != KeyCode::Char('新')
+                            );
+                        }
+                        assert_eq!(
+                            terminal.backend().buffer(),
+                            &before,
+                            "{view:?}/{overlay:?} {width}x{height}, previous={previous:?}"
+                        );
+                    }
                 }
             }
         }

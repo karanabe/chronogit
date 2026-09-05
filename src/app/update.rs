@@ -3143,6 +3143,7 @@ mod tests {
         let code = match key {
             '\u{1b}' => KeyCode::Esc,
             '\n' => KeyCode::Enter,
+            '\u{7f}' => KeyCode::Backspace,
             character => KeyCode::Char(character),
         };
         if let Some(action) = mapper.map(
@@ -3156,6 +3157,238 @@ mod tests {
     fn search_keys(state: &mut AppState, mapper: &mut crate::tui::keymap::KeyMapper, keys: &str) {
         for key in keys.chars() {
             search_key(state, mapper, key);
+        }
+    }
+
+    #[test]
+    fn search_backspace_preserves_every_document_context_and_retained_search() {
+        for (view, overlay, focus, history_diff) in [
+            (AppView::Code, Overlay::None, FocusedPane::Diff, false),
+            (
+                AppView::Code,
+                Overlay::CodeContent,
+                FocusedPane::Primary,
+                false,
+            ),
+            (AppView::Changes, Overlay::None, FocusedPane::Diff, false),
+            (AppView::Changes, Overlay::Diff, FocusedPane::Primary, false),
+            (AppView::History, Overlay::None, FocusedPane::Diff, false),
+            (
+                AppView::GraphDetails,
+                Overlay::None,
+                FocusedPane::Diff,
+                false,
+            ),
+            (AppView::FileHistory, Overlay::None, FocusedPane::Diff, true),
+            (
+                AppView::FileHistory,
+                Overlay::None,
+                FocusedPane::Diff,
+                false,
+            ),
+            (
+                AppView::FileHistory,
+                Overlay::FileContent,
+                FocusedPane::Primary,
+                false,
+            ),
+            (
+                AppView::CommitDetails,
+                Overlay::None,
+                FocusedPane::Secondary,
+                false,
+            ),
+            (
+                AppView::History,
+                Overlay::CommitMessage,
+                FocusedPane::Primary,
+                false,
+            ),
+        ] {
+            for previous in [None, Some(true), Some(false)] {
+                for direction in [SearchDirection::Forward, SearchDirection::Backward] {
+                    let lines = ["  cat cat cat with surrounding text"; 60];
+                    let mut state = searchable_code(&lines);
+                    state.view = view;
+                    state.overlay = overlay;
+                    state.focus = focus;
+                    state.file_view.showing_history_diff = history_diff;
+                    state.file_view.content = LoadState::Ready(FileDocument::Text {
+                        source: lines.join("\n"),
+                        lines: lines.iter().map(|line| (*line).to_owned()).collect(),
+                        valid_utf8: true,
+                        truncated: false,
+                    });
+                    state.diff.content = LoadState::Ready(DiffDocument::Text {
+                        lines: lines
+                            .iter()
+                            .map(|line| {
+                                DiffLine::new(DiffLineKind::Context, None, None, (*line).to_owned())
+                            })
+                            .collect(),
+                        bytes: lines.join("\n").len(),
+                    });
+                    state.message.content = LoadState::Ready(CommitMessage::new(format!(
+                        "subject\n\n{}",
+                        lines.join("\n")
+                    )));
+                    state.set_terminal_size(80, 24);
+                    let mut mapper = crate::tui::keymap::KeyMapper::new();
+                    if let Some(visible) = previous {
+                        search_keys(
+                            &mut state,
+                            &mut mapper,
+                            &format!("{}cat\n", direction.prompt()),
+                        );
+                        if !visible {
+                            state.search.dismiss_highlights();
+                        }
+                    }
+                    // Preserve nonzero cursor and both scroll coordinates, even in
+                    // floats whose underlying focus is the file/commit list.
+                    state.code_view.cursor = SourcePosition::new(20, 6);
+                    state.diff.vertical = 20;
+                    state.diff.byte_column = 6;
+                    state.file_view.vertical = 20;
+                    state.file_view.byte_column = 6;
+                    state.message.scroll = 20;
+                    state.message.byte_column = 6;
+                    state.code_view.viewport_vertical = 15;
+                    state.code_view.viewport_horizontal = 2;
+                    state.diff.viewport_vertical = 15;
+                    state.diff.horizontal = 2;
+                    state.file_view.viewport_vertical = 15;
+                    state.file_view.horizontal = 2;
+                    state.message.viewport_vertical = 15;
+                    state.message.horizontal = 2;
+                    let before = format!("{state:?}");
+                    for prompt in ['/', '?'] {
+                        for input in ["", "a\u{7f}"] {
+                            search_keys(&mut state, &mut mapper, &format!("{prompt}{input}\u{7f}"));
+                            assert!(!state.is_search_input_active(), "{view:?}/{overlay:?}");
+                            assert_eq!(format!("{state:?}"), before, "{view:?}/{overlay:?}");
+                        }
+                    }
+                    let document = super::active_text_document(&state)
+                        .unwrap_or_else(|| panic!("fixture must be searchable"));
+                    if previous.is_some() {
+                        search_key(&mut state, &mut mapper, 'n');
+                        assert_eq!(
+                            super::document_position(&state, document),
+                            SourcePosition::new(
+                                20,
+                                if direction == SearchDirection::Forward {
+                                    10
+                                } else {
+                                    2
+                                },
+                            )
+                        );
+                        assert!(state.search.has_highlights());
+                        search_key(&mut state, &mut mapper, 'N');
+                        assert_eq!(
+                            super::document_position(&state, document),
+                            SourcePosition::new(20, 6)
+                        );
+                    }
+                    search_key(&mut state, &mut mapper, 'j');
+                    assert_eq!(super::document_position(&state, document).line(), 21);
+                    search_key(&mut state, &mut mapper, 'k');
+                    assert_eq!(super::document_position(&state, document).line(), 20);
+                    search_key(&mut state, &mut mapper, '\u{7f}');
+                    assert_eq!(super::document_position(&state, document).byte_column(), 5);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn search_backspace_keeps_replacement_empty_enter_and_custom_keys() {
+        let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("{error}"));
+        let path = directory.path().join("keymap.conf");
+        std::fs::write(&path, "cursor_left_wrap = alt-h\nclose = backspace")
+            .unwrap_or_else(|error| panic!("{error}"));
+        for custom in [false, true] {
+            for prompt in ['/', '?'] {
+                let mut state = searchable_code(&["cat dog", "cat dog", "cat dog"]);
+                state.overlay = Overlay::CodeContent;
+                let mut mapper = if custom {
+                    crate::tui::keymap::KeyMapper::load(Some(&path))
+                        .unwrap_or_else(|error| panic!("{error}"))
+                } else {
+                    crate::tui::keymap::KeyMapper::new()
+                };
+                search_keys(&mut state, &mut mapper, &format!("{prompt}a\u{7f}cat\n"));
+                assert_eq!(state.search.query(), "cat");
+                let previous = format!("{:?}", state.search);
+                search_keys(&mut state, &mut mapper, "/\u{7f}?\u{7f}");
+                assert_eq!(format!("{:?}", state.search), previous);
+                assert_eq!(state.overlay, Overlay::CodeContent);
+                search_keys(&mut state, &mut mapper, &format!("{prompt}a\u{7f}\n"));
+                assert_eq!(state.search.query(), "cat");
+                assert_eq!(state.search.direction().prompt(), prompt);
+                assert!(!state.is_search_input_active());
+                search_keys(&mut state, &mut mapper, "?dog\u{1b}");
+                assert_eq!(state.search.query(), "cat");
+                assert_eq!(state.overlay, Overlay::CodeContent);
+                search_keys(&mut state, &mut mapper, "/dog\n");
+                assert_eq!(state.search.query(), "dog");
+                if custom {
+                    search_key(&mut state, &mut mapper, '\u{7f}');
+                    assert_eq!(state.overlay, Overlay::None);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn search_backspace_leaves_repository_search_and_frontmost_screens_in_control() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mut state = searchable_code(&["cat cat", "cat cat"]);
+        let mut mapper = crate::tui::keymap::KeyMapper::new();
+        search_keys(&mut state, &mut mapper, "/cat\n");
+        let search = format!("{:?}", state.search);
+        let cursor = state.code_view.cursor;
+        for kind in [RepositorySearchKind::Files, RepositorySearchKind::Content] {
+            crate::app::repository_search::open(&mut state, kind);
+            let action = mapper
+                .map(
+                    KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+                    state.is_search_input_active(),
+                )
+                .unwrap_or_else(|| panic!("expected search edit"));
+            let effects = state.handle_app_action(action);
+            assert!(matches!(effects.as_slice(),
+                [crate::app::AppEffect::Git(GitEffect::SearchFiles { query, .. }
+                    | GitEffect::SearchContent { query, .. })] if query.is_empty()
+            ));
+            assert_eq!(state.repository_search.prompt.as_deref(), Some(""));
+            assert_eq!(state.overlay, Overlay::RepositorySearch);
+            assert!(state.is_search_input_active());
+            search_key(&mut state, &mut mapper, '\n');
+            assert!(state.repository_search.prompt.is_none());
+            assert_eq!(state.overlay, Overlay::RepositorySearch);
+            assert!(
+                mapper
+                    .map(
+                        KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL),
+                        false
+                    )
+                    .is_none()
+            );
+            search_key(&mut state, &mut mapper, 'k');
+            assert_eq!(state.repository_search.prompt.as_deref(), Some(""));
+            search_key(&mut state, &mut mapper, '\u{1b}');
+            assert_eq!(state.overlay, Overlay::None);
+            assert_eq!(format!("{:?}", state.search), search);
+        }
+        for overlay in [Overlay::Help, Overlay::LspHover, Overlay::SemanticTargets] {
+            state.overlay = overlay;
+            search_key(&mut state, &mut mapper, '\u{7f}');
+            assert_eq!(state.overlay, overlay);
+            assert_eq!(state.code_view.cursor, cursor);
+            assert_eq!(format!("{:?}", state.search), search);
         }
     }
 
