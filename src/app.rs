@@ -15,7 +15,7 @@ mod update;
 mod vim;
 
 pub use crate::domain::SemanticNavigationKind;
-pub use action::{Action, Event, VimMotion, VimMotionKind};
+pub use action::{Action, Event};
 pub use effect::{AppEffect, EffectExecutor, GitEffect, LspEffect};
 pub use model::{
     AppState, AppView, ErrorNotice, FocusedPane, HistoryPanel, LoadState, Overlay,
@@ -24,3 +24,4 @@ pub use model::{
 pub(crate) use model::{CodeEntryKind, VisibleCodeEntry};
 pub use search::SearchDirection;
 pub(crate) use search::SearchState;
+pub use vim_navigation::{Motion as VimMotion, MotionKind as VimMotionKind};

@@ -55,8 +55,8 @@ Use the full feature set when a change affects shared behavior or multiple
 layers:
 
 ```bash
-cargo test --all-features
-cargo build --release
+cargo test --workspace --all-features
+cargo build --workspace --release --locked
 ```
 
 Changes to rendering, key handling, terminal cleanup, or platform behavior also
@@ -70,11 +70,18 @@ For Rust changes, run the full verification set:
 
 ```bash
 cargo fmt --all --check
-cargo clippy --all-targets --all-features --tests --benches -- -D warnings
-cargo test --all-features
-cargo build --release
-cargo package --locked
+cargo clippy --workspace --all-targets --all-features --tests --benches -- -D warnings
+cargo test --workspace --all-features
+cargo build --workspace --release --locked
+cargo install --path . --locked
+cargo package -p vim-navigation --locked
+cargo package -p chronogit --locked
 ```
+
+The last two commands validate registry packages. ChronoGit packaging requires
+its `vim-navigation` version to be available on crates.io, even when local
+workspace checks pass. See the [release procedure](docs/src/content/docs/developer/release.md)
+for dependency versions and publication order.
 
 For documentation-only changes, Rust build and test commands are optional
 unless source code, generated code, compiled examples, commands, or expected

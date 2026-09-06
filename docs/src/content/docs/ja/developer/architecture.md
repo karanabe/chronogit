@@ -9,12 +9,14 @@ sidebar:
   order: 1
 ---
 
-ChronoGitは、ドメイン、Gitアダプター、アプリケーション状態、ターミナル表示の各層に分かれた単一のRustバイナリです。この境界により、ドメイン規則へGitやターミナルI/Oが入り込まず、実ターミナルなしで状態遷移をテストできます。
+ChronoGitはCargo workspaceです。既存の`chronogit` library/binaryをdomain、Git adapter、application state、terminal表示の各層に分け、兄弟の`vim-navigation` libraryを再利用可能なtext navigation境界にしています。この境界により、domain規則へGitやterminal I/Oが入り込まず、実terminalなしで状態遷移をtestできます。
 
 ```mermaid
 flowchart LR
     Terminal["crossterm events"] --> KeyMap
+    KeyMap --> VimState["vim-navigation MotionState"]
     KeyMap --> Update["AppState update"]
+    Update --> VimMotion["vim-navigation motion"]
     Update --> State["typed state"]
     Update --> Effect["AppEffect + RequestId"]
     Effect --> Executor["bounded Tokio router"]
@@ -36,6 +38,37 @@ flowchart LR
 モジュールの追加や分割でもこの配置を維持してください。
 
 ## モジュールの責務
+
+### `crates/vim-navigation`
+
+frameworkに依存しない`Cursor`、`Viewport`、`Motion`、`MotionState`と、
+Normal / Insertを分離した明示的にmutableな`EditableBuffer`を所有します。
+dependencyは`unicode-width`だけで、Git、LSP、crossterm、ratatui、process、
+filesystem、networkの境界を持ちません。Vim 9.1.1244との全比較条件、command
+inventory、実行可能oracle、motion外の境界はcrateの`COMPATIBILITY.md`を正とします。
+
+public moduleの境界はkey syntaxではなくstateの所有者で分けます。
+
+- `command.rs`は飽和するcount、未完了のfind/till文字引数、`;`/`,`の反復状態を
+  所有します。
+- `motion.rs`はread-onlyな座標・motion語彙を所有し、privateな
+  `motion/buffer.rs`の意味的scan、`motion/engine.rs`のdispatch/viewport規則、
+  `motion/line.rs`のUTF-8/display-cell計算をfacadeとしてまとめます。
+- `editor.rs`はopt-inのmutable text、mode、cursor不変条件、byte上限、入力結果と
+  設定可能なInsert escape sequenceを所有します。標準`jj` resolverは候補prefixを
+  即時挿入し認識状態だけを保持するため、flush・focus・設定変更の境界でも入力文字を
+  失いません。
+
+crate rootはpublicな型と関数をre-exportするため、この内部分割でdownstreamの
+import pathを変える必要はありません。`command`と`editor`のunit testは実装の
+近くに保ち、大きなmotion契約は`motion/tests.rs`、外部Vim oracleは
+`tests/vim_oracle.rs`に置きます。
+
+`apply`へ渡した借用textは変更しません。編集は`EditableBuffer`だけの明示的な
+opt-inで、ChronoGitはこれを生成しません。この分離により、source、diff、Git
+object、検索prompt、commit messageを編集可能にせず、`i`/`a`/`I`/`A`/`o`/`O`、
+文字入力、修正、改行、Esc、標準または設定可能なInsert escape sequenceを再利用契約
+としてtestできます。
 
 ### `src/domain.rs`と`src/domain/`
 
@@ -65,7 +98,7 @@ flowchart LR
 
 対話状態と遷移を所有します。
 
-`app::vim`は文書の行を借用し、countに対応したcursorとviewportの移動を適用します。検索反復は現在のcursorを起点に、アクティブ文書の一致を再計算し、countを一致位置のindexで折り返します。Codeのmarkと検索は上限付きLSP jump履歴を共有し、count付き移動では最終到達先だけを読み込みます。
+`app::vim`はworkspaceの`vim-navigation` crateに対する座標adapterです。`SourcePosition`とpane geometryを変換し、借用した文書行へcrateのcount対応cursor/viewport motionを適用します。検索反復は現在のcursorを起点に、active文書の一致を再計算し、countを一致位置のindexで折り返します。Codeのmarkと検索は上限付きLSP jump履歴を共有し、count付き移動では最終到達先だけを読み込みます。検索query・highlightとresource-awareなmark/jumpはChronoGitの文書・pathを参照するためapplication stateに残します。
 
 - `AppView`、`FocusedPane`、`HistoryPanel`、`Overlay`が排他的なUI状態を表します。Changes、History/本文、Graph/詳細、ファイル履歴、Codeはview、リポジトリ検索、メッセージ全文、差分全文、現在ファイル内容、Code全文はoverlayです。
 - `SearchState`はCode、差分、ファイル、コミットメッセージのアクティブ文書内のsmart-case位置検索を所有します。`RepositorySearchState`はグローバルprompt、live query、結果、選択、戻り先viewを別に所有します。有効なpromptがSearchフォーカスを表し、Resultsへ移ってもクエリを保持するため、Searchへ戻して再編集できます。クエリ編集ごとに新しい型付きeffectを発行し、古い完了が新しい結果を置き換えないようRequestIdで防ぎます。`FileViewState`は検索結果の選択パス、履歴/現在内容、下段が内容か履歴差分かを所有します。`CodeViewState`は完全なパス集合、画面用ツリー、選択パス、上限付き内容、コード表示位置を所有します。
@@ -86,7 +119,7 @@ Codeツリーは別の方法を使います。Gitから追跡済み・非ignore�
 
 キー変換、ターミナルライフサイクル、レイアウト、描画、イベントループを所有します。
 
-- `KeyMapper`が組み込みまたはXDG/`--keymap`設定を使い、Vim normal-modeキーをcount・文字引数付きactionへ変換します。find/tillとmarkの文字引数、文字検索の方向を保持し、曖昧なprefixを拒否し、通常の連続キーは750 msで期限切れになります。Ctrl-Cは安全な終了用に予約します。
+- `KeyMapper`が組み込みまたはXDG/`--keymap`設定を使い、Vim normal-modeキーをactionへ変換します。再利用crateの`MotionState`が10進count、find/tillの文字引数、`;`/`,`の方向を所有し、adapterはterminal sequenceとresource-awareなmark引数を所有します。検索入力ではnormal bindingより先に印字可能なSpaceと`jj`をquery文字として解決します。曖昧なprefixを拒否し、通常の連続キーは750 msで期限切れになります。Ctrl-Cは安全な終了用に予約します。
 - `TerminalSession`がraw modeとalternate screenを有効化し、`Drop`でターミナル状態を復元します。
 - panic hookも、以前のhookへ引き渡す前に同じ復元を行います。
 - `tokio::select!`がターミナル入力、resize/tick、Ctrl-C、型付き非同期完了イベントを待ちます。通常終了ではterminalを復元してから上限付きLSP shutdownを待ちます。
@@ -121,6 +154,7 @@ Git標準出力は8 MiB、標準エラーは64 KiB、コマンド時間は30秒�
 - リポジトリ設定からpager、diff、textconv、fsmonitorプログラムを起動させないこと。
 - 現在ファイルはdescriptorから相対的に読み、すべてのパス要素でシンボリックリンクを拒否すること。
 - 全読み取り操作の前後で`HEAD`、porcelain status、ワークツリーのバイト列を比較するintegration testを維持すること。
+- ChronoGitの文書入力をread-onlyに保つこと。`vim_navigation::EditableBuffer`へ流さず、repository/document search promptの既存の確定、Backspace、Esc契約を維持すること。
 - LinuxとmacOSが`0.5.0`のサポート境界です。Windows対応では未検証変換を加えず、Unixバイトパス境界を再設計すること。
 - bareリポジトリと非対話ターミナルは起動時に拒否すること。
 
@@ -142,6 +176,7 @@ wireの`Location`/`LocationLink`はadapter内で正規化します。repository�
 
 | 変更 | 主な場所 | 併せて確認するもの |
 | --- | --- | --- |
+| 汎用Vim motion、Normal / Insert契約 | `crates/vim-navigation` | `COMPATIBILITY.md`、oracle/unit test、ChronoGit adapter |
 | ドメイン不変条件、値型 | `src/domain` | parser、app state、integration fixture |
 | Git操作 | `src/git/command.rs`、`runner.rs`、`service.rs` | 読み取り専用方針、出力上限、parser test |
 | LSP profile/protocol/session | `src/lsp/config.rs`、`protocol.rs`、`session.rs`、`manager.rs` | trust boundary、framing上限、capability/position test、cleanup |

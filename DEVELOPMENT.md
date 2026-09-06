@@ -1,7 +1,8 @@
 # Developer Guide
 
-ChronoGit is a single Rust binary for exploring Git changes, history, and
-working-tree source in a terminal. This guide explains the implementation layout and design
+ChronoGit is a Cargo workspace whose existing Rust library/binary explores Git
+changes, history, and working-tree source in a terminal. The workspace also
+owns the reusable `vim-navigation` library crate. This guide explains the implementation layout and design
 boundaries for people changing the code. For contribution workflow, commit
 guidelines, and required checks, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
@@ -20,6 +21,7 @@ The current implementation covers the `0.5.0` scope described in
 - opt-in profile-driven LSP navigation and hover for current source files
 - bounded, asynchronous Git reads through a typed command allowlist
 - count-aware Vim movement, document search, Code marks, and shared Vim/LSP jump history
+- a framework-independent Vim motion and explicit Normal/Insert input contract
 - responsive terminal layouts
 - terminal restoration on normal exit, errors, Ctrl-C, and panics
 
@@ -27,6 +29,7 @@ The current implementation covers the `0.5.0` scope described in
 
 | Module | Role | Notes |
 | --- | --- | --- |
+| [`crates/vim-navigation`](crates/vim-navigation) | Reusable text navigation | Public `command`, `motion`, and `editor` modules own incomplete Normal command state, pure cursor/viewport motion, and an explicitly mutable Normal/Insert buffer with configurable Insert escape input (`jj` by default). Private motion children separate semantic buffer scans, motion/viewport policy, Unicode display calculations, and tests. The crate has no Git, LSP, ratatui, or crossterm dependencies. |
 | [`src/domain.rs`](src/domain.rs) + [`src/domain/`](src/domain) | Domain model | Owns validated repository paths, object IDs, changes, commits, diffs, search hits, file documents, and tree entries without Git or terminal I/O. |
 | [`src/git.rs`](src/git.rs) + [`src/git/`](src/git) | Repository adapter | Owns the read-only Git command allowlist, bounded process/current-file reads, machine-output parsing, and domain-level repository operations. |
 | [`src/lsp.rs`](src/lsp.rs) + [`src/lsp/`](src/lsp) | Language-server adapter | Owns trusted profiles, bounded JSON-RPC transport, document synchronization, capability/position negotiation, and profile/workspace session lifecycle. |
@@ -46,7 +49,9 @@ when adding or splitting modules.
 
 ## Runtime Shape
 
-The terminal event loop translates input into actions. Updating application
+The terminal event loop translates input into actions. `KeyMapper` uses
+`vim_navigation::MotionState`; `app::vim` converts ChronoGit coordinates to
+`vim_navigation::Cursor` and `Viewport`. Updating application
 state may produce a typed Git effect, which is executed asynchronously and
 returned as an event before the next render:
 
@@ -71,6 +76,10 @@ real terminal or language server.
 
 - Preserve the read-only contract. Add Git operations through `GitCommand` and
   never bypass its closed allowlist.
+- Keep `EditableBuffer` opt-in and outside ChronoGit's application state.
+  ChronoGit search prompts retain their existing single-line
+  confirm/cancel behavior, accept Space and `jj` literally, and are not generic
+  Insert buffers.
 - Pass repository paths and pathspecs as separate process arguments; never
   interpolate them into shell text.
 - Keep Git paths as bytes on Unix until presentation requires lossy rendering.

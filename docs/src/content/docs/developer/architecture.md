@@ -9,12 +9,14 @@ sidebar:
   order: 1
 ---
 
-ChronoGit is a single Rust binary split into domain, Git adapter, application state, and terminal presentation layers. These boundaries keep Git and terminal I/O out of domain rules and make state transitions testable without a real terminal.
+ChronoGit is a Cargo workspace. The existing `chronogit` library and binary are split into domain, Git adapter, application state, and terminal presentation layers; the sibling `vim-navigation` library is a reusable text-navigation boundary. These boundaries keep Git and terminal I/O out of domain rules and make state transitions testable without a real terminal.
 
 ```mermaid
 flowchart LR
     Terminal["crossterm events"] --> KeyMap
+    KeyMap --> VimState["vim-navigation MotionState"]
     KeyMap --> Update["AppState update"]
+    Update --> VimMotion["vim-navigation motion"]
     Update --> State["typed state"]
     Update --> Effect["AppEffect + RequestId"]
     Effect --> Executor["bounded Tokio router"]
@@ -36,6 +38,40 @@ and declares the boundary, while `src/<module>/*.rs` owns its cohesive child
 concepts. Preserve this layout when adding or splitting modules.
 
 ## Module ownership
+
+### `crates/vim-navigation`
+
+Owns framework-independent `Cursor`, `Viewport`, `Motion`, and `MotionState`
+types and an explicitly mutable `EditableBuffer` with separate Normal and
+Insert modes. It depends only on `unicode-width`; it has no Git, LSP,
+crossterm, ratatui, process, filesystem, or network boundary. The complete
+Vim 9.1.1244 comparison conditions, command inventory, executable oracle, and
+non-motion boundaries live in the crate's `COMPATIBILITY.md`.
+
+The public module boundaries follow ownership rather than key syntax:
+
+- `command.rs` owns the saturating count, incomplete find/till target, and
+  `;`/`,` repetition state;
+- `motion.rs` owns the read-only coordinate and motion vocabulary and presents
+  a facade over private `motion/buffer.rs` semantic scans,
+  `motion/engine.rs` dispatch/viewport policy, and `motion/line.rs` UTF-8 and
+  display-cell calculations;
+- `editor.rs` owns the opt-in mutable text, mode, cursor invariants, byte limit,
+  input outcomes, and configurable Insert escape sequence. Its default `jj`
+  resolver inserts a possible prefix immediately and tracks only recognition
+  state, so flush/focus/configuration boundaries cannot discard typed text.
+
+The crate root re-exports the public types and functions, so this internal
+separation does not require downstream import-path changes. Unit tests stay
+next to `command` and `editor`; the larger motion contract is kept in
+`motion/tests.rs`, with the external Vim oracle in `tests/vim_oracle.rs`.
+
+Borrowed text passed to `apply` is never mutated. `EditableBuffer` is the only
+editing opt-in and ChronoGit does not construct it. This separation permits
+the reusable contract to test `i`/`a`/`I`/`A`/`o`/`O`, literal input,
+corrections, newline, Escape, and default/configurable Insert escape sequences
+without making a source, diff, Git object, search prompt, or commit message
+editable.
 
 ### `src/domain.rs` and `src/domain/`
 
@@ -65,7 +101,7 @@ The repository object format is not assumed to be SHA-1. ChronoGit retains compl
 
 Owns interactive state and transitions.
 
-`app::vim` applies count-aware cursor and viewport motions to borrowed document lines. Search repetition uses the current cursor and rebuilds matches for the active document; counts wrap by match index. Code marks and searches share the bounded LSP jump history, and counted traversal loads only the final destination.
+`app::vim` is a coordinate adapter over the workspace `vim-navigation` crate; it converts `SourcePosition` and pane geometry, then applies the crate's count-aware cursor and viewport motion to borrowed document lines. Search repetition uses the current cursor and rebuilds matches for the active document; counts wrap by match index. Code marks and searches share the bounded LSP jump history, and counted traversal loads only the final destination. Search queries/highlights and resource-aware marks/jumps remain application state because they refer to ChronoGit documents and paths.
 
 - `AppView`, `FocusedPane`, `HistoryPanel`, and `Overlay` model mutually exclusive UI states. Changes, History/body, Graph/details, file history, and Code are views; repository search, complete messages, full diffs, current file content, and full Code content are overlays.
 - `SearchState` owns smart-case positional search inside the active Code, diff, file, or commit-message document. `RepositorySearchState` separately owns the global prompt, live query, results, selection, and return view. An active prompt represents Search focus; moving to Results retains the query so returning to Search can restore and edit it. Every query edit issues a new typed effect; request IDs prevent an older completion from replacing newer results. `FileViewState` owns the selected search-result path, its history/current content, and whether the lower pane shows content or a historical diff. `CodeViewState` owns the complete path set, projected visible tree, selected path, bounded content, and code viewport.
@@ -87,7 +123,7 @@ The Code tree is different: Git enumerates all tracked and non-ignored worktree 
 
 Owns key translation, terminal lifecycle, layout, rendering, and the event loop.
 
-- `KeyMapper` converts Vim normal-mode keys to count- and argument-aware actions through built-in or XDG/`--keymap` bindings. It preserves character arguments for find/till and marks, remembers character-search direction, rejects ambiguous prefixes, and times ordinary sequences out after 750 ms. Ctrl-C remains reserved for safe exit.
+- `KeyMapper` converts Vim normal-mode keys to actions through built-in or XDG/`--keymap` bindings. The reusable `MotionState` owns decimal counts, find/till character arguments, and `;`/`,` direction; the adapter owns terminal sequences and resource-aware mark arguments. Search input resolves printable Space and `jj` as query text before normal bindings. The mapper rejects ambiguous prefixes and times ordinary sequences out after 750 ms. Ctrl-C remains reserved for safe exit.
 - `TerminalSession` enables raw mode and the alternate screen and restores terminal state from `Drop`.
 - A panic hook performs the same restoration before forwarding to the previous hook.
 - `tokio::select!` waits for terminal input, resize/tick events, Ctrl-C, and typed asynchronous completion events.
@@ -123,6 +159,9 @@ No new effects are dispatched during exit. Dropping the Tokio runtime completes 
 - Prevent repository configuration from launching pager, diff, textconv, or fsmonitor programs.
 - Keep current-file reads descriptor-relative and reject symbolic links in every path component.
 - Preserve integration tests that compare `HEAD`, porcelain status, and worktree bytes before and after every read operation.
+- Keep ChronoGit document input read-only. Never route it through
+  `vim_navigation::EditableBuffer`; repository/document search prompts retain
+  their existing confirmation, Backspace, and Escape contracts.
 - Linux and macOS are the `0.5.0` support boundary. A Windows port must redesign the Unix byte-path boundary rather than adding unchecked conversion.
 - Reject bare repositories and non-interactive terminals during startup.
 
@@ -144,6 +183,7 @@ Wire `Location` and `LocationLink` values normalize behind the adapter. Reposito
 
 | Change | Primary location | Also inspect |
 | --- | --- | --- |
+| Generic Vim motion or Normal/Insert contract | `crates/vim-navigation` | `COMPATIBILITY.md`, oracle/unit tests, ChronoGit adapters |
 | Domain invariant or value type | `src/domain` | Parsers, app state, integration fixtures |
 | Git operation | `src/git/command.rs`, `runner.rs`, `service.rs` | Read-only policy, output bounds, parser tests |
 | LSP profile/protocol/session | `src/lsp/config.rs`, `protocol.rs`, `session.rs`, `manager.rs` | Trust boundary, framing bounds, capability/position tests, cleanup |

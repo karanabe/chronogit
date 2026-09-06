@@ -9,53 +9,97 @@ sidebar:
   order: 4
 ---
 
-This procedure validates the ChronoGit `0.5.0` crates.io package and prepares native archives with SHA-256 checksums. The actual registry publish remains an explicit maintainer action.
+This procedure covers the `chronogit` and `vim-navigation` workspace packages.
+Publish dependencies before the applications that require them.
 
 ## Release prerequisites
 
 Before publishing a crate, creating a public artifact, or tagging the release, the maintainer must:
 
-1. have publish access to the `chronogit` crate on crates.io;
+1. have publish access to each crate being released on crates.io;
 2. complete both platform rows in the [manual terminal smoke test](/developer/terminal-smoke/);
-3. confirm the version in `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, and the proposed tag agrees.
+3. choose an unused version for each changed package and update its manifest, lockfile, release notes, and proposed tag consistently. An existing crates.io version cannot be republished.
+
+When changing `vim-navigation`, bump its version and update ChronoGit's
+`version` requirement to the first release containing the APIs it uses. Keep
+the relative `path` for workspace development: Cargo removes it from the
+published manifest and resolves the version from crates.io. A local build can
+otherwise hide calls to APIs missing from the published dependency.
 
 `Cargo.toml` restricts publication to crates.io. Do not publish or tag a release while any prerequisite or required check is incomplete.
 
-## Quality gate
+## Local workspace gate
 
-From a clean checkout of the exact revision to release, using Rust 1.88.0 or newer:
+From a clean checkout of the exact revision under review, using Rust 1.88.0 or newer:
 
 ```sh title="Terminal"
 cargo fmt --all --check
-cargo clippy --all-targets --all-features --tests --benches -- -D warnings
-cargo test --all-features
-cargo build --release --locked
+cargo clippy --workspace --all-targets --all-features --tests --benches -- -D warnings
+cargo test --workspace --all-features
+cargo build --workspace --release --locked
 cargo install --path . --locked
-cargo package --locked
 cargo audit
 cargo tree --duplicates
-cargo publish --dry-run --locked
 pnpm --dir docs install --frozen-lockfile
 pnpm --dir docs build
 ```
 
+This gate validates the local path integration and source-install route. It
+does not prove that an unpublished dependency can be resolved from crates.io.
+
+## Ordered registry gate
+
+Validate the dependency package when preparing a new `vim-navigation` release:
+
+```sh title="Terminal"
+cargo package -p vim-navigation --locked
+cargo publish -p vim-navigation --dry-run --locked
+```
+
+After the required dependency version is published and resolves from crates.io,
+validate ChronoGit:
+
+```sh title="Terminal"
+cargo package -p chronogit --locked
+cargo publish -p chronogit --dry-run --locked
+```
+
+ChronoGit packaging fails if the registry cannot supply its dependency; passing
+workspace tests does not satisfy this registry gate. For a ChronoGit-only
+release using an unchanged, already-published dependency, skip republishing
+`vim-navigation` and run the ChronoGit checks directly. CI keeps workspace
+validation and registry packaging as separate required jobs.
+
 Review the exact diff and packaged files for credentials, private paths, internal-only notes, and unrelated artifacts. Also review the generated documentation, dependency warnings, and both platform smoke-test rows. Do not treat an allowed maintenance warning as a vulnerability, but record it and confirm whether its dependency path can be removed or upgraded.
 
-## Inspect and publish the crate
+## Inspect and publish each crate
 
 Inspect the exact registry payload before publishing:
 
 ```sh title="Terminal"
-cargo package --list
+cargo package -p vim-navigation --list
+cargo package -p chronogit --list
 ```
 
-The list must contain the Rust application and test sources, sample keymap and LSP profile, README, changelog, both license files, and Cargo-generated manifest, lock, and VCS metadata only. It must not contain the documentation site, repository workflows, agent integration files, or contributor-only documents.
+The `vim-navigation` list must contain only its reusable library source,
+compatibility/oracle tests, README, compatibility contract, both license files,
+and Cargo metadata.
+The ChronoGit list must contain the Rust application and test sources, sample
+keymap and LSP profile, README, changelog, both license files, and
+Cargo-generated manifest, lock, and VCS metadata only. It must not contain the
+documentation site, repository workflows, agent integration files, or
+contributor-only documents.
 
 After every prerequisite and quality gate passes on the exact revision to release, an authorized maintainer publishes it:
 
 ```sh title="Terminal"
-cargo publish --locked
+cargo publish -p vim-navigation --locked
+# Wait for vim-navigation to resolve from crates.io, then re-run ChronoGit gates.
+cargo publish -p chronogit --locked
 ```
+
+Run the first command only for a new dependency release. The second command
+requires ChronoGit's own unused version and passing package checks.
 
 Publishing a crate version cannot be undone. Run this command only after checking the registry account, crate name, version, package contents, and dry-run output.
 

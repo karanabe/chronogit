@@ -1,3 +1,8 @@
+[workspace]
+members = [".", "crates/vim-navigation"]
+default-members = [".", "crates/vim-navigation"]
+resolver = "3"
+
 [package]
 name = "chronogit"
 version = "0.5.0"
@@ -35,6 +40,7 @@ toml = "0.9.8"
 two-face = { version = "0.5.2", default-features = false, features = ["syntect-onig"] }
 unicode-width = "0.2.2"
 url = "2.5.7"
+vim-navigation = { version = "0.1.0", path = "crates/vim-navigation" }
 
 [profile.release]
 lto = "thin"

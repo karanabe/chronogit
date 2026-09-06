@@ -1,0 +1,31 @@
+[package]
+name = "vim-navigation"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Reusable Vim-compatible motion and modal text-input state"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/karanabe/chronogit"
+keywords = ["vim", "navigation", "text", "tui", "editor"]
+categories = ["text-editors", "command-line-interface"]
+include = [
+    "/src/**",
+    "/tests/**",
+    "/README.md",
+    "/COMPATIBILITY.md",
+    "/LICENSE-APACHE",
+    "/LICENSE-MIT",
+]
+publish = ["crates-io"]
+
+[dependencies]
+unicode-width = "0.2.2"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"

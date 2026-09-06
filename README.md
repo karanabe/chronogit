@@ -11,9 +11,9 @@ ChronoGit is a read-only terminal UI with two complementary workflows: Git histo
 
 ## Status
 
-ChronoGit is prepared as `0.5.0`. Linux and macOS are supported. Windows, bare repositories, and non-interactive terminals are not supported yet.
+ChronoGit `0.5.0` is the current published release. Linux and macOS are supported. Windows, bare repositories, and non-interactive terminals are not supported yet.
 
-The manifest is prepared to publish this release to crates.io. Publishing remains a separate maintainer action.
+The source is a Cargo workspace containing `chronogit` and the framework-independent `vim-navigation` library. This README describes the current checkout; a crates.io release can have different default keys. Use a checkout to try unreleased changes.
 
 Upgrading from `0.4.0` changes the default keys: `\` is the leader, pane focus uses `Ctrl-w` sequences, and `Enter` moves within open text documents. Review the [upgrade notes](docs/src/content/docs/guides/getting-started.md#upgrade-from-040), especially if you use a custom keymap.
 
@@ -37,6 +37,10 @@ Or install from a checkout:
 ```bash
 cargo install --path . --locked
 ```
+
+The checkout command resolves `vim-navigation` inside this monorepo. It does
+not replace `cargo install chronogit --locked`, which continues to install the
+already-published release from the registry.
 
 The `chronogit` binary can then be launched from any directory:
 
@@ -226,11 +230,16 @@ The skill grants no additional permissions and does not turn the TUI into a mach
 
 ```bash
 cargo fmt --all --check
-cargo clippy --all-targets --all-features --tests --benches -- -D warnings
-cargo test --all-features
-cargo build --release
-cargo package --locked
+cargo clippy --workspace --all-targets --all-features --tests --benches -- -D warnings
+cargo test --workspace --all-features
+cargo build --workspace --release --locked
+cargo install --path . --locked
 ```
+
+Before publishing ChronoGit, its required `vim-navigation` version must be
+available on crates.io. Local builds use the workspace path; registry packages
+use the version requirement. See the [release procedure](docs/src/content/docs/developer/release.md)
+and the crate's [Vim compatibility contract](crates/vim-navigation/COMPATIBILITY.md).
 
 ## Documentation
 

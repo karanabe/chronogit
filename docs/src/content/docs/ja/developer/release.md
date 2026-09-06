@@ -9,53 +9,94 @@ sidebar:
   order: 4
 ---
 
-この手順はChronoGit `0.5.0`のcrates.io packageを検証し、SHA-256 checksum付きのnative archiveを準備します。registryへの実際の公開は、maintainerが明示的に行う操作です。
+この手順はworkspace内の`chronogit`と`vim-navigation`を対象にします。
+依存crateを、それを必要とするアプリケーションより先に公開します。
 
 ## リリースの前提条件
 
 crateの公開、公開artifactの作成、release tagの作成を行う前に、maintainerは次を完了する必要があります。
 
-1. crates.ioの`chronogit` crateに対する公開権限を用意する。
+1. 公開する各crateのcrates.io公開権限を用意する。
 2. [手動ターミナルスモークテスト](/ja/developer/terminal-smoke/)の両platform行を完了する。
-3. `Cargo.toml`、`Cargo.lock`、`CHANGELOG.md`、予定tagのversionが一致することを確認する。
+3. 変更した各packageに未使用のversionを選び、manifest、lockfile、release note、予定tagを整合させる。crates.ioの既存versionは再公開できない。
+
+`vim-navigation`を変更した場合はそのversionを上げ、ChronoGitの`version`指定も
+利用APIを含む最初のrelease以降に更新します。workspace開発用の相対`path`は残します。
+Cargoは公開manifestから`path`を除き、crates.ioから指定versionを解決します。
+この更新がないと、ローカルではビルドできても公開済みの依存crateに必要なAPIがない
+問題を見落とします。
 
 `Cargo.toml`は公開先をcrates.ioに限定しています。前提条件または必須checkが未完了なら、公開もtag作成も行わないでください。
 
-## 品質ゲート
+## local workspaceゲート
 
-リリースするrevisionそのもののクリーンなチェックアウトで、Rust 1.88.0以降を使って実行します。
+review対象revisionそのもののcleanなcheckoutで、Rust 1.88.0以降を使って実行します。
 
 ```sh title="ターミナル"
 cargo fmt --all --check
-cargo clippy --all-targets --all-features --tests --benches -- -D warnings
-cargo test --all-features
-cargo build --release --locked
+cargo clippy --workspace --all-targets --all-features --tests --benches -- -D warnings
+cargo test --workspace --all-features
+cargo build --workspace --release --locked
 cargo install --path . --locked
-cargo package --locked
 cargo audit
 cargo tree --duplicates
-cargo publish --dry-run --locked
 pnpm --dir docs install --frozen-lockfile
 pnpm --dir docs build
 ```
 
+このgateはlocal path統合とsource install経路を検証します。未公開dependencyを
+crates.ioから解決できることの証拠ではありません。
+
+## 順序付きregistryゲート
+
+新しい`vim-navigation`を公開する場合は、まず依存packageを検証します。
+
+```sh title="ターミナル"
+cargo package -p vim-navigation --locked
+cargo publish -p vim-navigation --dry-run --locked
+```
+
+必要な依存versionを公開し、crates.ioから取得できることを確認した後で、ChronoGitを
+検証します。
+
+```sh title="ターミナル"
+cargo package -p chronogit --locked
+cargo publish -p chronogit --dry-run --locked
+```
+
+必要な依存crateをregistryから取得できなければChronoGitのpackage検証は失敗します。
+workspaceのtest成功だけでは、このregistry gateを満たしません。公開済みの依存crateを
+変更せずにChronoGitだけを公開する場合は、`vim-navigation`を再公開せずChronoGitの
+検証を実行します。CIもworkspace検証とregistry package検証を別の必須jobにしています。
+
 正確なdiffとpackage内容を確認し、資格情報、個人path、内部専用note、無関係なartifactが含まれていないことを確認します。生成ドキュメント、dependency warning、両platformのsmoke test行もレビューします。許容された保守warningを脆弱性として扱わない一方、記録を残し、その依存経路を削除または更新できるか確認します。
 
-## crateの内容を確認して公開する
+## 各crateの内容を確認して公開する
 
 公開前にregistryへ送る正確な内容を確認します。
 
 ```sh title="ターミナル"
-cargo package --list
+cargo package -p vim-navigation --list
+cargo package -p chronogit --list
 ```
 
-一覧にはRustのapplication・test source、sample keymap・LSP profile、README、changelog、2つのlicense file、Cargoが生成するmanifest・lock・VCS metadataだけが含まれている必要があります。documentation site、repository workflow、agent integration file、contributor専用documentを含めてはいけません。
+`vim-navigation`の一覧には再利用library source、互換性/oracle test、README、互換性
+契約、2つのlicense file、Cargo metadataだけを含めます。ChronoGitの一覧にはRust
+application・test source、sample keymap・LSP profile、README、changelog、2つの
+license file、Cargoが生成するmanifest・lock・VCS metadataだけを含めます。
+documentation site、repository workflow、agent integration file、contributor専用
+documentを含めてはいけません。
 
 リリース対象そのもののrevisionで、すべての前提条件と品質ゲートが成功した後、権限を持つmaintainerが公開します。
 
 ```sh title="ターミナル"
-cargo publish --locked
+cargo publish -p vim-navigation --locked
+# vim-navigationがcrates.ioから解決可能になった後、ChronoGit gateを再実行する。
+cargo publish -p chronogit --locked
 ```
+
+最初のcommandは依存crateの新しいreleaseがある場合だけ実行します。2つ目のcommandは、
+ChronoGit自身の未使用versionとpackage検証の成功が必要です。
 
 公開したcrate versionは取り消せません。registry account、crate名、version、package内容、dry-runの出力を確認してから、このコマンドを実行してください。
 

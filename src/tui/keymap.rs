@@ -10,6 +10,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use vim_navigation::{MotionResolution, MotionState};
 
 use crate::app::{Action, SearchDirection, SemanticNavigationKind, VimMotion, VimMotionKind};
 
@@ -63,10 +64,8 @@ pub struct KeyMapper {
     bindings: Vec<Binding>,
     pending: Vec<KeyStroke>,
     pending_since: Option<Instant>,
-    count: Option<usize>,
-    awaiting_target: Option<VimMotion>,
+    motion_state: MotionState,
     awaiting_mark: Option<MarkCommand>,
-    last_character_search: Option<VimMotion>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -83,10 +82,8 @@ impl KeyMapper {
             bindings: config::default_bindings(),
             pending: Vec::new(),
             pending_since: None,
-            count: None,
-            awaiting_target: None,
+            motion_state: MotionState::new(),
             awaiting_mark: None,
-            last_character_search: None,
         }
     }
 
@@ -106,10 +103,8 @@ impl KeyMapper {
             bindings: config::load_bindings(path)?,
             pending: Vec::new(),
             pending_since: None,
-            count: None,
-            awaiting_target: None,
+            motion_state: MotionState::new(),
             awaiting_mark: None,
-            last_character_search: None,
         })
     }
 
@@ -153,7 +148,7 @@ impl KeyMapper {
 
         if let Some(command) = self.awaiting_mark.take() {
             self.pending_since = None;
-            self.count = None;
+            let _ = self.motion_state.take_count();
             return match (key.code, key.modifiers) {
                 (KeyCode::Esc, _) => None,
                 (KeyCode::Char(mark), modifiers)
@@ -175,23 +170,22 @@ impl KeyMapper {
             };
         }
 
-        if let Some(motion) = self.awaiting_target.take() {
+        if self.motion_state.is_awaiting_target() {
             self.pending_since = None;
             return match (key.code, key.modifiers) {
                 (KeyCode::Esc, _) => {
-                    self.count = None;
+                    self.motion_state.reset_pending();
                     None
                 }
                 (KeyCode::Char(target), modifiers)
                     if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
                 {
-                    let motion = motion.targeting(target);
-                    self.last_character_search = Some(motion);
-                    self.count = None;
-                    Some(Action::VimMotion(motion))
+                    self.motion_state
+                        .accept_target(target)
+                        .map(Action::VimMotion)
                 }
                 _ => {
-                    self.count = None;
+                    self.motion_state.reset_pending();
                     None
                 }
             };
@@ -207,15 +201,9 @@ impl KeyMapper {
             && let (KeyCode::Char(digit), modifiers) = (key.code, key.modifiers)
             && !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
             && digit.is_ascii_digit()
-            && (digit != '0' || self.count.is_some())
+            && (digit != '0' || self.motion_state.has_count())
         {
-            let digit = digit.to_digit(10).unwrap_or(0) as usize;
-            self.count = Some(
-                self.count
-                    .unwrap_or(0)
-                    .saturating_mul(10)
-                    .saturating_add(digit),
-            );
+            let _ = self.motion_state.push_count_digit(digit);
             return None;
         }
         let stroke = KeyStroke::from_event(key);
@@ -269,9 +257,9 @@ impl KeyMapper {
     }
 
     fn finish_action(&mut self, action: Action) -> Option<Action> {
-        let count = self.count.take();
         match action {
             Action::SetVimMark('\0') => {
+                let _ = self.motion_state.take_count();
                 self.awaiting_mark = Some(MarkCommand::Set);
                 return None;
             }
@@ -280,6 +268,7 @@ impl KeyMapper {
                 linewise,
                 record_jump,
             } => {
+                let _ = self.motion_state.take_count();
                 self.awaiting_mark = Some(MarkCommand::Jump {
                     linewise,
                     record_jump,
@@ -289,72 +278,32 @@ impl KeyMapper {
             _ => {}
         }
         if matches!(action, Action::JumpListBack(_) | Action::JumpListForward(_)) {
+            let count = self.motion_state.take_count();
             return Some(match action {
                 Action::JumpListBack(_) => Action::JumpListBack(count.unwrap_or(1).max(1)),
                 Action::JumpListForward(_) => Action::JumpListForward(count.unwrap_or(1).max(1)),
                 _ => unreachable!(),
             });
         }
-        let Action::VimMotion(mut motion) = action else {
+        let Action::VimMotion(motion) = action else {
+            let _ = self.motion_state.take_count();
             return Some(action);
         };
-        motion = motion.counted(count.unwrap_or(1), count.is_some());
-        if motion.kind() == VimMotionKind::MatchingPair && motion.has_explicit_count() {
-            motion = VimMotion::new(VimMotionKind::BufferPercentage)
-                .counted(motion.count().min(100), true);
-        }
-        if matches!(
-            motion.kind(),
-            VimMotionKind::BufferTop | VimMotionKind::BufferBottom
-        ) && motion.has_explicit_count()
-        {
-            motion = VimMotion::new(VimMotionKind::BufferTop).counted(motion.count(), true);
-        }
-        if matches!(
-            motion.kind(),
-            VimMotionKind::FindForward
-                | VimMotionKind::FindBackward
-                | VimMotionKind::TillForward
-                | VimMotionKind::TillBackward
-        ) && motion.target().is_none()
-        {
-            self.awaiting_target = Some(motion);
-            self.pending_since = Some(Instant::now());
-            return None;
-        }
-        if matches!(
-            motion.kind(),
-            VimMotionKind::RepeatCharacterSearch | VimMotionKind::ReverseCharacterSearch
-        ) {
-            let mut repeated = self.last_character_search?;
-            if motion.kind() == VimMotionKind::ReverseCharacterSearch {
-                repeated = VimMotion::new(reverse_character_search(repeated.kind()))
-                    .counted(motion.count(), motion.has_explicit_count())
-                    .targeting(repeated.target()?);
-            } else {
-                repeated = repeated.counted(motion.count(), motion.has_explicit_count());
+        match self.motion_state.finish(motion) {
+            MotionResolution::Ready(motion) => Some(Action::VimMotion(motion)),
+            MotionResolution::AwaitingTarget => {
+                self.pending_since = Some(Instant::now());
+                None
             }
-            return Some(Action::VimMotion(repeated.repeating()));
+            MotionResolution::Unavailable => None,
         }
-        Some(Action::VimMotion(motion))
     }
 
     fn clear_command(&mut self) {
         self.pending.clear();
         self.pending_since = None;
-        self.count = None;
-        self.awaiting_target = None;
+        self.motion_state.reset_pending();
         self.awaiting_mark = None;
-    }
-}
-
-fn reverse_character_search(kind: VimMotionKind) -> VimMotionKind {
-    match kind {
-        VimMotionKind::FindForward => VimMotionKind::FindBackward,
-        VimMotionKind::FindBackward => VimMotionKind::FindForward,
-        VimMotionKind::TillForward => VimMotionKind::TillBackward,
-        VimMotionKind::TillBackward => VimMotionKind::TillForward,
-        _ => kind,
     }
 }
 

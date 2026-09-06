@@ -4,6 +4,25 @@ All notable changes to ChronoGit are documented here.
 
 ## Unreleased
 
+### Added
+
+- Converted the repository to a Cargo workspace and added the generic
+  `vim-navigation` crate for Vim-compatible cursor/viewport motion, command
+  state, and explicit Normal/Insert text input. ChronoGit is its first
+  local-path user while keeping document content read-only.
+- Added a fixed Vim 9.1.1244 compatibility inventory and executable 85-case
+  cursor/viewport oracle, plus contextual search, mark, jump, diff, Unicode,
+  large-count, snapshot, and input-limit coverage.
+
+### Changed
+
+- ChronoGit uses `vim-navigation` through a versioned path dependency. Registry
+  packaging requires publishing the dependency first; workspace builds and
+  source installs use the local crate.
+- `EditableBuffer` now defaults to `jj` for leaving Insert mode while retaining
+  Esc. The sequence can be disabled or replaced, and a pending prefix is
+  inserted immediately so context changes cannot lose input.
+
 ## 0.5.0
 
 ### Added

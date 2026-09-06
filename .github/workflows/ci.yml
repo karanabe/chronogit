@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 jobs:
-  quality:
+  local-quality:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,15 +15,26 @@ jobs:
         with:
           components: rustfmt, clippy
       - run: cargo fmt --all --check
-      - run: cargo clippy --all-targets --all-features --tests --benches -- -D warnings
-      - run: cargo test --all-features
-      - run: cargo build --release
-      - run: cargo package --locked
+      - run: cargo clippy --workspace --all-targets --all-features --tests --benches -- -D warnings
+      - run: cargo test --workspace --all-features
+      - run: cargo build --workspace --release --locked
+      - run: cargo install --path . --locked
+
+  registry-package-gate:
+    needs: local-quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88
+      - run: cargo package -p vim-navigation --locked
+      # Cargo resolves path + version dependencies from crates.io when packaging.
+      # Publish any new vim-navigation dependency version before this gate can pass.
+      - run: cargo package -p chronogit --locked
 
   macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.88
-      - run: cargo test --all-features
-      - run: cargo build --release
+      - run: cargo test --workspace --all-features
+      - run: cargo build --workspace --release --locked
