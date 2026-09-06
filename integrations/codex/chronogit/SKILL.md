@@ -34,14 +34,14 @@ There is no suspended ChronoGit session to resume after exit; the user reruns th
 
 ## Useful keys
 
-- `\1` / `\2` / `\3` / `\4`: changes / history / graph / code
+- `Space 1` / `Space 2` / `Space 3` / `Space 4`: changes / history / graph / code
 - `Ctrl-w h/k` / `Ctrl-w j/l`: focus previous / next pane
 - `[count]h/j/k/l`, `w/b`, `gg/G`, `Ctrl-u/d`: navigate text
-- `\f` / `\g`: repository file / content search; `Ctrl-w k` edits the query from Results
+- `Space f` / `Space g`: repository file / content search; `Ctrl-w k` edits the query from Results
 - `/` / `?`, `n/N`, `*/#`: search the active text document
-- `\m`: full commit-message overlay
-- `\b`: history diff / body layout
-- `\t`: changed files / commit tree
+- `Space m`: full commit-message overlay
+- `Space b`: history diff / body layout
+- `Space t`: changed files / commit tree
 - `Enter`: expand a directory or open a document; inside a text overlay, move to the next line's first nonblank
 - `m{char}`, `'{char}`, `` `{char}``: set a Code mark and jump linewise / exactly
 - `Ctrl-o` / `Ctrl-i`: older / newer Vim or LSP jump location

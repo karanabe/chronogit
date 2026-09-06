@@ -139,6 +139,10 @@ ChronoGit's adapter converts application
 positions and pane geometry, applies crate motion to borrowed document lines,
 and retains application-specific search and mark state. ChronoGit never creates
 `EditableBuffer`, so source, diff, Git-object, and commit text remain read-only.
+Its normal application context reserves Space as a leader, so its default
+adapter omits standalone Space/`RightWrap` while keeping `l` and Right. Search
+prompts treat Space and `jj` as literal text. These application choices do not
+remove the library's Vim Space motion or default editable-buffer `jj` contract.
 See the [ChronoGit architecture](https://github.com/karanabe/chronogit/blob/master/docs/src/content/docs/developer/architecture.md)
 for that integration boundary.
 

@@ -9,7 +9,7 @@ sidebar:
   order: 4
 ---
 
-Repository search opens from every main view. Press `\f` to search tracked and untracked file paths, or `\g` to search fixed text in non-binary working-tree files.
+Repository search opens from every main view. Press `Space f` to search tracked and untracked file paths, or `Space g` to search fixed text in non-binary working-tree files.
 
 ## Find and open a file
 

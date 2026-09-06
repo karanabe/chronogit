@@ -561,18 +561,11 @@ mod tests {
             motion(VimMotionKind::ScrollColumnRight)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), false),
-            motion(VimMotionKind::RightWrap)
-        );
-        assert_eq!(
             mapper.map(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE), false),
             motion(VimMotionKind::LeftWrap)
         );
         assert_eq!(
-            mapper.map(
-                KeyEvent::new(KeyCode::Char('\\'), KeyModifiers::NONE),
-                false
-            ),
+            mapper.map(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), false),
             None
         );
         assert_eq!(
@@ -580,10 +573,7 @@ mod tests {
             Some(Action::ShowGraph)
         );
         assert_eq!(
-            mapper.map(
-                KeyEvent::new(KeyCode::Char('\\'), KeyModifiers::NONE),
-                false
-            ),
+            mapper.map(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), false),
             None
         );
         assert_eq!(
@@ -591,10 +581,7 @@ mod tests {
             Some(Action::ShowCode)
         );
         assert_eq!(
-            mapper.map(
-                KeyEvent::new(KeyCode::Char('\\'), KeyModifiers::NONE),
-                false
-            ),
+            mapper.map(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), false),
             None
         );
         assert_eq!(
@@ -683,6 +670,50 @@ mod tests {
     }
 
     #[test]
+    fn default_space_leader_resolves_every_application_action_without_a_space_motion() {
+        for (suffix, expected) in [
+            ('1', Action::ShowChanges),
+            ('2', Action::ShowHistory),
+            ('3', Action::ShowGraph),
+            ('4', Action::ShowCode),
+            ('f', Action::OpenFileSearch),
+            ('g', Action::OpenContentSearch),
+            ('m', Action::ToggleMessage),
+            ('b', Action::ToggleDetails),
+            ('t', Action::ToggleTree),
+        ] {
+            let mut mapper = KeyMapper::new();
+            assert_eq!(
+                mapper.map(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), false),
+                None,
+                "Space must remain a prefix before {suffix:?}"
+            );
+            assert_eq!(
+                mapper.map(
+                    KeyEvent::new(KeyCode::Char(suffix), KeyModifiers::NONE),
+                    false
+                ),
+                Some(expected)
+            );
+        }
+
+        let mut mapper = KeyMapper::new();
+        assert_eq!(
+            mapper.map(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), false),
+            None
+        );
+        assert_eq!(
+            mapper.map(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE), false),
+            motion(VimMotionKind::Right),
+            "an unrelated suffix is retried as a normal key, so l remains the right-motion alternative"
+        );
+        assert_eq!(
+            mapper.map(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE), false),
+            motion(VimMotionKind::Right)
+        );
+    }
+
+    #[test]
     fn search_input_accepts_q_and_reserves_control_keys() {
         let mut mapper = KeyMapper::new();
         assert_eq!(
@@ -693,6 +724,21 @@ mod tests {
             mapper.map(KeyEvent::new(KeyCode::Char('Q'), KeyModifiers::SHIFT), true),
             Some(Action::InsertSearch('Q'))
         );
+        assert_eq!(
+            mapper.map(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), true),
+            Some(Action::InsertSearch(' ')),
+            "the application leader is disabled inside a search prompt"
+        );
+        for character in ['j', 'j'] {
+            assert_eq!(
+                mapper.map(
+                    KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE),
+                    true
+                ),
+                Some(Action::InsertSearch(character)),
+                "EditableBuffer's Insert escape sequence must not leak into search input"
+            );
+        }
         assert_eq!(
             mapper.map(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE), true),
             Some(Action::DeleteSearch)
@@ -891,7 +937,7 @@ mod tests {
         let path = directory.path().join("keymap.conf");
         fs::write(
             &path,
-            "[bindings]\nshow_graph = x\nfile_search = alt-p\ntoggle_tree = alt-t\nsemantic_forward = tab\n",
+            "[bindings]\nshow_graph = x\nfile_search = alt-p\ntoggle_tree = alt-t\nsemantic_forward = tab\ncursor_right_wrap = \\\n",
         )
         .unwrap_or_else(|error| panic!("could not write keymap: {error}"));
         let mut mapper = KeyMapper::load(Some(&path)).unwrap_or_else(|error| panic!("{error}"));
@@ -900,8 +946,20 @@ mod tests {
             Some(Action::ShowGraph)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('\\'), KeyModifiers::NONE),
+                false
+            ),
             motion(VimMotionKind::RightWrap)
+        );
+        assert_eq!(
+            mapper.map(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), false),
+            None
+        );
+        assert_eq!(
+            mapper.map(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE), false),
+            Some(Action::ShowHistory),
+            "replacing one leader action leaves the other default Space sequences intact"
         );
         assert_eq!(
             mapper.map(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE), false),
@@ -926,6 +984,37 @@ mod tests {
             ),
             None,
             "an explicit semantic_forward binding replaces its defaults"
+        );
+    }
+
+    #[test]
+    fn replacing_every_space_action_can_restore_the_library_space_motion() {
+        let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("{error}"));
+        let path = directory.path().join("keymap.conf");
+        fs::write(
+            &path,
+            "[bindings]\n\
+             show_changes = alt-1\n\
+             show_history = alt-2\n\
+             show_graph = alt-3\n\
+             show_code = alt-4\n\
+             file_search = alt-f\n\
+             content_search = alt-g\n\
+             toggle_message = alt-m\n\
+             toggle_details = alt-b\n\
+             toggle_tree = alt-t\n\
+             cursor_right_wrap = space\n",
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+
+        let mut mapper = KeyMapper::load(Some(&path)).unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(
+            mapper.map(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), false),
+            motion(VimMotionKind::RightWrap)
+        );
+        assert_eq!(
+            mapper.map(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::ALT), false),
+            Some(Action::ShowChanges)
         );
     }
 
@@ -959,12 +1048,27 @@ mod tests {
         fs::write(&path, "show_graph = space\nfile_search = space f\n")
             .unwrap_or_else(|error| panic!("could not write keymap: {error}"));
         assert!(KeyMapper::load(Some(&path)).is_err());
+        fs::write(&path, "cursor_right_wrap = space\n")
+            .unwrap_or_else(|error| panic!("could not write keymap: {error}"));
+        assert!(
+            KeyMapper::load(Some(&path)).is_err(),
+            "a standalone Space action conflicts with the remaining default leader sequences"
+        );
         fs::write(&path, "show_graph = f0\n")
             .unwrap_or_else(|error| panic!("could not write keymap: {error}"));
         assert!(KeyMapper::load(Some(&path)).is_err());
         fs::write(&path, "show_graph = 3\n")
             .unwrap_or_else(|error| panic!("could not write keymap: {error}"));
         assert!(KeyMapper::load(Some(&path)).is_err());
+    }
+
+    #[test]
+    fn built_in_space_leader_is_prefix_unambiguous() {
+        let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("{error}"));
+        let path = directory.path().join("keymap.conf");
+        fs::write(&path, "[bindings]\n").unwrap_or_else(|error| panic!("{error}"));
+        KeyMapper::load(Some(&path))
+            .unwrap_or_else(|error| panic!("default bindings must validate: {error}"));
     }
 
     #[test]

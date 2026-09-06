@@ -23,7 +23,24 @@ quit = Q
 
 各`action = keys`行は、そのactionの標準割り当てをすべて置き換えます。連続キーは空白、代替キーはカンマで区切ります。単一文字、`space`、`comma`、`enter`、`esc`、`backspace`、`tab`、`up`、`down`、`left`、`right`、`home`、`end`、`pageup`、`pagedown`、`f1`〜`f255`と、`ctrl-`、`alt-`、`shift-`の組み合わせを使えます。通常の連続キーは750 msで期限切れになります。find/tillまたはmarkのように文字引数が必要なactionは、その文字か`Esc`が入力されるまで待ちます。
 
-修飾キーなしの`1`〜`9`はcount専用で、割り当ての先頭には使えません。`\ 3`のようなleader連続キー、または`alt-3`のような修飾キーを使います。カンマ自体を割り当てるには、代替キーの区切りと区別できる`comma`を使います。
+修飾キーなしの`1`〜`9`はcount専用で、割り当ての先頭には使えません。`space 3`のようなleader連続キー、または`alt-3`のような修飾キーを使います。カンマ自体を割り当てるには、代替キーの区切りと区別できる`comma`を使います。
+
+組み込みapplication leaderはSpaceです。`1`〜`4`、`f`、`g`、`m`、`b`、`t`の
+prefixとして使い、標準mapには単独Space actionを意図的に置きません。再利用する
+`vim-navigation` crateはVimの行をまたぐSpace motionを引き続き実装しています。
+leaderを崩さず使うには、`cursor_right_wrap`をraw backslashなど競合しないキーへ
+割り当てます。
+
+```ini
+[bindings]
+cursor_right_wrap = \
+```
+
+Backslashは予約されていない通常の設定可能文字です。Space prefixの標準actionが1つ
+でも残る状態の`cursor_right_wrap = space`は、完結actionとsequence prefixが同じに
+なるため拒否されます。単独Spaceを復元する場合はSpace prefixの9 actionをすべて
+明示的に置換してください。検索promptではnormal binding解決前に印字可能なSpaceを
+query文字として処理します。
 
 | action名 | 用途 |
 | --- | --- |

@@ -59,7 +59,7 @@ Between 80 and 109 columns, Changes uses one full-width pane at a time; use `Ctr
 
 ## A tree file says it has no change
 
-The tree shows every entry in the selected commit, not only changed files. Selecting an unchanged file therefore reports that it has no change in the active root/parent comparison. Press `\t` to return to the changed-file list.
+The tree shows every entry in the selected commit, not only changed files. Selecting an unchanged file therefore reports that it has no change in the active root/parent comparison. Press `Space t` to return to the changed-file list.
 
 ## The terminal was not restored
 

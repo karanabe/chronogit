@@ -123,7 +123,7 @@ The Code tree is different: Git enumerates all tracked and non-ignored worktree 
 
 Owns key translation, terminal lifecycle, layout, rendering, and the event loop.
 
-- `KeyMapper` converts Vim normal-mode keys to actions through built-in or XDG/`--keymap` bindings. The reusable `MotionState` owns decimal counts, find/till character arguments, and `;`/`,` direction; the adapter owns terminal sequences and resource-aware mark arguments. Search input resolves printable Space and `jj` as query text before normal bindings. The mapper rejects ambiguous prefixes and times ordinary sequences out after 750 ms. Ctrl-C remains reserved for safe exit.
+- `KeyMapper` converts Vim normal-mode keys to actions through built-in or XDG/`--keymap` bindings. The reusable `MotionState` owns decimal counts, find/till character arguments, and `;`/`,` direction; the adapter owns terminal sequences and resource-aware mark arguments. ChronoGit reserves Space as an application leader and therefore omits the crate's standalone Space/`RightWrap` motion from its default normal-context bindings; `l`/Right remain available, and custom maps may place `cursor_right_wrap` on a non-conflicting key. Search input resolves printable Space and `jj` as query text before normal bindings. The mapper rejects ambiguous prefixes and times ordinary sequences out after 750 ms. Ctrl-C remains reserved for safe exit.
 - `TerminalSession` enables raw mode and the alternate screen and restores terminal state from `Drop`.
 - A panic hook performs the same restoration before forwarding to the previous hook.
 - `tokio::select!` waits for terminal input, resize/tick events, Ctrl-C, and typed asynchronous completion events.

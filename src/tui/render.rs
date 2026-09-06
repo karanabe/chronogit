@@ -360,7 +360,7 @@ fn render_files(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         frame,
         area,
         state,
-        "Changed files [\\t: tree]",
+        "Changed files [Space t: tree]",
         state.focus == FocusedPane::Secondary,
     );
 }
@@ -417,7 +417,7 @@ fn render_file_list(
 
 fn render_tree(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let block = pane_block(
-        "Commit tree [\\t: files]",
+        "Commit tree [Space t: files]",
         state.focus == FocusedPane::Secondary,
     );
     let lines = match &state.tree.visible {
@@ -917,25 +917,25 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let comparison = selected_baseline(state).unwrap_or_else(|| "comparison pending".to_owned());
     let controls = match (state.view, area.width >= WIDE_WIDTH) {
         (AppView::CommitDetails, true) => {
-            "q/Esc History  \\m message  ^w h/j pane  j/k move  Enter diff  Q quit"
+            "q/Esc History  Space m message  ^w h/j pane  j/k move  Enter diff  Q quit"
         }
-        (AppView::CommitDetails, false) => "q/Esc History  \\m msg  Enter diff  Q quit",
+        (AppView::CommitDetails, false) => "q/Esc History  Space m msg  Enter diff  Q quit",
         (AppView::GraphDetails, true) => {
-            "q/Esc Graph  \\m message  ^w h/j pane  j/k move  Enter diff  \\f/g search  Q quit"
+            "q/Esc Graph  Space m message  ^w h/j pane  j/k move  Enter diff  Space f/g search  Q quit"
         }
         (AppView::GraphDetails, false) => "q/Esc Graph  j/k file  Enter diff  Q quit",
         (AppView::FileHistory, true) => {
-            "q/Esc back  ^w h/j pane  j/k history  Enter full  \\f/g search  Q quit"
+            "q/Esc back  ^w h/j pane  j/k history  Enter full  Space f/g search  Q quit"
         }
         (AppView::FileHistory, false) => "q/Esc back  j/k history  Enter full  Q quit",
         (AppView::Code, true) => {
-            "\\4 Code  h/j/k/l move  ^w h/j pane  w/b word  K hover  gd definition  ^o/^i jump  Q quit"
+            "Space 4 Code  h/j/k/l move  ^w h/j pane  w/b word  K hover  gd definition  ^o/^i jump  Q quit"
         }
         (AppView::Code, false) => "h/l cursor/pane  j/k line  K hover  gd definition  Q quit",
         (_, true) => {
-            "\\1/2/3 Git  \\4 Code  h/j/k/l move  ^w h/j pane  Enter open  \\f/g search  r refresh  \\m message  F1 help  Q quit"
+            "Space 1/2/3 Git  Space 4 Code  h/j/k/l move  ^w h/j pane  Enter open  Space f/g search  r refresh  Space m message  F1 help  Q quit"
         }
-        (_, false) => "\\1-3 Git  \\4 Code  \\f/g find  Q quit",
+        (_, false) => "Q quit  Space 1-4 views  Space f/g find",
     };
     let root = if area.width >= 180 {
         format!(" | {}", sanitize_inline(&state.root.to_string()))
@@ -963,10 +963,10 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             frame.render_widget(Clear, popup);
             let text = vec![
                 plain("ChronoGit keys"),
-                plain("\\1..\\4    Changes / History / Graph / Code"),
-                plain("\\f / \\g    Search files / repository content"),
+                plain("Space 1..4  Changes / History / Graph / Code"),
+                plain("Space f/g   Search files / repository content"),
                 plain("Ctrl-w h/j  Focus previous / next pane (k/l/w/W also work)"),
-                plain("h j k l     Character / line motions; Space/Backspace may wrap"),
+                plain("h j k l     Character / line motions; Backspace/Ctrl-H wraps left"),
                 plain("w/W e/E b/B ge/gE   Word / WORD motions"),
                 plain("0 ^ $ g_    Line start / first nonblank / end / last nonblank"),
                 plain("f F t T     Find/till a character; ;/, repeat/reverse"),
@@ -979,7 +979,8 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                 plain("m{c} 'c/`c; ['/`[ ]'/`]   Mark jumps and scans"),
                 plain("K; gd/gi/gy/gD   LSP hover and target navigation"),
                 plain("Ctrl-o/i     Older / newer Vim, search, or LSP jump"),
-                plain("r; \\m/\\b/\\t  Refresh; message / layout / commit tree"),
+                plain("r; Space m/b/t  Refresh; message / layout / commit tree"),
+                plain("Space is the app leader; l/Right moves right"),
                 plain("Enter       Open selection; move down in an opened document"),
                 plain("F1 help; q close/back immediately; Q/Ctrl-C quit"),
                 plain("ChronoGit is read-only and never stages or commits changes."),
@@ -2199,10 +2200,21 @@ mod tests {
             .unwrap_or_else(|error| panic!("could not draw: {error}"));
         let text = buffer_text(terminal.backend());
         assert!(text.contains("ChronoGit keys"));
+        assert!(text.contains("Space 1..4  Changes / History / Graph / Code"));
+        assert!(text.contains("Space f/g   Search files / repository content"));
+        assert!(text.contains("r; Space m/b/t"));
+        assert!(text.contains("Space is the app leader; l/Right moves right"));
         assert!(text.contains("F1 help; q close/back immediately; Q/Ctrl-C quit"));
         assert!(text.contains("Esc: clear Diff/Code search, then close/back; q: close now"));
         let compact = rendered_text(&state, 80, 24);
         assert!(compact.contains("Esc: clear Diff/Code search, then close/back; q: close now"));
+
+        state.overlay = Overlay::None;
+        let footer = rendered_text(&state, 180, 30);
+        assert!(footer.contains("Space 1/2/3 Git"));
+        assert!(footer.contains("Space 4 Code"));
+        assert!(footer.contains("Space f/g search"));
+        assert!(!footer.contains("\\1/2/3"));
     }
 
     #[test]

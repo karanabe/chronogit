@@ -80,6 +80,9 @@ real terminal or language server.
   ChronoGit search prompts retain their existing single-line
   confirm/cancel behavior, accept Space and `jj` literally, and are not generic
   Insert buffers.
+- Keep Space's two roles at the adapter boundary: the generic crate implements
+  Vim `RightWrap`, while ChronoGit's default normal context reserves Space as
+  its application leader and leaves standalone Space motion unbound.
 - Pass repository paths and pathspecs as separate process arguments; never
   interpolate them into shell text.
 - Keep Git paths as bytes on Unix until presentation requires lossy rendering.

@@ -23,7 +23,25 @@ quit = Q
 
 Each `action = keys` line replaces all defaults for that action. Separate a sequence with spaces and alternatives with commas. Supported names are single characters, `space`, `comma`, `enter`, `esc`, `backspace`, `tab`, `up`, `down`, `left`, `right`, `home`, `end`, `pageup`, `pagedown`, `f1` through `f255`, and combinations of the `ctrl-`, `alt-`, or `shift-` prefixes. Ordinary sequences expire after 750 ms. An action that requires a character argument—find/till or a mark command—waits until that argument or `Esc` arrives.
 
-Unmodified `1` through `9` are reserved for counts and cannot start a binding. Use a leader sequence such as `\ 3` or a modifier such as `alt-3`. Use `comma` to bind the comma key, since a literal comma separates alternatives.
+Unmodified `1` through `9` are reserved for counts and cannot start a binding. Use a leader sequence such as `space 3` or a modifier such as `alt-3`. Use `comma` to bind the comma key, since a literal comma separates alternatives.
+
+The built-in application leader is Space. It prefixes `1` through `4`, `f`,
+`g`, `m`, `b`, and `t`; the default map intentionally has no standalone Space
+action. The reusable `vim-navigation` crate still implements Vim's
+line-wrapping Space motion. To expose it without disturbing the leader, bind
+`cursor_right_wrap` to a non-conflicting key such as a raw backslash:
+
+```ini
+[bindings]
+cursor_right_wrap = \
+```
+
+Backslash is an ordinary configurable character and is not reserved. Assigning
+`cursor_right_wrap = space` is rejected while any Space-prefixed default
+remains, because a key cannot be both a complete action and a sequence prefix.
+To restore standalone Space, explicitly replace all nine Space-prefixed actions
+as well. Search prompts handle printable Space directly as query text before
+normal bindings are resolved.
 
 | Action names | Purpose |
 | --- | --- |

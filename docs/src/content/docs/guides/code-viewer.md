@@ -9,7 +9,7 @@ sidebar:
   order: 4
 ---
 
-ChronoGit separates its existing Git review screens from a working-tree Code viewer. The default launch still opens Changes. Press `\4`, or start with `chronogit --view code`, when you want to browse the repository rather than a patch or commit.
+ChronoGit separates its existing Git review screens from a working-tree Code viewer. The default launch still opens Changes. Press `Space 4`, or start with `chronogit --view code`, when you want to browse the repository rather than a patch or commit.
 
 ## Navigate the file tree
 
@@ -38,7 +38,7 @@ Recognized source types use embedded syntax definitions. Reads are bounded to 8 
 
 ## Search while browsing code
 
-`\f` searches file paths and `\g` searches fixed text from the Code viewer just as they do from Git screens. Opening a result returns directly to Code, expands the ancestors needed to reveal the selected file, and loads its current content. A content result positions the current-line marker at the matched line.
+`Space f` searches file paths and `Space g` searches fixed text from the Code viewer just as they do from Git screens. Opening a result returns directly to Code, expands the ancestors needed to reveal the selected file, and loads its current content. A content result positions the current-line marker at the matched line.
 
 ## Navigate by symbol with LSP
 

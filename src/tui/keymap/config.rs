@@ -224,10 +224,10 @@ pub(super) fn default_bindings() -> Vec<Binding> {
         single(character('Q'), Action::Quit),
         single(control('c'), Action::Quit),
         single(character('q'), Action::CloseOverlay),
-        Binding::new(vec![character('\\'), character('1')], Action::ShowChanges),
-        Binding::new(vec![character('\\'), character('2')], Action::ShowHistory),
-        Binding::new(vec![character('\\'), character('3')], Action::ShowGraph),
-        Binding::new(vec![character('\\'), character('4')], Action::ShowCode),
+        Binding::new(vec![character(' '), character('1')], Action::ShowChanges),
+        Binding::new(vec![character(' '), character('2')], Action::ShowHistory),
+        Binding::new(vec![character(' '), character('3')], Action::ShowGraph),
+        Binding::new(vec![character(' '), character('4')], Action::ShowCode),
         Binding::new(vec![control('w'), character('h')], Action::FocusLeft),
         Binding::new(vec![control('w'), character('k')], Action::FocusLeft),
         Binding::new(vec![control('w'), character('j')], Action::FocusRight),
@@ -276,7 +276,9 @@ pub(super) fn default_bindings() -> Vec<Binding> {
         ),
         single(character('h'), motion(VimMotionKind::Left)),
         single(character('l'), motion(VimMotionKind::Right)),
-        single(character(' '), motion(VimMotionKind::RightWrap)),
+        // vim-navigation still implements Vim's Space/RightWrap motion. ChronoGit
+        // reserves Space as its application leader, so registering that motion
+        // here too would make every built-in leader sequence ambiguous.
         single(character('k'), motion(VimMotionKind::Up)),
         single(
             KeyStroke::new(KeyCode::Up, KeyModifiers::NONE),
@@ -685,17 +687,14 @@ pub(super) fn default_bindings() -> Vec<Binding> {
             KeyStroke::new(KeyCode::Enter, KeyModifiers::NONE),
             Action::Activate,
         ),
+        Binding::new(vec![character(' '), character('f')], Action::OpenFileSearch),
         Binding::new(
-            vec![character('\\'), character('f')],
-            Action::OpenFileSearch,
-        ),
-        Binding::new(
-            vec![character('\\'), character('g')],
+            vec![character(' '), character('g')],
             Action::OpenContentSearch,
         ),
-        Binding::new(vec![character('\\'), character('m')], Action::ToggleMessage),
-        Binding::new(vec![character('\\'), character('b')], Action::ToggleDetails),
-        Binding::new(vec![character('\\'), character('t')], Action::ToggleTree),
+        Binding::new(vec![character(' '), character('m')], Action::ToggleMessage),
+        Binding::new(vec![character(' '), character('b')], Action::ToggleDetails),
+        Binding::new(vec![character(' '), character('t')], Action::ToggleTree),
         Binding::new(
             vec![character('g'), character('d')],
             Action::GoToSemanticTarget(SemanticNavigationKind::Definition),

@@ -59,29 +59,29 @@ Confirm typed input echoes normally, the cursor is visible, mouse selection work
 5. Select changed text and binary files, press `Enter`, and confirm a large floating patch or binary summary opens. In text, confirm `Enter` moves to the next line's first nonblank. Close it with `q` and, when no search highlights are present, `Esc`.
 6. Open a recognized source file and confirm code tokens are syntax-highlighted, additions/removals retain muted green/red backgrounds, and the current-line gutter marker does not recolor the code. While opening an uncached long text diff, immediately press `Ctrl-d` and confirm the marker moves half a page as soon as the diff appears. Confirm `j` / `k` visibly move it one line and `Ctrl-u` moves it up without a delay.
 7. Exercise counts plus `w/W/e/E`, `b/B/ge/gE`, `0/^/$/g_`, `f/F/t/T` with `;` / `,`, `gg/G/%/go/H/M/L`, sentence/paragraph/section and delimiter motions, page/scroll/`z` motions, and `[c` / `]c`. Search with `/`, `?`, `n/N`, `*` / `#`, and `g*` / `g#`.
-8. Press `\m`, move through the complete commit message with character and word motions, and close it separately with `\m`, `q`, and `Esc`.
-9. Press `\b` and confirm the rows are the same commit list, commit body, and changed files. Use `Ctrl-w h/k/j/l` to move focus, change the top-row commit and confirm the other rows update, scroll the body, and open a bottom-row file diff. Press `\b` again to return to standard History.
-10. Press `\t`, expand and collapse two directory levels, and open a blob diff.
+8. Press `Space m`, move through the complete commit message with character and word motions, and close it separately with `Space m`, `q`, and `Esc`.
+9. Press `Space b` and confirm the rows are the same commit list, commit body, and changed files. Use `Ctrl-w h/k/j/l` to move focus, change the top-row commit and confirm the other rows update, scroll the body, and open a bottom-row file diff. Press `Space b` again to return to standard History.
+10. Press `Space t`, expand and collapse two directory levels, and open a blob diff.
 11. Exit with `Ctrl-C`, then repeat the `stty` comparison and shell checks.
 
 ## Graph and repository search
 
-1. Press `\3`; confirm parent lanes and commit subjects are visible. Press `\m` and close the complete message.
+1. Press `Space 3`; confirm parent lanes and commit subjects are visible. Press `Space m` and close the complete message.
 2. Press `Enter`; confirm a bordered two-row window floats over the still-visible Graph, with changed files above the selected diff. Press `Enter` for the full diff, use `q` to close it, then use `q` again to return to Graph. Repeat with `Esc`.
-3. From Changes, History, and Graph, run `\f` and type a known path one character at a time. Confirm results update before `Enter`, use `Enter` or `Ctrl-j` to focus Results, then use `Ctrl-w k` to return to Search. Edit the query and confirm live results update again before opening it; confirm file history is above current content.
+3. From Changes, History, and Graph, run `Space f` and type a known path one character at a time. Confirm results update before `Enter`, use `Enter` or `Ctrl-j` to focus Results, then use `Ctrl-w k` to return to Search. Edit the query and confirm live results update again before opening it; confirm file history is above current content.
 4. Change the history selection and confirm the lower pane becomes that commit's diff. Open and close the full diff, then press `q` or `Esc` back to the originating view.
-5. Run `\g`, type known text, confirm live results follow each edit and deletion, open a result, and confirm the matching current-content line is highlighted. Reopen the prompt, enter a query containing both `q` and uppercase `Q`, and confirm both are inserted and update results. Confirm `Esc` closes the prompt and `Ctrl-C` quits.
+5. Run `Space g`, type known text, confirm live results follow each edit and deletion, open a result, and confirm the matching current-content line is highlighted. Reopen the prompt, enter a query containing Space and `jj` as well as both `q` and uppercase `Q`, and confirm all are inserted and update results. Confirm `Esc` closes the prompt and `Ctrl-C` quits.
 6. Start once with the default XDG keymap and once with `--keymap` pointing to a valid custom binding. Confirm an invalid explicit file fails before the alternate screen opens.
 
 ## Code workflow
 
-1. Press `\4`, then confirm a tracked root file and a collapsed nested directory appear above the code pane. Repeat by starting with `--view code`.
+1. Press `Space 4`, then confirm a tracked root file and a collapsed nested directory appear above the code pane. Repeat by starting with `--view code`.
 2. Move onto a file and confirm its current syntax-highlighted content loads below. Move rapidly between files and confirm the final content matches the final selection.
 3. Press `Enter` on a directory, expand at least two levels, then press it again and confirm all descendants collapse.
 4. Move between tree and code with `Ctrl-w h/k/j/l`. In the code pane exercise the complete count-aware motion set, including wanted-column behavior across short lines.
 5. Press `Enter` from both a tree file and the lower pane. Confirm the full Code window opens, `Enter` moves like `+`, searches wrap, and `q` returns to Code immediately; `Esc` first dismisses search highlights when present.
 6. With a language server enabled, move the character cursor onto a symbol. Confirm `K` opens and closes hover, `gd` / `gi` / `gy` / `gD` request the four semantic targets, and `Ctrl-o` / `Ctrl-i` move backward and forward through successful jumps. After going backward, make a new jump and confirm the former forward location is no longer reachable.
-7. Run `\f` and `\g` from Code. Open a nested result and confirm Code returns directly, expands the path in the tree, and places the marker on the content-match line. Set lowercase and uppercase marks, jump with apostrophe and backtick, cross files, and traverse the combined history with counted `Ctrl-o` / `Ctrl-i`.
+7. Run `Space f` and `Space g` from Code. Open a nested result and confirm Code returns directly, expands the path in the tree, and places the marker on the content-match line. Set lowercase and uppercase marks, jump with apostrophe and backtick, cross files, and traverse the combined history with counted `Ctrl-o` / `Ctrl-i`.
 8. Open a binary, symbolic link, deleted tracked path, and file larger than 8 MiB. Confirm each displays a safe summary or truncation marker and no symbolic-link target is read.
 
 ## Search highlight dismissal

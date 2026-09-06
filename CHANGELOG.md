@@ -19,6 +19,9 @@ All notable changes to ChronoGit are documented here.
 - ChronoGit uses `vim-navigation` through a versioned path dependency. Registry
   packaging requires publishing the dependency first; workspace builds and
   source installs use the local crate.
+- ChronoGit now uses `Space` as the default application leader for view,
+  repository-search, message, layout, and tree actions. The app default leaves
+  standalone Space motion unbound; the generic crate retains Vim `RightWrap`.
 - `EditableBuffer` now defaults to `jj` for leaving Insert mode while retaining
   Esc. The sequence can be disabled or replaced, and a pending prefix is
   inserted immediately so context changes cannot lose input.

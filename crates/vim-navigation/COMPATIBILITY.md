@@ -65,6 +65,15 @@ The ordinary crate and ChronoGit suites also exercise stateful/contextual rows.
 Caller-adapter evidence describes ChronoGit's integration, not functionality
 automatically supplied to another user of this library.
 
+ChronoGit's default application keymap reserves Space as a leader for views,
+repository search, message, layout, and tree actions. It therefore does not
+also bind standalone Space to `RightWrap` in that normal context; `l` and Right
+remain the default non-wrapping right movements, and a custom map can bind
+`cursor_right_wrap` to a non-conflicting key such as backslash. Search prompts
+treat Space as query text. This is an adapter choice, not a reduction of the
+library vocabulary: `MotionKind::RightWrap`, its `whichwrap=s` comparison, and
+all 85 oracle cases remain present.
+
 ## Explicit boundaries
 
 The following functionality is outside this library's contract:

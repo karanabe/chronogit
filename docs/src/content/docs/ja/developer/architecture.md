@@ -119,7 +119,7 @@ Codeツリーは別の方法を使います。Gitから追跡済み・非ignore�
 
 キー変換、ターミナルライフサイクル、レイアウト、描画、イベントループを所有します。
 
-- `KeyMapper`が組み込みまたはXDG/`--keymap`設定を使い、Vim normal-modeキーをactionへ変換します。再利用crateの`MotionState`が10進count、find/tillの文字引数、`;`/`,`の方向を所有し、adapterはterminal sequenceとresource-awareなmark引数を所有します。検索入力ではnormal bindingより先に印字可能なSpaceと`jj`をquery文字として解決します。曖昧なprefixを拒否し、通常の連続キーは750 msで期限切れになります。Ctrl-Cは安全な終了用に予約します。
+- `KeyMapper`が組み込みまたはXDG/`--keymap`設定を使い、Vim normal-modeキーをactionへ変換します。再利用crateの`MotionState`が10進count、find/tillの文字引数、`;`/`,`の方向を所有し、adapterはterminal sequenceとresource-awareなmark引数を所有します。ChronoGitはSpaceをapplication leaderに予約するため、crateの単独Space/`RightWrap` motionを標準normal-context bindingから外します。`l`/Rightは維持し、custom mapでは`cursor_right_wrap`を競合しないキーへ配置できます。検索入力ではnormal bindingより先に印字可能なSpaceと`jj`をquery文字として解決します。曖昧なprefixを拒否し、通常の連続キーは750 msで期限切れになります。Ctrl-Cは安全な終了用に予約します。
 - `TerminalSession`がraw modeとalternate screenを有効化し、`Drop`でターミナル状態を復元します。
 - panic hookも、以前のhookへ引き渡す前に同じ復元を行います。
 - `tokio::select!`がターミナル入力、resize/tick、Ctrl-C、型付き非同期完了イベントを待ちます。通常終了ではterminalを復元してから上限付きLSP shutdownを待ちます。

@@ -12,7 +12,7 @@ sidebar:
 ChronoGit is a read-only terminal interface for inspecting Git changes, history, and working-tree source code. This guide installs it with Cargo and opens a repository without changing it.
 
 :::note[Distribution status]
-The `0.5.0` manifest is ready for crates.io publication. Until that version is available from the registry, install it from a trusted checkout.
+This guide describes the current checkout, including unreleased changes. The `0.5.0` release uses backslash as the application leader; the checkout uses Space. Install from a checkout to follow the Space bindings below, or consult `F1` in the installed release for its keys.
 :::
 
 ## Requirements
@@ -50,9 +50,9 @@ chronogit --version
 
 ## Upgrade from 0.4.0
 
-Version `0.5.0` expands Vim movement and changes the default keys:
+Version `0.5.0` expands Vim movement, reserves digits for counts, and uses `Ctrl-w` for pane focus. The current checkout additionally changes the application leader from backslash to Space:
 
-- Use `\1` through `\4` to switch views, and `\f` / `\g` to search the repository. The leader is now `\`; `Space` moves the document cursor right.
+- Use `Space 1` through `Space 4` to switch views, and `Space f` / `Space g` to search the repository. Space is the application leader; use `l` or Right for default right movement.
 - Use `Ctrl-w h/k` and `Ctrl-w j/l` to focus the previous and next panes. `Ctrl-w k` returns repository-search results to query editing.
 - In an open text document, `Enter` moves to the next line's first nonblank character. Use `q` to close immediately. In Diff and Code, default `Esc` first dismisses visible search highlights, then closes or goes back on the next press.
 
@@ -85,7 +85,7 @@ chronogit /path/to/repository --view graph
 chronogit /path/to/repository --view code
 ```
 
-Press `\1` for Changes, `\2` for History, `\3` for Graph, or `\4` for Code at any time. The first three form the Git workflow; Code provides the separate source-browsing workflow. `\f` searches files and `\g` searches working-tree text from any main view. Press `F1` for the in-app key guide, `q` / `Esc` to close or go back, and `Q` / `Ctrl-C` to exit.
+Press `Space 1` for Changes, `Space 2` for History, `Space 3` for Graph, or `Space 4` for Code at any time. The first three form the Git workflow; Code provides the separate source-browsing workflow. `Space f` searches files and `Space g` searches working-tree text from any main view. Press `F1` for the in-app key guide, `q` / `Esc` to close or go back, and `Q` / `Ctrl-C` to exit.
 
 ## Next steps
 

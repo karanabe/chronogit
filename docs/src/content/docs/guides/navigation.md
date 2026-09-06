@@ -18,11 +18,11 @@ ChronoGit is operated entirely from the keyboard. Press `F1` inside the applicat
 | `q` | Close the current float or go back immediately |
 | `Esc` | Cancel input; in Diff/Code dismiss search highlights first, then close/back |
 | `Q` / `Ctrl-C` | Quit |
-| `\1` / `\2` / `\3` / `\4` | Open Changes / History / Graph / Code |
-| `\f` / `\g` | Search repository file names / working-tree content |
+| `Space 1` / `Space 2` / `Space 3` / `Space 4` | Open Changes / History / Graph / Code |
+| `Space f` / `Space g` | Search repository file names / working-tree content |
 | `Ctrl-w h/k` / `Ctrl-w j/l` | Focus the previous / next pane (`Ctrl-w W/w`, control-letter, Backspace, and arrow aliases are available) |
 | `[count]h/j/k/l`, arrows | Move by character or logical line |
-| `[count]Space`, `[count]Backspace` / `Ctrl-H` | Move by character and wrap across lines like Vim's default `'whichwrap'` |
+| `[count]Backspace` / `Ctrl-H` | Move left across lines like enabling Vim's corresponding `'whichwrap'` flag |
 | `w/W/e/E`, `b/B/ge/gE` | Move by word or whitespace-delimited WORD (`Shift-←/→` is `b/w`; `Ctrl-←/→` is `B/W`) |
 | `0`, `^`, `$`, `g_`, `g0`, `g^`, `g$`, `g<End>`, `gm`, `gM`, <code>\|</code> | Line and screen-column motions |
 | `f/F/t/T{char}`, `;` / `,` | Find/till a character and repeat/reverse it |
@@ -35,7 +35,7 @@ ChronoGit is operated entirely from the keyboard. Press `F1` inside the applicat
 | `m{char}`, `'{char}`, `` `{char}``, `g'{char}`, `` g`{char}`` | Set a Code mark; jump linewise / exactly, with `g` variants preserving the jump list |
 | `['` / `` [` ``, `]'` / `` ]` `` | Previous / next lowercase Code mark, linewise / exactly |
 | `r` | Refresh the current view |
-| `\m` / `\b` / `\t` | Toggle complete message / History body layout / commit tree |
+| `Space m` / `Space b` / `Space t` | Toggle complete message / History body layout / commit tree |
 | `Enter` | Confirm/open a selection; in an open text document, move like `+` |
 | `/` / `?`, `n` / `N`, `*` / `#`, `g*` / `g#` | Search the active text document |
 | `K` | Toggle LSP hover at the Code cursor |
@@ -43,13 +43,28 @@ ChronoGit is operated entirely from the keyboard. Press `F1` inside the applicat
 | `[count]Ctrl-o` / `[count]Ctrl-i` | Older / newer Vim or LSP jump location |
 | `F1` | Toggle the in-app help overlay |
 
-Numeric counts apply to Vim motions, character searches, search repetition, and jump-list traversal. Multi-key commands such as `gg`, `zh`, and `\f` must be completed within 750 ms; `f`, `t`, `m`, apostrophe, and backtick wait for their character argument without expiring. An unrelated key after a sequence prefix is handled normally. These are the built-in defaults; see [Keymap configuration](/reference/keymap/) to replace them.
+Numeric counts apply to Vim motions, character searches, search repetition, and jump-list traversal. Multi-key commands such as `gg`, `zh`, and `Space f` must be completed within 750 ms; `f`, `t`, `m`, apostrophe, and backtick wait for their character argument without expiring. An unrelated key after a sequence prefix is handled normally. These are the built-in defaults; see [Keymap configuration](/reference/keymap/) to replace them.
 
-The compatibility scope is Vim normal-mode movement that applies to ChronoGit's read-only text and list views. Editing operators, Insert/Visual mode, and movements that require an editable buffer are intentionally outside that scope.
+`Space` is reserved as ChronoGit's application leader in normal contexts, so
+the default keymap does not also bind standalone Space to a motion. Use `l` or
+Right for ordinary right movement. The reusable crate still provides Vim's
+line-wrapping Space motion and tests it against the fixed Vim oracle; bind
+`cursor_right_wrap` to a non-conflicting key such as `\` if that exact motion
+is needed. Search prompts treat Space as text, not as the leader.
+
+ChronoGit itself remains a Normal-mode, read-only viewer. Its workspace
+`vim-navigation` crate also defines an explicit Normal/Insert contract for
+opt-in editable buffers. Its default `jj` sequence and retained Esc input leave
+Insert mode; callers can disable or replace `jj`. ChronoGit never connects
+source, diff, Git data, or search prompts to that buffer, so `jj` stays literal
+in its search prompts. Search prompts retain the confirmation and cancellation
+behavior described below. The exact Vim reference, complete
+motion inventory, comparison results, and non-motion boundaries are recorded
+in `crates/vim-navigation/COMPATIBILITY.md` in the source repository.
 
 ## Pane behavior
 
-Changes contains a file pane and a diff pane. Standard History stacks three full-width rows: commits, changed files/tree, and diff. Press `\b` for the alternative History layout, which stacks the same interactive commit list, commit body, and changed files. Graph is a full-height parent-lane list; its two-row commit details float over that list. Code always stacks an expandable working-tree file tree above the selected file content. File search results outside Code use two rows for history above content or diff.
+Changes contains a file pane and a diff pane. Standard History stacks three full-width rows: commits, changed files/tree, and diff. Press `Space b` for the alternative History layout, which stacks the same interactive commit list, commit body, and changed files. Graph is a full-height parent-lane list; its two-row commit details float over that list. Code always stacks an expandable working-tree file tree above the selected file content. File search results outside Code use two rows for history above content or diff.
 
 - At 110 columns or wider, Changes shows its two panes together.
 - From 80 through 109 columns, Changes gives the available width to its focused pane. History retains its three-row layout.
@@ -60,9 +75,9 @@ The highlighted border identifies the focused pane. Selection and scrolling comm
 
 ## Overlays
 
-Help, Graph details, repository search, complete commit messages, current file content, Code files, and selected-file diffs open above the main panes. Press `\m` again to close a message. Text overlays retain the Vim character cursor and movement vocabulary. `Enter` moves to the next line's first nonblank like `+`; `q` closes the overlay immediately. In Diff/Code, `Esc` first dismisses search highlights, then closes on the next press. In repository search, `Enter` or `Ctrl-j` moves from Search to Results, while `Ctrl-w k` returns to Search with the current query ready to edit. Outside text entry, `q` closes the current float or returns from a detail/file view. `Esc` does the same when no search highlights remain. While a search prompt is active, `q` and `Q` are query text, `Esc` cancels input, and `Ctrl-C` quits. `/` starts a forward search and `?` a backward search; `n` / `N` repeat it with counts and wraparound. `*` / `#` search for the whole word at the cursor, while `g*` / `g#` allow a partial-word match. Lowercase queries ignore case, while any uppercase character makes the query case-sensitive.
+Help, Graph details, repository search, complete commit messages, current file content, Code files, and selected-file diffs open above the main panes. Press `Space m` again to close a message. Text overlays retain the Vim character cursor and movement vocabulary. `Enter` moves to the next line's first nonblank like `+`; `q` closes the overlay immediately. In Diff/Code, `Esc` first dismisses search highlights, then closes on the next press. In repository search, `Enter` or `Ctrl-j` moves from Search to Results, while `Ctrl-w k` returns to Search with the current query ready to edit. Outside text entry, `q` closes the current float or returns from a detail/file view. `Esc` does the same when no search highlights remain. While a search prompt is active, `q` and `Q` are query text, `Esc` cancels input, and `Ctrl-C` quits. `/` starts a forward search and `?` a backward search; `n` / `N` repeat it with counts and wraparound. `*` / `#` search for the whole word at the cursor, while `g*` / `g#` allow a partial-word match. Lowercase queries ignore case, while any uppercase character makes the query case-sensitive.
 
-In document searches (`/` or `?`), Backspace deletes the last character. Deleting the last character leaves an empty prompt so you can type a replacement; press Backspace once more to cancel. Esc cancels at any point. Cancellation removes the input cursor (`█`) and keeps the document, focus, cursor, scroll position and previous confirmed search, including its direction and highlight visibility. `n` / `N` resumes that search. Enter in an empty prompt reuses the previous query. A retained search status such as `/word 1/3` is not input mode. Repository searches (`\f` / `\g`) keep their existing behavior.
+In document searches (`/` or `?`), Backspace deletes the last character. Deleting the last character leaves an empty prompt so you can type a replacement; press Backspace once more to cancel. Esc cancels at any point. Cancellation removes the input cursor (`█`) and keeps the document, focus, cursor, scroll position and previous confirmed search, including its direction and highlight visibility. `n` / `N` resumes that search. Enter in an empty prompt reuses the previous query. A retained search status such as `/word 1/3` is not input mode. Repository searches (`Space f` / `Space g`) keep their existing behavior.
 
 ## Exit and terminal restoration
 
