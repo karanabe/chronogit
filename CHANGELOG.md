@@ -26,6 +26,12 @@ All notable changes to ChronoGit are documented here.
   Esc. The sequence can be disabled or replaced, and a pending prefix is
   inserted immediately so context changes cannot lose input.
 
+### Fixed
+
+- Addition, removal, and hunk backgrounds now continue through the available
+  diff content width in regular and floating panes without extending logical
+  text or crossing pane borders.
+
 ## 0.5.0
 
 ### Added

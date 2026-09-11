@@ -35,9 +35,9 @@ ChronoGit is read-only, but a disposable repository makes it easier to adjust fi
 
 1. Run `chronogit /absolute/path/to/test-repository --view changes`.
 2. Confirm borders, arrows, and Unicode filenames occupy stable columns.
-3. Confirm added, removed, hunk, header, and metadata lines are visually distinct.
+3. Confirm added, removed, hunk, header, and metadata lines are visually distinct. On short or nearly empty added and removed rows, and on hunk rows, confirm the existing background reaches the right edge of the diff content and stops before the border. Context, header, and metadata rows must not gain a background.
 4. Move rapidly through files with `j` and `k`; confirm the final displayed diff matches the final selection.
-5. Resize from at least 140×40 to approximately 90×24. Confirm multiple panes become one focused pane and `Ctrl-w h` / `Ctrl-w l` changes focus.
+5. Resize from at least 140×40 to approximately 90×24. Confirm multiple panes become one focused pane, `Ctrl-w h` / `Ctrl-w l` changes focus, and diff row backgrounds follow the current content edge without entering a border or adjacent pane.
 6. Resize below 80×24. Confirm the minimum-size message and quit hint appear without a crash, then resize back.
 7. Open help with `F1`, close it with `q`, then exit with uppercase `Q`.
 
@@ -57,7 +57,7 @@ Confirm typed input echoes normally, the cursor is visible, mouse selection work
 3. Visit root, normal, and merge commits. Confirm the footer and diff title describe `empty tree`, `parent`, or `first parent` as appropriate.
 4. With Commits focused, press `Enter` and confirm focus moves directly to Changed files for the selected commit.
 5. Select changed text and binary files, press `Enter`, and confirm a large floating patch or binary summary opens. In text, confirm `Enter` moves to the next line's first nonblank. Close it with `q` and, when no search highlights are present, `Esc`.
-6. Open a recognized source file and confirm code tokens are syntax-highlighted, additions/removals retain muted green/red backgrounds, and the current-line gutter marker does not recolor the code. While opening an uncached long text diff, immediately press `Ctrl-d` and confirm the marker moves half a page as soon as the diff appears. Confirm `j` / `k` visibly move it one line and `Ctrl-u` moves it up without a delay.
+6. Open a recognized source file in both the regular pane and floating diff. Confirm code tokens are syntax-highlighted, addition/removal/hunk backgrounds reach the content edge, and the current-line gutter marker does not recolor the code. Include a tab, a wide character, and a long line; scroll horizontally and confirm the text still clips and scrolls independently of the background. While opening an uncached long text diff, immediately press `Ctrl-d` and confirm the marker moves half a page as soon as the diff appears. Confirm `j` / `k` visibly move it one line and `Ctrl-u` moves it up without a delay.
 7. Exercise counts plus `w/W/e/E`, `b/B/ge/gE`, `0/^/$/g_`, `f/F/t/T` with `;` / `,`, `gg/G/%/go/H/M/L`, sentence/paragraph/section and delimiter motions, page/scroll/`z` motions, and `[c` / `]c`. Search with `/`, `?`, `n/N`, `*` / `#`, and `g*` / `g#`.
 8. Press `Space m`, move through the complete commit message with character and word motions, and close it separately with `Space m`, `q`, and `Esc`.
 9. Press `Space b` and confirm the rows are the same commit list, commit body, and changed files. Use `Ctrl-w h/k/j/l` to move focus, change the top-row commit and confirm the other rows update, scroll the body, and open a bottom-row file diff. Press `Space b` again to return to standard History.

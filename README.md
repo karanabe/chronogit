@@ -54,7 +54,7 @@ chronogit [PATH] [--view changes|history|graph|code] [--keymap PATH] [--lsp PROF
 
 ### Read unstaged changes
 
-Start in Changes view with `chronogit`. The left pane contains tracked and untracked worktree changes. Select a file to see its `index → working tree` diff. Recognized source files use syntax highlighting; additions and removals retain muted diff backgrounds without replacing token colors.
+Start in Changes view with `chronogit`. The left pane contains tracked and untracked worktree changes. Select a file to see its `index → working tree` diff. Recognized source files use syntax highlighting; addition, removal, and hunk backgrounds continue through the available diff content width without replacing token colors or crossing pane borders.
 
 Staged-only files are intentionally hidden. A file with both staged and unstaged edits shows only the unstaged part.
 

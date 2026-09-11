@@ -473,22 +473,43 @@ fn render_diff_pane(
     focused: bool,
 ) {
     let block = pane_block(title, focused);
+    let content_area = block.inner(area);
     let lines = match &state.diff.content {
         LoadState::Idle => vec![plain("Select a file to view its diff.")],
         LoadState::Loading { .. } => vec![plain("Loading diff…")],
         LoadState::Failed(error) => vec![error_line(error.message())],
         LoadState::Ready(document) => diff_lines(document, state),
     };
-    let visible = usize::from(area.height.saturating_sub(2)).max(1);
+    let visible = usize::from(content_area.height).max(1);
     let cursor = state.diff.vertical.min(lines.len().saturating_sub(1));
     let vertical = followed_scroll(cursor, state.diff.viewport_vertical, visible);
     let horizontal = state.diff.horizontal.min(u16::MAX as usize) as u16;
+    render_diff_line_backgrounds(frame, content_area, &lines, vertical);
     frame.render_widget(
         Paragraph::new(lines)
             .block(block)
             .scroll((vertical, horizontal)),
         area,
     );
+}
+
+/// Extends row-level diff backgrounds through cells that contain no text.
+///
+/// Painting the visible buffer rows separately keeps that visual padding out of
+/// the document text used by horizontal scrolling, search, and cursor motion.
+fn render_diff_line_backgrounds(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    lines: &[Line<'_>],
+    vertical: u16,
+) {
+    for (row, line) in area.rows().zip(lines.iter().skip(usize::from(vertical))) {
+        if let Some(background) = line.style.bg {
+            frame
+                .buffer_mut()
+                .set_style(row, Style::default().bg(background));
+        }
+    }
 }
 
 fn render_file_content(frame: &mut Frame<'_>, area: Rect, state: &AppState, title: &str) {
@@ -1676,15 +1697,17 @@ mod tests {
 
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
     use ratatui::style::Color;
 
     use super::{
-        code_document_lines, diff_line, diff_lines, file_document_lines, render, sanitize_inline,
-        sanitize_multiline,
+        code_document_lines, diff_line, diff_lines, file_document_lines, render, render_diff_pane,
+        sanitize_inline, sanitize_multiline,
     };
     use crate::app::{
         Action, AppState, AppView, ErrorNotice, Event, FocusedPane, GitEffect, LoadState, Overlay,
-        RepositorySearchKind,
+        RepositorySearchKind, SearchDirection,
     };
     use crate::domain::{
         ChangeKind, ChangedFile, CommitBaseline, CommitMessage, CommitSummary, DiffDocument,
@@ -2408,6 +2431,156 @@ mod tests {
     }
 
     #[test]
+    fn fills_diff_line_backgrounds_to_the_content_edge_at_each_width_and_scroll() {
+        let mut state = state();
+        state.diff.content = LoadState::Ready(DiffDocument::Text {
+            lines: vec![
+                DiffLine::new(DiffLineKind::Hunk, None, None, "@@ -1 +1 @@".to_owned()),
+                DiffLine::new(DiffLineKind::Added, None, None, "+short".to_owned()),
+                DiffLine::new(DiffLineKind::Removed, None, None, "-\t界".to_owned()),
+                DiffLine::new(DiffLineKind::Context, None, None, " context".to_owned()),
+                DiffLine::new(DiffLineKind::Header, None, None, "diff --git".to_owned()),
+                DiffLine::new(DiffLineKind::Meta, None, None, "\\ No newline".to_owned()),
+                DiffLine::new(DiffLineKind::Added, None, None, "+".to_owned()),
+                DiffLine::new(
+                    DiffLineKind::Added,
+                    None,
+                    None,
+                    "+01234567890123456789012345678901234567890123456789".to_owned(),
+                ),
+            ],
+            bytes: 108,
+        });
+
+        let expected = [
+            Color::Rgb(49, 50, 68),
+            Color::Rgb(33, 58, 43),
+            Color::Rgb(74, 34, 29),
+            Color::Reset,
+            Color::Reset,
+            Color::Reset,
+            Color::Rgb(33, 58, 43),
+            Color::Rgb(33, 58, 43),
+        ];
+        for pane_width in [34, 44] {
+            let pane = Rect::new(2, 1, pane_width, 10);
+            for horizontal in [0, 17] {
+                state.diff.horizontal = horizontal;
+                let buffer = rendered_diff_pane_buffer(&state, pane, 50, 12);
+                let content_start = pane.x + 1;
+                let content_end = pane.x + pane.width - 1;
+
+                for (line, background) in expected.iter().enumerate() {
+                    let y = pane.y + 1 + line as u16;
+                    for x in content_start..content_end {
+                        // Ratatui clears a wide glyph's continuation cell; the
+                        // leading cell carries the style for both columns.
+                        if x > content_start
+                            && unicode_width::UnicodeWidthStr::width(buffer[(x - 1, y)].symbol())
+                                == 2
+                        {
+                            continue;
+                        }
+                        assert_eq!(
+                            buffer[(x, y)].bg,
+                            *background,
+                            "width={pane_width}, scroll={horizontal}, line={line}, x={x}"
+                        );
+                    }
+                    assert_eq!(buffer[(pane.x, y)].symbol(), "│");
+                    assert_eq!(buffer[(content_end, y)].symbol(), "│");
+                    if *background != Color::Reset {
+                        assert_ne!(buffer[(pane.x, y)].bg, *background);
+                        assert_ne!(buffer[(content_end, y)].bg, *background);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn normal_and_floating_diffs_bound_full_width_backgrounds_by_their_own_borders() {
+        let mut state = state();
+        state.focus = FocusedPane::Diff;
+        state.diff.content = LoadState::Ready(DiffDocument::Text {
+            lines: vec![
+                DiffLine::new(DiffLineKind::Context, None, None, " context".to_owned()),
+                DiffLine::new(DiffLineKind::Added, None, None, "+short".to_owned()),
+            ],
+            bytes: 15,
+        });
+        let added_background = Color::Rgb(33, 58, 43);
+
+        for width in [80, 120] {
+            let normal = rendered_buffer(&state, width, 30);
+            assert_background_row_reaches_bordered_content_edges(&normal, added_background);
+        }
+
+        state.overlay = Overlay::Diff;
+        for width in [80, 120] {
+            let floating = rendered_buffer(&state, width, 30);
+            assert_background_row_reaches_bordered_content_edges(&floating, added_background);
+        }
+    }
+
+    #[test]
+    fn full_width_diff_backgrounds_preserve_text_token_search_and_cursor_styles() {
+        let mut state = state();
+        state.focus = FocusedPane::Diff;
+        state.diff.target = Some(DiffTarget::Worktree {
+            path: RepoPath::from_bytes(b"src/example.rs".to_vec())
+                .unwrap_or_else(|error| panic!("{error}")),
+            untracked: false,
+        });
+        let source = "+pub fn needle() { let other = \"needle\"; }";
+        let document = DiffDocument::Text {
+            lines: vec![DiffLine::new(
+                DiffLineKind::Added,
+                None,
+                None,
+                source.to_owned(),
+            )],
+            bytes: source.len(),
+        };
+        state.diff.content = LoadState::Ready(document.clone());
+        state.diff.byte_column = 1;
+        state.search.begin(SearchDirection::Forward);
+        for character in "needle".chars() {
+            state.search.push(character);
+        }
+        state.search.confirm_position(
+            document.lines().iter().map(DiffLine::text),
+            SourcePosition::new(0, 0),
+        );
+
+        let logical = diff_lines(&document, &state);
+        assert_eq!(
+            logical[0].width(),
+            13 + unicode_width::UnicodeWidthStr::width(source)
+        );
+        assert_eq!(document.lines()[0].text(), source);
+
+        let buffer = rendered_diff_pane_buffer(&state, Rect::new(1, 1, 60, 3), 62, 5);
+        let backgrounds =
+            buffer
+                .content()
+                .iter()
+                .fold(std::collections::HashMap::new(), |mut counts, cell| {
+                    *counts.entry(cell.bg).or_insert(0usize) += 1;
+                    counts
+                });
+        assert!(backgrounds[&Color::Rgb(33, 58, 43)] > 40);
+        assert!(backgrounds[&Color::Yellow] >= "needle".len());
+        assert_eq!(backgrounds[&Color::LightCyan], 1);
+        let foregrounds = buffer
+            .content()
+            .iter()
+            .map(|cell| cell.fg)
+            .collect::<std::collections::HashSet<_>>();
+        assert!(foregrounds.len() > 3, "syntax token colors were flattened");
+    }
+
+    #[test]
     fn syntax_highlights_code_inside_diff_hunks() {
         let mut state = state();
         state.diff.target = Some(DiffTarget::Worktree {
@@ -2710,6 +2883,47 @@ mod tests {
             .map(|cell| cell.symbol())
             .collect::<Vec<_>>()
             .join("")
+    }
+
+    fn rendered_diff_pane_buffer(state: &AppState, pane: Rect, width: u16, height: u16) -> Buffer {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend)
+            .unwrap_or_else(|error| panic!("could not create terminal: {error}"));
+        terminal
+            .draw(|frame| render_diff_pane(frame, pane, state, "Diff", false))
+            .unwrap_or_else(|error| panic!("could not draw diff pane: {error}"));
+        terminal.backend().buffer().clone()
+    }
+
+    fn assert_background_row_reaches_bordered_content_edges(buffer: &Buffer, background: Color) {
+        let (y, cells) = (0..buffer.area.height)
+            .filter_map(|y| {
+                let cells = (0..buffer.area.width)
+                    .filter(|x| buffer[(*x, y)].bg == background)
+                    .collect::<Vec<_>>();
+                (!cells.is_empty()).then_some((y, cells))
+            })
+            .max_by_key(|(_, cells)| cells.len())
+            .unwrap_or_else(|| panic!("expected a row with background {background:?}"));
+        let start = *cells.first().unwrap_or_else(|| unreachable!());
+        let end = *cells.last().unwrap_or_else(|| unreachable!());
+
+        assert!(cells.len() > 20, "background stopped at rendered text");
+        assert!(cells.windows(2).all(|pair| pair[1] == pair[0] + 1));
+        assert_eq!(buffer[(start - 1, y)].symbol(), "│");
+        assert_eq!(buffer[(end + 1, y)].symbol(), "│");
+        assert_ne!(buffer[(start - 1, y)].bg, background);
+        assert_ne!(buffer[(end + 1, y)].bg, background);
+    }
+
+    fn rendered_buffer(state: &AppState, width: u16, height: u16) -> Buffer {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend)
+            .unwrap_or_else(|error| panic!("could not create terminal: {error}"));
+        terminal
+            .draw(|frame| render(frame, state))
+            .unwrap_or_else(|error| panic!("could not draw: {error}"));
+        terminal.backend().buffer().clone()
     }
 
     fn rendered_text(state: &AppState, width: u16, height: u16) -> String {

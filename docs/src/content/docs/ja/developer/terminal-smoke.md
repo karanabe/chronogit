@@ -35,9 +35,9 @@ ChronoGitは読み取り専用ですが、fixtureを安全に調整しやすい�
 
 1. `chronogit /absolute/path/to/test-repository --view changes`を実行します。
 2. 枠線、矢印、Unicodeファイル名が安定した列幅で表示されることを確認します。
-3. 追加、削除、hunk、header、metadataの行を視覚的に区別できることを確認します。
+3. 追加、削除、hunk、header、metadataの行を視覚的に区別できることを確認します。短いまたはほぼ空の追加・削除行とhunk行で、既存の背景がdiff contentの右端まで続き、枠の手前で止まることを確認します。context、header、metadata行に新しい背景が付いてはいけません。
 4. `j`と`k`でファイルを素早く移動し、最後に表示される差分が最終選択と一致することを確認します。
-5. 140×40以上から約90×24へresizeします。複数ペインがフォーカス中の1ペインになり、`Ctrl-w h` / `Ctrl-w l`でフォーカスが変わることを確認します。
+5. 140×40以上から約90×24へresizeします。複数paneがフォーカス中の1paneになり、`Ctrl-w h` / `Ctrl-w l`でフォーカスが変わること、diff行の背景が現在のcontent右端に追従して枠や隣接paneへ入らないことを確認します。
 6. 80×24未満へresizeします。最小サイズの案内と終了ヒントがcrashなしで表示されることを確認し、元に戻します。
 7. `F1`でhelpを開き、`q`で閉じてから、大文字の`Q`で終了します。
 
@@ -57,7 +57,7 @@ printf 'terminal accepts normal input after Q\n'
 3. root、normal、merge commitを訪れ、footerとdiff titleが状況に応じて`empty tree`、`parent`、`first parent`を示すことを確認します。
 4. commitペインにフォーカスした状態で`Enter`を押し、選択中commitの変更ファイルへ直接フォーカスが移ることを確認します。
 5. 変更されたtext/binary fileを選んで`Enter`を押し、大きなフロートでpatchまたはbinary summaryが開くことを確認します。textでは`Enter`が次行の最初の非空白へ移動することを確認し、`q`で閉じ、検索強調がない場合は`Esc`でも閉じます。
-6. 種別を判別できるソースファイルを開き、コードのトークンがシンタックスハイライトされ、追加・削除に控えめな緑・赤の背景が付き、現在行のガターマーカーがコードの色を塗り替えないことを確認します。cacheされていない長いtext diffを開くと同時に`Ctrl-d`を押し、表示された直後にマーカーが半ページ移動していることを確認します。`j` / `k`でマーカーが1行ずつ目に見えて移動し、`Ctrl-u`も遅延なく上へ移動することを確認します。
+6. 種別を判別できるソースファイルを通常paneとfloating diffの両方で開きます。コードのトークンがシンタックスハイライトされ、追加・削除・hunkの背景がcontent右端まで続き、現在行のガターマーカーがコードの色を塗り替えないことを確認します。tab、wide character、長い行を含め、横スクロール後も本文が背景と独立して従来どおりclip・scrollすることを確認します。cacheされていない長いtext diffを開くと同時に`Ctrl-d`を押し、表示された直後にマーカーが半ページ移動していることを確認します。`j` / `k`でマーカーが1行ずつ目に見えて移動し、`Ctrl-u`も遅延なく上へ移動することを確認します。
 7. countに加え、`w/W/e/E`、`b/B/ge/gE`、`0/^/$/g_`、`f/F/t/T`と`;` / `,`、`gg/G/%/go/H/M/L`、文・段落・section・delimiter motion、page/scroll/`z` motion、`[c` / `]c`を確認します。`/`、`?`、`n/N`、`*` / `#`、`g*` / `g#`も試します。
 8. `Space m`を押し、commit message全文を文字・word motionで移動し、`Space m`、`q`、`Esc`のそれぞれで閉じることを確認します。
 9. `Space b`を押し、通常と同じcommit一覧、commit body、変更ファイルの3段を確認します。`Ctrl-w h/k/j/l`でフォーカスを移し、上段のcommit変更時に残りの段が更新されることを確認し、bodyをscrollして下段ファイルのdiffを開きます。もう一度`Space b`を押して通常のHistoryへ戻ります。
