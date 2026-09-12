@@ -18,7 +18,7 @@ The upper pane contains tracked files and non-ignored untracked files. At every 
 1. Move with `j` / `k`, the arrow keys, `gg` / `G`, or Home/End.
 2. Press `Enter` on a directory to expand or collapse its direct children.
 3. Moving onto a file loads its current working-tree content in the lower pane.
-4. Use `Ctrl-w j` / `Ctrl-w l` to focus the code pane. Once code content is focused, `h` / `l` move its character cursor; use `Ctrl-w h` / `Ctrl-w k` to return to the tree.
+4. Use `Ctrl-j` / `Ctrl-l` to focus the code pane. Once code content is focused, `h` / `l` move its character cursor; use `Ctrl-h` / `Ctrl-k` to return to the tree. The corresponding `Ctrl-w` sequences remain available.
 
 Press `r` to rebuild the tree from Git's current tracked and non-ignored file list. Deleted tracked paths remain visible and show an unavailable-file summary when opened. ChronoGit identifies binary files and symbolic links without decoding a binary or following a link.
 

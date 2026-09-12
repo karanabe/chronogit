@@ -55,7 +55,7 @@ Binary changes appear as a summary. ChronoGit does not render binary contents or
 
 Resize to at least 80 columns by 24 rows. Below that size, ChronoGit replaces the interface with a stable size warning. `Q` and `Ctrl-C` still quit safely.
 
-Between 80 and 109 columns, Changes uses one full-width pane at a time; use `Ctrl-w h` and `Ctrl-w l` to move between its file list and diff. History keeps all three full-width rows visible.
+Between 80 and 109 columns, Changes uses one full-width pane at a time; use `Ctrl-h` / `Ctrl-k` and `Ctrl-j` / `Ctrl-l` to move between its file list and diff. The existing `Ctrl-w` sequences also remain available. History keeps all three full-width rows visible.
 
 ## A tree file says it has no change
 

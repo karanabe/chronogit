@@ -15,7 +15,7 @@ ChronoGit `0.5.0` is the current published release. Linux and macOS are supporte
 
 The source is a Cargo workspace containing `chronogit` and the framework-independent `vim-navigation` library. This README describes the current checkout; a crates.io release can have different default keys. Use a checkout to try unreleased changes.
 
-The current checkout uses `Space` as the application leader; `0.5.0` uses backslash. Pane focus uses `Ctrl-w` sequences, and `Enter` moves within open text documents. Review the [upgrade notes](docs/src/content/docs/guides/getting-started.md#upgrade-from-040), especially if you use a custom keymap.
+The current checkout uses `Space` as the application leader; `0.5.0` uses backslash. Standalone `Ctrl-h` / `Ctrl-k` and `Ctrl-j` / `Ctrl-l` focus the previous and next panes; the existing `Ctrl-w` sequences remain available. `Enter` moves within open text documents. Review the [upgrade notes](docs/src/content/docs/guides/getting-started.md#upgrade-from-040), especially if you use a custom keymap.
 
 ## Requirements
 
@@ -84,7 +84,7 @@ Press `Space 3`, or start with `chronogit --view graph`. The graph uses commit p
 
 ### Browse the complete working tree
 
-Press `Space 4`, or start with `chronogit --view code`, to enter the Code viewer. The upper pane is an expandable tree containing tracked files and non-ignored untracked files; the lower pane previews the selected file with line numbers and syntax highlighting. Press `Enter` on a directory to expand or collapse it. Use `Ctrl-w h` / `Ctrl-w k` and `Ctrl-w j` / `Ctrl-w l` to move between the tree and code panes.
+Press `Space 4`, or start with `chronogit --view code`, to enter the Code viewer. The upper pane is an expandable tree containing tracked files and non-ignored untracked files; the lower pane previews the selected file with line numbers and syntax highlighting. Press `Enter` on a directory to expand or collapse it. Use `Ctrl-h` / `Ctrl-k` and `Ctrl-j` / `Ctrl-l` to move between the tree and code panes; the corresponding `Ctrl-w` sequences still work.
 
 Press `Enter` on a file in the tree, or from the code pane, to open the current content in a large floating view. It shares the read-only Vim movement vocabulary with diffs, including word motions, counts, character searches, marks, the jump list, and viewport commands. `Enter` moves down inside the document; `q` returns immediately. `Esc` first dismisses search highlights, then returns. `Space f` and `Space g` search from the Code viewer; selecting a result reveals the file in the tree and opens its current content at the matching line when available.
 
@@ -92,7 +92,7 @@ In focused Code content, Vim movements operate on a UTF-8-safe character cursor.
 
 ### Search files or working-tree text
 
-Press `Space f` from any main view to find tracked and untracked file names. Press `Space g` for a fixed-text search across non-binary working-tree content. Results update after every inserted or deleted query character. Press `Enter` or `Ctrl-j` to focus Results, choose a result with `j` / `k`, and press `Enter` again to open it. Press `Ctrl-w k` from Results to return to Search, edit the current query, and run another live search.
+Press `Space f` from any main view to find tracked and untracked file names. Press `Space g` for a fixed-text search across non-binary working-tree content. Results update after every inserted or deleted query character. Press `Enter` or `Ctrl-j` to focus Results, choose a result with `j` / `k`, and press `Enter` again to open it. Press `Ctrl-h`, `Ctrl-k`, or the retained `Ctrl-w k` sequence from Results to return to Search, edit the current query, and run another live search.
 
 While entering a search query, `q` and `Q` are ordinary query characters. Use `Esc` to cancel the prompt and `Ctrl-C` to quit.
 
@@ -107,9 +107,9 @@ The file view shows its commit history above its current working-tree content. C
 | `Q` / `Ctrl-C` | Quit |
 | `Space 1` / `Space 2` / `Space 3` / `Space 4` | Changes / History / Graph / Code |
 | `Space f` / `Space g` | Search repository files / working-tree text |
-| `Ctrl-w h/k` / `Ctrl-w j/l` | Focus the previous / next pane; `Ctrl-w W/w` and arrow aliases work too |
+| `Ctrl-h` / `Ctrl-k`, `Ctrl-j` / `Ctrl-l` | Focus the previous / next pane; the `Ctrl-w h/k/j/l`, `Ctrl-w W/w`, and arrow sequences still work |
 | `[count]h/j/k/l`, arrows | Character / line movement; counts apply throughout |
-| `[count]Backspace` / `Ctrl-H` | Move left across lines like enabling Vim's corresponding `'whichwrap'` flag |
+| `[count]Backspace` | Move left across lines like enabling Vim's corresponding `'whichwrap'` flag |
 | `w/W/e/E`, `b/B/ge/gE` | Word / WORD movement |
 | `0`, `^`, `$`, `g_`, `gg`, `G`, `go`, `%` | Line, buffer, byte-offset, and pair movement |
 | `f/F/t/T{char}`, `;` / `,` | Find/till a character and repeat/reverse |
@@ -128,7 +128,9 @@ The file view shows its commit history above its current working-tree content. C
 
 Diff and Code highlight each matched string: the current match has a yellow background, other matches are underlined, and the cursor stays cyan. Default `Esc` removes only search decoration, keeping the query, direction, focus, cursor and scroll position. `n` / `N` or a confirmed search restores it. With no highlights, `Esc` follows the existing close/back behavior; `q` always closes/backs immediately outside input. Prompt and find/till/mark cancellation and frontmost help, hover or repository search take priority.
 
-History always stacks its three panes vertically at the supported terminal sizes. In Changes, widths below 110 columns show the focused pane at full width; use `Ctrl-w h` and `Ctrl-w l` to move between panes.
+History always stacks its three panes vertically at the supported terminal sizes. In Changes, widths below 110 columns show the focused pane at full width; use `Ctrl-h` / `Ctrl-k` and `Ctrl-j` / `Ctrl-l` to move between panes.
+
+Standalone pane-focus controls apply only in normal pane contexts. Search input, find/till and mark character waits, and single-pane overlays keep their existing priority. ChronoGit distinguishes `Ctrl-h` from Backspace only when the terminal backend reports different events; a terminal or multiplexer that sends the same byte for both physical keys cannot preserve both meanings. Use the retained `Ctrl-w` sequences or replace `focus_previous` in the keymap when needed.
 
 In document searches (`/` or `?`), Backspace deletes the last character. Deleting the last character leaves an empty prompt so you can type a replacement; press Backspace once more to cancel. Esc cancels at any point. Cancellation removes the input cursor (`█`) and keeps the document, focus, cursor, scroll position and previous confirmed search, including its direction and highlight visibility. `n` / `N` resumes that search. Enter in an empty prompt reuses the previous query. A retained search status such as `/word 1/3` is not input mode. Repository searches (`Space f` / `Space g`) keep their existing behavior.
 
@@ -151,6 +153,9 @@ show_graph = x
 show_code = c
 file_search = ctrl-p
 content_search = space s
+# Replacing either focus action replaces all of its aliases; list those to keep.
+focus_previous = alt-h, ctrl-w h, ctrl-w k
+focus_next = alt-l, ctrl-w j, ctrl-w l
 # Optional: immediate close even on Esc (replaces its dismissal behavior)
 # close = q, esc
 quit = Q

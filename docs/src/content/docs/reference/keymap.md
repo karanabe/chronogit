@@ -23,6 +23,26 @@ quit = Q
 
 Each `action = keys` line replaces all defaults for that action. Separate a sequence with spaces and alternatives with commas. Supported names are single characters, `space`, `comma`, `enter`, `esc`, `backspace`, `tab`, `up`, `down`, `left`, `right`, `home`, `end`, `pageup`, `pagedown`, `f1` through `f255`, and combinations of the `ctrl-`, `alt-`, or `shift-` prefixes. Ordinary sequences expire after 750 ms. An action that requires a character argument—find/till or a mark command—waits until that argument or `Esc` arrives.
 
+The built-in `focus_previous` alternatives are standalone `Ctrl-h` / `Ctrl-k` plus the existing `Ctrl-w h/k`, control-letter, Backspace, `W`, Left, and Up sequences. `focus_next` similarly uses standalone `Ctrl-j` / `Ctrl-l` plus the existing `Ctrl-w j/l`, control-letter, `w`, Right, and Down sequences. Replacing one focus action leaves the other action unchanged, but removes every default alias for the replaced action. List each alias you want to keep. For example, this removes all four standalone defaults, moves pane focus to Alt, and keeps the basic `Ctrl-w` forms:
+
+```ini
+[bindings]
+focus_previous = alt-h, ctrl-w h, ctrl-w k
+focus_next = alt-l, ctrl-w j, ctrl-w l
+```
+
+To retain only some standalone controls, include those controls on the corresponding line. A binding line cannot be empty; assign a different key when removing all defaults for an action. Duplicate keys and sequence-prefix conflicts are rejected before terminal raw mode starts.
+
+The old control-key motion aliases can also be restored explicitly. This example keeps standalone `Ctrl-k/l` for focus, retains the basic `Ctrl-w` forms, and gives `Ctrl-h/j` back to their previous motions. Both sides of each reassignment are required; adding only the motion line would conflict with the built-in focus action.
+
+```ini
+[bindings]
+focus_previous = ctrl-k, ctrl-w h, ctrl-w k
+focus_next = ctrl-l, ctrl-w j, ctrl-w l
+cursor_left_wrap = backspace, ctrl-h
+move_down = j, down, ctrl-j, ctrl-n
+```
+
 Unmodified `1` through `9` are reserved for counts and cannot start a binding. Use a leader sequence such as `space 3` or a modifier such as `alt-3`. Use `comma` to bind the comma key, since a literal comma separates alternatives.
 
 The built-in application leader is Space. It prefixes `1` through `4`, `f`,
@@ -77,8 +97,10 @@ normal bindings are resolved.
 | `search_forward`, `search_backward`, `next_match`, `previous_match` | Prompt search and count-aware repetition in the active text document |
 | `search_word_forward`, `search_word_backward`, `search_partial_word_forward`, `search_partial_word_backward` | `*`, `#`, `g*`, and `g#` word-derived searches |
 
-ChronoGit rejects an unknown action/key, an unreadable explicit file, duplicate keys, and a binding that is a prefix of another binding. These errors are reported before terminal raw mode starts. By default, `q` closes/backs immediately and `Esc` first dismisses active Diff/Code search highlights before close/back, while `quit` uses uppercase `Q`; `Ctrl-C` is always reserved as an emergency safe-exit binding even when `quit` is replaced. Query editing reserves `Enter`, `Ctrl-j`, `Ctrl-k`, `Esc`, Backspace, and `Ctrl-C`; printable `q` and uppercase `Q` remain available as query text. In-app help describes the built-in defaults, not custom bindings.
+ChronoGit rejects an unknown action/key, an unreadable explicit file, duplicate keys, and a binding that is a prefix of another binding. These errors are reported before terminal raw mode starts. By default, `q` closes/backs immediately and `Esc` first dismisses active Diff/Code search highlights before close/back, while `quit` uses uppercase `Q`; `Ctrl-C` is always reserved as an emergency safe-exit binding even when `quit` is replaced. Query editing reserves `Enter`, `Ctrl-j`, `Ctrl-k`, `Esc`, Backspace, and `Ctrl-C`; normal-mode `Ctrl-h` / `Ctrl-l` bindings do not apply there. In repository Search, reserved `Ctrl-j` confirms Results and `Ctrl-k` leaves Search unchanged. In a document-search prompt, reserved `Ctrl-j/k` cancel input and request next/previous focus; a single text overlay consumes that focus action without moving its underlying pane. Printable `q` and uppercase `Q` remain available as query text. In-app help describes the built-in defaults, not custom bindings.
 
 An explicit `close` assignment replaces both default `q` and `Esc` bindings. Every assigned key closes/backs immediately: even `close = q, esc` makes Esc close without dismissing highlights first. With `close = x`, default Esc is removed and can be bound to another action. Leave `close` unset to retain the default two-step Esc. Prompt and character-wait cancellation by Esc remains reserved regardless of configuration.
 
 Document-search prompts reserve Backspace for deletion, or cancellation when already empty, regardless of custom normal-mode bindings. Deleting the last character leaves the prompt open for replacement input. Esc still cancels immediately, and empty Enter reuses the previous query. Repository-search Backspace continues editing its live query.
+
+In normal contexts, Backspace retains the line-wrapping left motion that standalone `Ctrl-h` previously shared; `Ctrl-n`, unmodified `j`, and Down retain the downward motion that standalone `Ctrl-j` previously shared. The new focus binding receives `Ctrl-h` only when the terminal backend reports `Char('h')` with the Control modifier. Some terminals or multiplexers send the same input byte for physical Backspace and `Ctrl-h`; ChronoGit cannot recover which physical key produced an identical event. If they are not distinguishable in your environment, use the retained `Ctrl-w` focus sequences or replace `focus_previous` with keys your terminal reports separately.

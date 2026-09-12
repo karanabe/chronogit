@@ -30,7 +30,7 @@ ChronoGit does not show an index-to-`HEAD` staged diff. Use ordinary Git tooling
 ## Read a file diff
 
 1. Use `j` and `k` to select a file in **Unstaged changes**.
-2. Press `l` to focus the diff pane when needed.
+2. Press `Ctrl-j` / `Ctrl-l` to focus the diff pane when needed; `Ctrl-h` / `Ctrl-k` returns to the file list.
 3. Use `j`, `k`, `Ctrl-d`, and `Ctrl-u` to scroll vertically.
 4. Use `zh` and `zl` to scroll long lines horizontally.
 
@@ -38,7 +38,7 @@ Text patches include old and new line numbers and visually distinguish headers, 
 
 Syntax highlighting falls back to plain diff text for unrecognized files or unusually expensive inputs (more than 512 KiB, 10,000 lines, or 4 KiB on one line). Diff classification colors and navigation remain available in that fallback.
 
-At widths below 110 columns, only the focused pane is visible. Use `h` and `l` to move between the file list and diff. See [Navigation and layout](/guides/navigation/) for every key.
+At widths below 110 columns, only the focused pane is visible. Use `Ctrl-h` / `Ctrl-k` and `Ctrl-j` / `Ctrl-l` to move between the file list and diff. The existing `Ctrl-w` forms and list-context `h` / `l` remain available. See [Navigation and layout](/guides/navigation/) for every key.
 
 ## Refresh after an external edit
 

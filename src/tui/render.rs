@@ -986,8 +986,8 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                 plain("ChronoGit keys"),
                 plain("Space 1..4  Changes / History / Graph / Code"),
                 plain("Space f/g   Search files / repository content"),
-                plain("Ctrl-w h/j  Focus previous / next pane (k/l/w/W also work)"),
-                plain("h j k l     Character / line motions; Backspace/Ctrl-H wraps left"),
+                plain("Ctrl-h/k/j/l Focus previous / next pane; Ctrl-w forms also work"),
+                plain("h j k l     Character / line motions; Backspace wraps left"),
                 plain("w/W e/E b/B ge/gE   Word / WORD motions"),
                 plain("0 ^ $ g_    Line start / first nonblank / end / last nonblank"),
                 plain("f F t T     Find/till a character; ;/, repeat/reverse"),
@@ -1107,7 +1107,7 @@ fn render_repository_search_overlay(frame: &mut Frame<'_>, area: Rect, state: &A
     let search_title = if prompt_active {
         format!("Search {mode} [live; Enter/Ctrl-j: results, Esc: close]")
     } else {
-        format!("Search {mode} [Ctrl-w k: edit again, q/Esc: close]")
+        format!("Search {mode} [Ctrl-h/k: edit again, q/Esc: close]")
     };
     frame.render_widget(
         Paragraph::new(format!("> {}{cursor}", sanitize_inline(query)))
@@ -1139,7 +1139,7 @@ fn render_repository_search_overlay(frame: &mut Frame<'_>, area: Rect, state: &A
     let results_title = if prompt_active {
         "Results [live preview; Enter/Ctrl-j: focus]"
     } else {
-        "Results [j/k: move, Enter: open, Ctrl-w k: search, q/Esc: close]"
+        "Results [j/k: move, Enter: open, Ctrl-h/k: search, q/Esc: close]"
     };
     frame.render_widget(
         Paragraph::new(lines)
@@ -1958,6 +1958,62 @@ mod tests {
     }
 
     #[test]
+    fn standalone_control_focus_switches_narrow_changes_and_wide_borders() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        use ratatui::layout::{Constraint, Direction, Layout};
+
+        let press = |state: &mut AppState, key: char| {
+            let mut mapper = crate::tui::keymap::KeyMapper::new();
+            let action = mapper
+                .map(
+                    KeyEvent::new(KeyCode::Char(key), KeyModifiers::CONTROL),
+                    state.is_search_input_active(),
+                )
+                .unwrap_or_else(|| panic!("expected Ctrl-{key} focus action"));
+            assert!(state.handle_app_action(action).is_empty());
+        };
+
+        for width in [80, 109] {
+            let mut state = state();
+            state.set_terminal_size(width, 24);
+            let primary = rendered_text(&state, width, 24);
+            assert!(primary.contains("Unstaged changes"));
+            assert!(!primary.contains("Select a file to view its diff."));
+
+            press(&mut state, 'l');
+            let diff = rendered_text(&state, width, 24);
+            assert!(!diff.contains("Unstaged changes"));
+            assert!(diff.contains("Select a file to view its diff."));
+
+            press(&mut state, 'h');
+            assert_eq!(state.focus, FocusedPane::Primary);
+            assert!(rendered_text(&state, width, 24).contains("Unstaged changes"));
+        }
+
+        for width in [110, 140] {
+            let mut state = state();
+            state.set_terminal_size(width, 24);
+            let panes = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(32), Constraint::Percentage(68)])
+                .split(Rect::new(0, 0, width, 23));
+            let diff_x = panes[1].x;
+
+            let primary = rendered_buffer(&state, width, 24);
+            assert_eq!(primary[(0, 0)].fg, Color::Yellow);
+            assert_eq!(primary[(diff_x, 0)].fg, Color::DarkGray);
+            let primary_text = rendered_text(&state, width, 24);
+            assert!(primary_text.contains("Unstaged changes"));
+            assert!(primary_text.contains("Select a file to view its diff."));
+
+            press(&mut state, 'j');
+            let diff = rendered_buffer(&state, width, 24);
+            assert_eq!(diff[(0, 0)].fg, Color::DarkGray);
+            assert_eq!(diff[(diff_x, 0)].fg, Color::Yellow);
+        }
+    }
+
+    #[test]
     fn message_motion_cursor_stays_visible_after_tabs_and_long_lines() {
         for overlay in [Overlay::CommitMessage, Overlay::None] {
             let mut state = state();
@@ -2225,11 +2281,15 @@ mod tests {
         assert!(text.contains("ChronoGit keys"));
         assert!(text.contains("Space 1..4  Changes / History / Graph / Code"));
         assert!(text.contains("Space f/g   Search files / repository content"));
+        assert!(text.contains("Ctrl-h/k/j/l Focus previous / next pane"));
+        assert!(text.contains("Backspace wraps left"));
+        assert!(!text.contains("Backspace/Ctrl-H wraps left"));
         assert!(text.contains("r; Space m/b/t"));
         assert!(text.contains("Space is the app leader; l/Right moves right"));
         assert!(text.contains("F1 help; q close/back immediately; Q/Ctrl-C quit"));
         assert!(text.contains("Esc: clear Diff/Code search, then close/back; q: close now"));
         let compact = rendered_text(&state, 80, 24);
+        assert!(compact.contains("Ctrl-h/k/j/l Focus previous / next pane"));
         assert!(compact.contains("Esc: clear Diff/Code search, then close/back; q: close now"));
 
         state.overlay = Overlay::None;
@@ -2865,7 +2925,7 @@ mod tests {
 
         let text = rendered_text(&state, 100, 30);
         assert!(text.contains("Search content"));
-        assert!(text.contains("Ctrl-w k: edit again"));
+        assert!(text.contains("Ctrl-h/k: edit again"));
         assert!(text.contains("src/lib.rs:42"));
         assert!(text.contains("let needle = true"));
 

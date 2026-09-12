@@ -2414,6 +2414,215 @@ mod tests {
         }
     }
 
+    fn apply_control_key(state: &mut AppState, key: char) -> Option<Action> {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mut mapper = crate::tui::keymap::KeyMapper::new();
+        let action = mapper.map(
+            KeyEvent::new(KeyCode::Char(key), KeyModifiers::CONTROL),
+            state.is_search_input_active(),
+        );
+        if let Some(action) = action {
+            assert!(apply_action(state, action).is_empty());
+        }
+        action
+    }
+
+    #[test]
+    fn standalone_control_keys_follow_every_existing_pane_topology_and_edge() {
+        let cases = [
+            (
+                AppView::Changes,
+                FocusedPane::Primary,
+                FocusedPane::Primary,
+                FocusedPane::Diff,
+            ),
+            (
+                AppView::Changes,
+                FocusedPane::Diff,
+                FocusedPane::Primary,
+                FocusedPane::Diff,
+            ),
+            (
+                AppView::History,
+                FocusedPane::Primary,
+                FocusedPane::Primary,
+                FocusedPane::Secondary,
+            ),
+            (
+                AppView::History,
+                FocusedPane::Secondary,
+                FocusedPane::Primary,
+                FocusedPane::Diff,
+            ),
+            (
+                AppView::History,
+                FocusedPane::Diff,
+                FocusedPane::Secondary,
+                FocusedPane::Diff,
+            ),
+            (
+                AppView::CommitDetails,
+                FocusedPane::Primary,
+                FocusedPane::Primary,
+                FocusedPane::Secondary,
+            ),
+            (
+                AppView::CommitDetails,
+                FocusedPane::Secondary,
+                FocusedPane::Primary,
+                FocusedPane::Diff,
+            ),
+            (
+                AppView::CommitDetails,
+                FocusedPane::Diff,
+                FocusedPane::Secondary,
+                FocusedPane::Diff,
+            ),
+            (
+                AppView::Graph,
+                FocusedPane::Primary,
+                FocusedPane::Primary,
+                FocusedPane::Primary,
+            ),
+            (
+                AppView::GraphDetails,
+                FocusedPane::Secondary,
+                FocusedPane::Secondary,
+                FocusedPane::Diff,
+            ),
+            (
+                AppView::GraphDetails,
+                FocusedPane::Diff,
+                FocusedPane::Secondary,
+                FocusedPane::Diff,
+            ),
+            (
+                AppView::FileHistory,
+                FocusedPane::Primary,
+                FocusedPane::Primary,
+                FocusedPane::Diff,
+            ),
+            (
+                AppView::FileHistory,
+                FocusedPane::Diff,
+                FocusedPane::Primary,
+                FocusedPane::Diff,
+            ),
+            (
+                AppView::Code,
+                FocusedPane::Primary,
+                FocusedPane::Primary,
+                FocusedPane::Diff,
+            ),
+            (
+                AppView::Code,
+                FocusedPane::Diff,
+                FocusedPane::Primary,
+                FocusedPane::Diff,
+            ),
+        ];
+        for (view, start, previous, next) in cases {
+            for (key, expected) in [('h', previous), ('k', previous), ('j', next), ('l', next)] {
+                let mut state = state();
+                state.view = view;
+                state.focus = start;
+                assert!(matches!(
+                    apply_control_key(&mut state, key),
+                    Some(Action::FocusLeft | Action::FocusRight)
+                ));
+                assert_eq!(state.focus, expected, "{view:?}/{start:?}/Ctrl-{key}");
+            }
+        }
+
+        for width in [80, 109, 110, 140] {
+            for (key, start, expected) in [
+                ('h', FocusedPane::Diff, FocusedPane::Primary),
+                ('k', FocusedPane::Diff, FocusedPane::Primary),
+                ('j', FocusedPane::Primary, FocusedPane::Diff),
+                ('l', FocusedPane::Primary, FocusedPane::Diff),
+            ] {
+                let mut state = state();
+                state.set_terminal_size(width, 24);
+                state.focus = start;
+                let _action = apply_control_key(&mut state, key);
+                assert_eq!(state.focus, expected, "Changes {width} columns/Ctrl-{key}");
+            }
+        }
+    }
+
+    #[test]
+    fn standalone_control_keys_respect_search_and_single_overlay_boundaries() {
+        for overlay in [
+            Overlay::Help,
+            Overlay::Diff,
+            Overlay::CommitMessage,
+            Overlay::FileContent,
+            Overlay::CodeContent,
+            Overlay::LspHover,
+            Overlay::SemanticTargets,
+        ] {
+            for key in ['h', 'j', 'k', 'l'] {
+                let mut state = state();
+                state.view = AppView::History;
+                state.focus = FocusedPane::Secondary;
+                state.overlay = overlay;
+                let _action = apply_control_key(&mut state, key);
+                assert_eq!(state.overlay, overlay, "{overlay:?}/Ctrl-{key}");
+                assert_eq!(
+                    state.focus,
+                    FocusedPane::Secondary,
+                    "{overlay:?}/Ctrl-{key} changed the underlying focus"
+                );
+            }
+        }
+
+        for (key, expected_action, expected_focus) in [
+            ('h', None, FocusedPane::Diff),
+            ('l', None, FocusedPane::Diff),
+            ('k', Some(Action::FocusLeft), FocusedPane::Primary),
+            ('j', Some(Action::FocusRight), FocusedPane::Diff),
+        ] {
+            let mut state = searchable_code(&["needle"]);
+            let _none = apply_action(&mut state, Action::StartSearch(SearchDirection::Forward));
+            assert!(state.is_search_input_active());
+            assert_eq!(apply_control_key(&mut state, key), expected_action);
+            assert_eq!(state.focus, expected_focus, "document search/Ctrl-{key}");
+            assert_eq!(
+                state.is_search_input_active(),
+                matches!(key, 'h' | 'l'),
+                "document search/Ctrl-{key} must preserve its existing input contract"
+            );
+        }
+
+        for (key, results_focused) in [('h', false), ('k', false), ('j', true), ('l', false)] {
+            let mut state = state();
+            crate::app::repository_search::open(&mut state, RepositorySearchKind::Files);
+            let _effects = apply_action(&mut state, Action::InsertSearch('R'));
+            assert_eq!(state.repository_search.prompt.as_deref(), Some("R"));
+            let _action = apply_control_key(&mut state, key);
+            assert_eq!(
+                state.repository_search.prompt.is_none(),
+                results_focused,
+                "repository Search/Ctrl-{key}"
+            );
+            assert_eq!(state.repository_search.query, "R");
+        }
+
+        for (key, search_focused) in [('h', true), ('k', true), ('j', false), ('l', false)] {
+            let mut state = state();
+            crate::app::repository_search::open(&mut state, RepositorySearchKind::Files);
+            state.repository_search.query = "kept query".to_owned();
+            state.repository_search.prompt = None;
+            let _action = apply_control_key(&mut state, key);
+            assert_eq!(
+                state.repository_search.prompt.as_deref(),
+                search_focused.then_some("kept query"),
+                "repository Results/Ctrl-{key}"
+            );
+        }
+    }
+
     #[test]
     fn enter_on_a_history_commit_focuses_changed_files() {
         let mut state = state();

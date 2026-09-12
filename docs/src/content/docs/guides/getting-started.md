@@ -50,13 +50,13 @@ chronogit --version
 
 ## Upgrade from 0.4.0
 
-Version `0.5.0` expands Vim movement, reserves digits for counts, and uses `Ctrl-w` for pane focus. The current checkout additionally changes the application leader from backslash to Space:
+Version `0.5.0` expands Vim movement, reserves digits for counts, and uses `Ctrl-w` for pane focus. The current checkout additionally changes the application leader from backslash to Space and adds standalone pane controls:
 
 - Use `Space 1` through `Space 4` to switch views, and `Space f` / `Space g` to search the repository. Space is the application leader; use `l` or Right for default right movement.
-- Use `Ctrl-w h/k` and `Ctrl-w j/l` to focus the previous and next panes. `Ctrl-w k` returns repository-search results to query editing.
+- Use standalone `Ctrl-h` / `Ctrl-k` and `Ctrl-j` / `Ctrl-l` to focus the previous and next panes. The existing `Ctrl-w h/k/j/l` sequences remain available. From repository-search Results, either previous-pane control returns to query editing.
 - In an open text document, `Enter` moves to the next line's first nonblank character. Use `q` to close immediately. In Diff and Code, default `Esc` first dismisses visible search highlights, then closes or goes back on the next press.
 
-Review any custom keymap against the [keymap reference](/reference/keymap/). Unmodified `1` through `9` are now reserved for counts and cannot start a binding. Each configured action replaces its defaults, and an explicit `close` binding closes immediately even when assigned to `Esc`.
+Review any custom keymap against the [keymap reference](/reference/keymap/). Unmodified `1` through `9` are now reserved for counts and cannot start a binding. Each configured action replaces all of its defaults, including every standalone and `Ctrl-w` alias for `focus_previous` or `focus_next`. An explicit `close` binding closes immediately even when assigned to `Esc`.
 
 ## Open a repository
 

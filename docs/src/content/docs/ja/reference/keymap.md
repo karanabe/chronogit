@@ -23,6 +23,26 @@ quit = Q
 
 各`action = keys`行は、そのactionの標準割り当てをすべて置き換えます。連続キーは空白、代替キーはカンマで区切ります。単一文字、`space`、`comma`、`enter`、`esc`、`backspace`、`tab`、`up`、`down`、`left`、`right`、`home`、`end`、`pageup`、`pagedown`、`f1`〜`f255`と、`ctrl-`、`alt-`、`shift-`の組み合わせを使えます。通常の連続キーは750 msで期限切れになります。find/tillまたはmarkのように文字引数が必要なactionは、その文字か`Esc`が入力されるまで待ちます。
 
+組み込みの`focus_previous`は、単独`Ctrl-h` / `Ctrl-k`と、既存の`Ctrl-w h/k`、control文字、Backspace、`W`、Left、Upの各sequenceです。`focus_next`も同様に、単独`Ctrl-j` / `Ctrl-l`と、既存の`Ctrl-w j/l`、control文字、`w`、Right、Downの各sequenceです。一方のfocus actionだけを置換しても他方は変わりませんが、置換したactionの標準aliasはすべて外れます。残すaliasは同じ行へすべて列挙してください。例えば次の設定は単独4キーをすべて外し、Altへ移しつつ基本的な`Ctrl-w`形式を残します。
+
+```ini
+[bindings]
+focus_previous = alt-h, ctrl-w h, ctrl-w k
+focus_next = alt-l, ctrl-w j, ctrl-w l
+```
+
+単独controlキーの一部だけを残す場合は、対応する行へそのキーを含めます。空のbinding行は使えないため、actionの標準をすべて外す場合は別のキーを割り当てます。重複とsequence prefixの競合はterminal raw mode開始前に拒否されます。
+
+以前のcontrol key motion aliasも明示的に復元できます。次の例は単独`Ctrl-k/l`をfocusとして残し、基本的な`Ctrl-w`形式を維持しつつ、`Ctrl-h/j`を以前のmotionへ戻します。再割り当ての両側が必要であり、motion行だけを追加すると組み込みfocus actionと競合します。
+
+```ini
+[bindings]
+focus_previous = ctrl-k, ctrl-w h, ctrl-w k
+focus_next = ctrl-l, ctrl-w j, ctrl-w l
+cursor_left_wrap = backspace, ctrl-h
+move_down = j, down, ctrl-j, ctrl-n
+```
+
 修飾キーなしの`1`〜`9`はcount専用で、割り当ての先頭には使えません。`space 3`のようなleader連続キー、または`alt-3`のような修飾キーを使います。カンマ自体を割り当てるには、代替キーの区切りと区別できる`comma`を使います。
 
 組み込みapplication leaderはSpaceです。`1`〜`4`、`f`、`g`、`m`、`b`、`t`の
@@ -76,8 +96,10 @@ query文字として処理します。
 | `search_forward`, `search_backward`, `next_match`, `previous_match` | アクティブなテキスト内のprompt検索とcount付き反復 |
 | `search_word_forward`, `search_word_backward`, `search_partial_word_forward`, `search_partial_word_backward` | `*`、`#`、`g*`、`g#`のword由来検索 |
 
-未知のaction/キー、読めない明示ファイル、キーの重複、別の割り当てのprefixになる割り当ては拒否し、raw mode開始前にエラーを表示します。標準では`q`が即時close/back、`Esc`がDiff・Codeの検索強調解除後にclose/back、`quit`が大文字の`Q`です。`quit`を置き換えても、安全な緊急終了用の`Ctrl-C`は予約されたままです。文字入力中は`Enter`、`Ctrl-j`、`Ctrl-k`、`Esc`、Backspace、`Ctrl-C`が予約され、印字可能な`q`と大文字`Q`はクエリ文字として入力できます。アプリ内ヘルプはカスタム設定ではなく組み込み標準キーを表示します。
+未知のaction/キー、読めない明示ファイル、キーの重複、別の割り当てのprefixになる割り当ては拒否し、raw mode開始前にエラーを表示します。標準では`q`が即時close/back、`Esc`がDiff・Codeの検索強調解除後にclose/back、`quit`が大文字の`Q`です。`quit`を置き換えても、安全な緊急終了用の`Ctrl-C`は予約されたままです。文字入力中は`Enter`、`Ctrl-j`、`Ctrl-k`、`Esc`、Backspace、`Ctrl-C`が予約され、normal modeの`Ctrl-h` / `Ctrl-l` bindingは適用されません。リポジトリSearchでは、予約された`Ctrl-j`がResultsを確定し、`Ctrl-k`はSearchを変えません。文書内検索promptでは、予約された`Ctrl-j/k`が入力を取り消して次 / 前のfocusを要求し、単一text overlayは背後のpaneを動かさずそのfocus actionを消費します。印字可能な`q`と大文字`Q`はクエリ文字として入力できます。アプリ内ヘルプはカスタム設定ではなく組み込み標準キーを表示します。
 
 `close`を明示すると、標準の`q`と`Esc`を両方置き換えます。割り当てたキーはすべて即時close/backとなり、`close = q, esc`のEscも強調解除を経ずに閉じます。`close = x`ならEscの標準割り当てを外すので、別のactionへ割り当てられます。標準の2段階Escを使う場合は`close`を指定しないでください。promptと文字待ちのEscキャンセルは設定にかかわらず維持します。
 
 文書内検索のBackspaceは、通常時のカスタムキー設定にかかわらず、文字削除または既に空なら入力キャンセルとして予約されます。最後の文字を消した直後は再入力のためpromptを残します。Escによる即時キャンセルと、空Enterによる前回の語の再利用も維持します。リポジトリ検索のBackspaceは引き続きlive queryを編集します。
+
+通常contextのBackspaceは、以前に単独`Ctrl-h`も共有していた行をまたぐ左移動を維持します。`Ctrl-n`、無修飾`j`、Downも、以前に単独`Ctrl-j`が共有していた下移動を維持します。新しいfocus bindingが`Ctrl-h`を受け取るのは、terminal backendがControl modifier付きの`Char('h')`として報告した場合です。terminalやmultiplexerによっては、物理Backspaceと`Ctrl-h`が同じ入力byteになるため、ChronoGitは同一eventから物理キーの由来を復元できません。環境上区別できない場合は、従来の`Ctrl-w` focus sequenceを使うか、`focus_previous`を別々に報告されるキーへ置換してください。

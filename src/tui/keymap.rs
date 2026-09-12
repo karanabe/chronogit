@@ -527,7 +527,7 @@ mod tests {
                 KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL),
                 false
             ),
-            motion(VimMotionKind::Down)
+            Some(Action::FocusRight)
         );
         assert_eq!(
             mapper.map(
@@ -670,6 +670,108 @@ mod tests {
     }
 
     #[test]
+    fn standalone_control_keys_and_ctrl_w_sequences_focus_panes() {
+        for (key, expected) in [
+            ('h', Action::FocusLeft),
+            ('k', Action::FocusLeft),
+            ('j', Action::FocusRight),
+            ('l', Action::FocusRight),
+        ] {
+            let mut mapper = KeyMapper::new();
+            assert_eq!(
+                mapper.map(
+                    KeyEvent::new(KeyCode::Char(key), KeyModifiers::CONTROL),
+                    false
+                ),
+                Some(expected),
+                "standalone Ctrl-{key}"
+            );
+        }
+
+        for (code, modifiers, expected) in [
+            (KeyCode::Char('h'), KeyModifiers::NONE, Action::FocusLeft),
+            (KeyCode::Char('k'), KeyModifiers::NONE, Action::FocusLeft),
+            (KeyCode::Char('j'), KeyModifiers::NONE, Action::FocusRight),
+            (KeyCode::Char('l'), KeyModifiers::NONE, Action::FocusRight),
+            (KeyCode::Char('h'), KeyModifiers::CONTROL, Action::FocusLeft),
+            (KeyCode::Char('k'), KeyModifiers::CONTROL, Action::FocusLeft),
+            (
+                KeyCode::Char('j'),
+                KeyModifiers::CONTROL,
+                Action::FocusRight,
+            ),
+            (
+                KeyCode::Char('l'),
+                KeyModifiers::CONTROL,
+                Action::FocusRight,
+            ),
+            (KeyCode::Backspace, KeyModifiers::NONE, Action::FocusLeft),
+            (KeyCode::Char('W'), KeyModifiers::SHIFT, Action::FocusLeft),
+            (KeyCode::Char('w'), KeyModifiers::NONE, Action::FocusRight),
+            (
+                KeyCode::Char('w'),
+                KeyModifiers::CONTROL,
+                Action::FocusRight,
+            ),
+            (KeyCode::Left, KeyModifiers::NONE, Action::FocusLeft),
+            (KeyCode::Up, KeyModifiers::NONE, Action::FocusLeft),
+            (KeyCode::Right, KeyModifiers::NONE, Action::FocusRight),
+            (KeyCode::Down, KeyModifiers::NONE, Action::FocusRight),
+        ] {
+            let mut mapper = KeyMapper::new();
+            assert_eq!(
+                mapper.map(
+                    KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL),
+                    false
+                ),
+                None
+            );
+            assert_eq!(
+                mapper.map(KeyEvent::new(code, modifiers), false),
+                Some(expected),
+                "Ctrl-w {modifiers:?}-{code:?}"
+            );
+        }
+
+        for (code, expected) in [
+            (KeyCode::Char('h'), VimMotionKind::Left),
+            (KeyCode::Char('j'), VimMotionKind::Down),
+            (KeyCode::Char('k'), VimMotionKind::Up),
+            (KeyCode::Char('l'), VimMotionKind::Right),
+            (KeyCode::Left, VimMotionKind::Left),
+            (KeyCode::Down, VimMotionKind::Down),
+            (KeyCode::Up, VimMotionKind::Up),
+            (KeyCode::Right, VimMotionKind::Right),
+        ] {
+            let mut mapper = KeyMapper::new();
+            assert_eq!(
+                mapper.map(KeyEvent::new(code, KeyModifiers::NONE), false),
+                motion(expected),
+                "unmodified {code:?}"
+            );
+        }
+        let mut mapper = KeyMapper::new();
+        assert_eq!(
+            mapper.map(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE), false),
+            motion(VimMotionKind::LeftWrap)
+        );
+        assert_eq!(
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL),
+                false
+            ),
+            motion(VimMotionKind::Down)
+        );
+        assert_eq!(
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
+                false
+            ),
+            motion(VimMotionKind::Up)
+        );
+    }
+
+    #[test]
     fn default_space_leader_resolves_every_application_action_without_a_space_motion() {
         for (suffix, expected) in [
             ('1', Action::ShowChanges),
@@ -761,6 +863,16 @@ mod tests {
             ),
             Some(Action::FocusLeft)
         );
+        for character in ['h', 'l'] {
+            assert_eq!(
+                mapper.map(
+                    KeyEvent::new(KeyCode::Char(character), KeyModifiers::CONTROL),
+                    true
+                ),
+                None,
+                "normal-mode Ctrl-{character} must not leak into search input"
+            );
+        }
         assert_eq!(
             mapper.map(
                 KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
@@ -847,6 +959,36 @@ mod tests {
         };
         assert_eq!(reversed.kind(), VimMotionKind::FindBackward);
         assert_eq!(reversed.target(), Some('界'));
+    }
+
+    #[test]
+    fn character_argument_waits_consume_control_focus_keys_without_focusing() {
+        for prefix in ['f', 't', 'm', '\'', '`'] {
+            let mut mapper = KeyMapper::new();
+            assert_eq!(
+                mapper.map(
+                    KeyEvent::new(KeyCode::Char(prefix), KeyModifiers::NONE),
+                    false
+                ),
+                None
+            );
+            assert_eq!(
+                mapper.map(
+                    KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL),
+                    false
+                ),
+                None,
+                "Ctrl-h must only cancel the {prefix:?} character wait"
+            );
+            assert_eq!(
+                mapper.map(
+                    KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL),
+                    false
+                ),
+                Some(Action::FocusLeft),
+                "the next Ctrl-h must be a new normal-mode command"
+            );
+        }
     }
 
     #[test]
@@ -985,6 +1127,97 @@ mod tests {
             None,
             "an explicit semantic_forward binding replaces its defaults"
         );
+    }
+
+    #[test]
+    fn pane_focus_actions_are_independently_replaceable() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("could not create temp directory: {error}"));
+        let path = directory.path().join("keymap.conf");
+        for (source, expected) in [
+            (
+                "focus_previous = ctrl-k, alt-h\n",
+                [
+                    ('h', KeyModifiers::CONTROL, None),
+                    ('k', KeyModifiers::CONTROL, Some(Action::FocusLeft)),
+                    ('h', KeyModifiers::ALT, Some(Action::FocusLeft)),
+                    ('j', KeyModifiers::CONTROL, Some(Action::FocusRight)),
+                    ('l', KeyModifiers::CONTROL, Some(Action::FocusRight)),
+                ],
+            ),
+            (
+                "focus_next = ctrl-l, alt-j\n",
+                [
+                    ('h', KeyModifiers::CONTROL, Some(Action::FocusLeft)),
+                    ('k', KeyModifiers::CONTROL, Some(Action::FocusLeft)),
+                    ('j', KeyModifiers::CONTROL, None),
+                    ('l', KeyModifiers::CONTROL, Some(Action::FocusRight)),
+                    ('j', KeyModifiers::ALT, Some(Action::FocusRight)),
+                ],
+            ),
+            (
+                "focus_previous = alt-h\nfocus_next = alt-l\n",
+                [
+                    ('h', KeyModifiers::CONTROL, None),
+                    ('k', KeyModifiers::CONTROL, None),
+                    ('j', KeyModifiers::CONTROL, None),
+                    ('l', KeyModifiers::CONTROL, None),
+                    ('h', KeyModifiers::ALT, Some(Action::FocusLeft)),
+                ],
+            ),
+        ] {
+            fs::write(&path, source).unwrap_or_else(|error| panic!("{error}"));
+            for (key, modifiers, action) in expected {
+                let mut mapper =
+                    KeyMapper::load(Some(&path)).unwrap_or_else(|error| panic!("{error}"));
+                assert_eq!(
+                    mapper.map(KeyEvent::new(KeyCode::Char(key), modifiers), false),
+                    action,
+                    "{source:?}: {modifiers:?}-{key}"
+                );
+            }
+            if source.contains("focus_next = alt-l") {
+                let mut mapper =
+                    KeyMapper::load(Some(&path)).unwrap_or_else(|error| panic!("{error}"));
+                assert_eq!(
+                    mapper.map(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::ALT), false),
+                    Some(Action::FocusRight)
+                );
+            }
+        }
+
+        fs::write(
+            &path,
+            "focus_previous = ctrl-k, ctrl-w h, ctrl-w k\n\
+             focus_next = ctrl-l, ctrl-w j, ctrl-w l\n\
+             cursor_left_wrap = backspace, ctrl-h\n\
+             move_down = j, down, ctrl-j, ctrl-n\n",
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        for (key, expected) in [
+            ('h', motion(VimMotionKind::LeftWrap)),
+            ('j', motion(VimMotionKind::Down)),
+            ('k', Some(Action::FocusLeft)),
+            ('l', Some(Action::FocusRight)),
+        ] {
+            let mut mapper = KeyMapper::load(Some(&path)).unwrap_or_else(|error| panic!("{error}"));
+            assert_eq!(
+                mapper.map(
+                    KeyEvent::new(KeyCode::Char(key), KeyModifiers::CONTROL),
+                    false
+                ),
+                expected,
+                "restored Ctrl-{key} mapping"
+            );
+        }
+
+        for source in ["focus_previous = ctrl-j\n", "focus_previous = ctrl-w\n"] {
+            fs::write(&path, source).unwrap_or_else(|error| panic!("{error}"));
+            assert!(
+                KeyMapper::load(Some(&path)).is_err(),
+                "conflicting focus binding must be rejected: {source:?}"
+            );
+        }
     }
 
     #[test]

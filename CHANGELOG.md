@@ -25,6 +25,9 @@ All notable changes to ChronoGit are documented here.
 - `EditableBuffer` now defaults to `jj` for leaving Insert mode while retaining
   Esc. The sequence can be disabled or replaced, and a pending prefix is
   inserted immediately so context changes cannot lose input.
+- Standalone `Ctrl-h` / `Ctrl-k` and `Ctrl-j` / `Ctrl-l` now focus the previous
+  and next pane by default. Existing `Ctrl-w` sequences remain available, and
+  `focus_previous` / `focus_next` still replace all aliases for their action.
 
 ### Fixed
 
