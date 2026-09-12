@@ -1,4 +1,4 @@
-//! ChronoGit coordinate adapter for the reusable `vim-navigation` crate.
+//! `ChronoGit` coordinate adapter for the reusable `vim-navigation` crate.
 
 use crate::app::VimMotion;
 use crate::domain::SourcePosition;
@@ -81,7 +81,7 @@ pub(crate) fn reveal(lines: &[&str], position: SourcePosition, viewport: &mut Vi
 #[cfg(test)]
 mod tests {
     use super::{Viewport, apply};
-    use crate::app::{VimMotion, VimMotionKind};
+    use crate::app::{VimCountSource, VimMotion, VimMotionKind};
     use crate::domain::SourcePosition;
 
     #[test]
@@ -92,7 +92,7 @@ mod tests {
             &lines,
             SourcePosition::new(0, 0),
             &mut viewport,
-            VimMotion::new(VimMotionKind::WordForward).counted(2, true),
+            VimMotion::new(VimMotionKind::WordForward).counted(2, VimCountSource::Explicit),
         );
         assert_eq!(cursor, SourcePosition::new(1, 4));
     }

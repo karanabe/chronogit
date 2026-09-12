@@ -13,6 +13,7 @@ use crate::tui::keymap::KeyMapError;
 /// Recoverable Git failures inside the TUI are stored in application load state
 /// instead. This error is reserved for boundary failures that the binary must
 /// report after restoring terminal state.
+#[non_exhaustive]
 #[derive(Debug)]
 pub enum AppError {
     /// Repository discovery or Git execution failed.

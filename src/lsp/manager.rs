@@ -9,12 +9,15 @@ use futures_util::future::join_all;
 use tokio::sync::{Mutex, watch};
 use url::Url;
 
-use crate::domain::{RepoPath, RepositoryRoot, SemanticNavigationKind, SourcePosition};
+use crate::domain::{
+    DocumentSymbol, RepoPath, RepositoryRoot, SemanticNavigationKind, SourcePosition,
+};
 use crate::lsp::config::LspConfig;
 use crate::lsp::session::{RawLocation, Session, WireRange};
-use crate::lsp::{LspError, PositionEncoding};
+use crate::lsp::{LspError, LspOperationId, PositionEncoding};
 
 const MAX_SESSIONS: usize = 4;
+const MAX_DISPLAY_URI_CHARACTERS: usize = 256;
 
 /// A repository-contained wire location awaiting safe document conversion.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -37,16 +40,33 @@ struct SessionKey {
     workspace_root: PathBuf,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
+struct SessionUseOrder(u64);
+
+impl SessionUseOrder {
+    fn advance(&mut self) -> Self {
+        self.0 = self.0.saturating_add(1);
+        *self
+    }
+}
+
 struct SessionEntry {
     session: Arc<Session>,
-    last_used: u64,
+    last_used: SessionUseOrder,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum ManagerLifecycle {
+    #[default]
+    Running,
+    ShuttingDown,
 }
 
 #[derive(Default)]
 struct ManagerState {
     sessions: HashMap<SessionKey, SessionEntry>,
-    clock: u64,
-    shutting_down: bool,
+    clock: SessionUseOrder,
+    lifecycle: ManagerLifecycle,
 }
 
 /// Lazily starts and independently owns bounded language-server sessions.
@@ -102,7 +122,7 @@ impl LspManager {
 
     pub(crate) async fn navigate(
         &self,
-        request_id: u64,
+        request_id: LspOperationId,
         kind: SemanticNavigationKind,
         path: &RepoPath,
         text: &str,
@@ -111,7 +131,7 @@ impl LspManager {
         let (key, session) = self.session_for(request_id, path).await?;
         // Several input tasks can wait behind one expensive initialization, but
         // only the newest intent may send a request after that wait finishes.
-        if self.latest_request.load(Ordering::Acquire) != request_id {
+        if self.latest_request.load(Ordering::Acquire) != request_id.value() {
             return Ok(Vec::new());
         }
         let document_path = self.repository.as_path().join(path.to_os_string());
@@ -133,13 +153,13 @@ impl LspManager {
 
     pub(crate) async fn hover(
         &self,
-        request_id: u64,
+        request_id: LspOperationId,
         path: &RepoPath,
         text: &str,
         position: SourcePosition,
     ) -> Result<Option<String>, LspError> {
         let (key, session) = self.session_for(request_id, path).await?;
-        if self.latest_request.load(Ordering::Acquire) != request_id {
+        if self.latest_request.load(Ordering::Acquire) != request_id.value() {
             return Ok(None);
         }
         let document_path = self.repository.as_path().join(path.to_os_string());
@@ -155,7 +175,30 @@ impl LspManager {
         response
     }
 
-    pub(crate) async fn cancel_obsolete(&self, request_id: u64) {
+    pub(crate) async fn document_symbols(
+        &self,
+        request_id: LspOperationId,
+        path: &RepoPath,
+        text: &str,
+    ) -> Result<Vec<DocumentSymbol>, LspError> {
+        let (key, session) = self.session_for(request_id, path).await?;
+        if self.latest_request.load(Ordering::Acquire) != request_id.value() {
+            return Ok(Vec::new());
+        }
+        let document_path = self.repository.as_path().join(path.to_os_string());
+        let response = session
+            .document_symbols(request_id, &document_path, text)
+            .await;
+        if matches!(
+            response,
+            Err(LspError::Process(_) | LspError::Protocol(_) | LspError::Timeout(_))
+        ) {
+            self.remove_if_same(&key, &session).await;
+        }
+        response
+    }
+
+    pub(crate) async fn cancel_obsolete(&self, request_id: LspOperationId) {
         let sessions = self
             .state
             .lock()
@@ -176,10 +219,10 @@ impl LspManager {
     pub async fn shutdown(&self) {
         {
             let mut state = self.state.lock().await;
-            state.shutting_down = true;
+            state.lifecycle = ManagerLifecycle::ShuttingDown;
         }
         // Wait for a process currently between spawn and insertion. Queued
-        // startups observe `shutting_down` and return without spawning.
+        // Startups observe the lifecycle state and return without spawning.
         let _startup = self.startup.lock().await;
         let sessions = {
             let mut state = self.state.lock().await;
@@ -193,7 +236,7 @@ impl LspManager {
     }
 
     async fn ensure_running(&self) -> Result<(), LspError> {
-        if self.state.lock().await.shutting_down {
+        if self.state.lock().await.lifecycle == ManagerLifecycle::ShuttingDown {
             Err(LspError::Process(
                 "language-server manager is shutting down".to_owned(),
             ))
@@ -204,10 +247,11 @@ impl LspManager {
 
     async fn session_for(
         &self,
-        request_id: u64,
+        request_id: LspOperationId,
         path: &RepoPath,
     ) -> Result<(SessionKey, Arc<Session>), LspError> {
-        self.latest_request.fetch_max(request_id, Ordering::Release);
+        self.latest_request
+            .fetch_max(request_id.value(), Ordering::Release);
         self.ensure_running().await?;
         let profile = self.config.profile_for_path(path)?;
         let workspace_root = profile.workspace_root(&self.repository, path);
@@ -241,8 +285,7 @@ impl LspManager {
 
     async fn existing_session(&self, key: &SessionKey) -> Option<Arc<Session>> {
         let mut state = self.state.lock().await;
-        state.clock = state.clock.saturating_add(1);
-        let tick = state.clock;
+        let tick = state.clock.advance();
         let entry = state.sessions.get_mut(key)?;
         entry.last_used = tick;
         Some(Arc::clone(&entry.session))
@@ -253,8 +296,7 @@ impl LspManager {
         let result;
         {
             let mut state = self.state.lock().await;
-            state.clock = state.clock.saturating_add(1);
-            let tick = state.clock;
+            let tick = state.clock.advance();
             if let Some(existing) = state.sessions.get_mut(&key) {
                 existing.last_used = tick;
                 result = Arc::clone(&existing.session);
@@ -324,10 +366,11 @@ impl LspManager {
     }
 
     fn contain(&self, location: RawLocation, encoding: PositionEncoding) -> WireNavigationTarget {
+        let RawLocation { uri, selection } = location;
         let external = || WireNavigationTarget::External {
-            display_uri: sanitize_uri(&location.uri),
+            display_uri: sanitize_uri(&uri),
         };
-        let Ok(uri) = Url::parse(&location.uri) else {
+        let Ok(uri) = Url::parse(&uri) else {
             return external();
         };
         if uri.scheme() != "file" {
@@ -344,7 +387,7 @@ impl LspManager {
         };
         WireNavigationTarget::Repository(WireRepositoryLocation {
             path,
-            selection: location.selection,
+            selection,
             encoding,
         })
     }
@@ -366,7 +409,7 @@ fn repo_path(path: &Path) -> Option<RepoPath> {
 fn sanitize_uri(uri: &str) -> String {
     uri.chars()
         .filter(|character| !character.is_control())
-        .take(256)
+        .take(MAX_DISPLAY_URI_CHARACTERS)
         .collect()
 }
 
@@ -391,8 +434,8 @@ mod tests {
 
     use super::LspManager;
     use crate::domain::{RepoPath, RepositoryRoot, SemanticNavigationKind, SourcePosition};
-    use crate::lsp::LspConfig;
     use crate::lsp::session::{RawLocation, WirePosition, WireRange};
+    use crate::lsp::{LspConfig, LspOperationId};
 
     fn manager() -> LspManager {
         LspManager::new(
@@ -400,6 +443,10 @@ mod tests {
                 .unwrap_or_else(|error| panic!("root: {error}")),
             LspConfig::disabled(),
         )
+    }
+
+    const fn operation(value: u64) -> LspOperationId {
+        LspOperationId::new(value)
     }
 
     fn location(uri: &str) -> RawLocation {
@@ -449,7 +496,7 @@ mod tests {
         assert!(matches!(
             manager
                 .navigate(
-                    1,
+                    operation(1),
                     SemanticNavigationKind::Definition,
                     &path,
                     "fn main() {}\n",
@@ -482,7 +529,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("path: {error}"));
         let error = match manager
             .navigate(
-                1,
+                operation(1),
                 SemanticNavigationKind::Definition,
                 &path,
                 "symbol\n",
@@ -527,7 +574,7 @@ mod tests {
         for request_id in 1..=20 {
             match manager
                 .navigate(
-                    request_id,
+                    operation(request_id),
                     SemanticNavigationKind::Definition,
                     &path,
                     &source,
@@ -551,7 +598,7 @@ mod tests {
         );
         let hover = manager
             .hover(
-                21,
+                operation(21),
                 &path,
                 &source,
                 SourcePosition::new(u32::try_from(line).unwrap_or(u32::MAX), byte_column),
@@ -604,7 +651,7 @@ mod tests {
         for request_id in 1..=20 {
             targets = manager
                 .navigate(
-                    request_id,
+                    operation(request_id),
                     SemanticNavigationKind::Definition,
                     &path,
                     source,
@@ -634,7 +681,12 @@ mod tests {
             "unexpected targets: {targets:?}"
         );
         let hover = manager
-            .hover(21, &path, source, SourcePosition::new(2, byte_column))
+            .hover(
+                operation(21),
+                &path,
+                source,
+                SourcePosition::new(2, byte_column),
+            )
             .await
             .unwrap_or_else(|error| panic!("hover: {error}"));
         assert!(hover.is_some(), "Pyright returned no hover information");
@@ -675,7 +727,7 @@ mod tests {
         for request_id in 1..=30 {
             targets = manager
                 .navigate(
-                    request_id,
+                    operation(request_id),
                     SemanticNavigationKind::Definition,
                     &path,
                     source,
@@ -705,7 +757,12 @@ mod tests {
             "unexpected targets: {targets:?}"
         );
         let hover = manager
-            .hover(31, &path, source, SourcePosition::new(0, byte_column))
+            .hover(
+                operation(31),
+                &path,
+                source,
+                SourcePosition::new(0, byte_column),
+            )
             .await
             .unwrap_or_else(|error| panic!("hover: {error}"));
         assert!(hover.is_some(), "JDT LS returned no hover information");

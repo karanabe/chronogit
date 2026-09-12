@@ -3,8 +3,9 @@
 use bstr::ByteSlice;
 
 use crate::domain::{DiffDocument, DiffLine, DiffLineKind, LineNumber};
+use crate::git::OutputCompleteness;
 
-pub(crate) fn parse_patch(input: &[u8], truncated: bool) -> DiffDocument {
+pub(crate) fn parse_patch(input: &[u8], completeness: OutputCompleteness) -> DiffDocument {
     if input.is_empty() {
         return DiffDocument::Empty {
             message: "No change for this target.".to_owned(),
@@ -53,17 +54,17 @@ pub(crate) fn parse_patch(input: &[u8], truncated: bool) -> DiffDocument {
                 return DiffLine::new(DiffLineKind::Meta, None, None, line.to_owned());
             }
             if line.starts_with('+') {
-                let current = new.map(LineNumber::new);
+                let current = new.and_then(LineNumber::new);
                 new = new.map(|value| value.saturating_add(1));
                 return DiffLine::new(DiffLineKind::Added, None, current, line.to_owned());
             }
             if line.starts_with('-') {
-                let current = old.map(LineNumber::new);
+                let current = old.and_then(LineNumber::new);
                 old = old.map(|value| value.saturating_add(1));
                 return DiffLine::new(DiffLineKind::Removed, current, None, line.to_owned());
             }
-            let old_current = old.map(LineNumber::new);
-            let new_current = new.map(LineNumber::new);
+            let old_current = old.and_then(LineNumber::new);
+            let new_current = new.and_then(LineNumber::new);
             old = old.map(|value| value.saturating_add(1));
             new = new.map(|value| value.saturating_add(1));
             DiffLine::new(
@@ -75,7 +76,7 @@ pub(crate) fn parse_patch(input: &[u8], truncated: bool) -> DiffDocument {
         })
         .collect();
 
-    if truncated {
+    if completeness.is_truncated() {
         DiffDocument::Truncated {
             lines,
             bytes: input.len(),
@@ -106,10 +107,14 @@ fn parse_range(value: &str, prefix: char) -> Option<u32> {
 mod tests {
     use super::parse_patch;
     use crate::domain::{DiffDocument, DiffLineKind};
+    use crate::git::OutputCompleteness;
 
     #[test]
     fn tracks_old_and_new_line_numbers() {
-        let patch = parse_patch(b"@@ -2,2 +2,2 @@\n old\n-removed\n+added\n", false);
+        let patch = parse_patch(
+            b"@@ -2,2 +2,2 @@\n old\n-removed\n+added\n",
+            OutputCompleteness::Complete,
+        );
         let DiffDocument::Text { lines, .. } = patch else {
             panic!("expected text diff");
         };
@@ -122,7 +127,7 @@ mod tests {
     fn classifies_the_no_newline_marker_as_metadata() {
         let patch = parse_patch(
             b"@@ -1 +1 @@\n-old\n+new\n\\ No newline at end of file\n",
-            false,
+            OutputCompleteness::Complete,
         );
         let DiffDocument::Text { lines, .. } = patch else {
             panic!("expected text diff");

@@ -395,8 +395,8 @@ impl EditableBuffer {
                 let column = self.current_line().len();
                 self.enter_insert(column)
             }
-            EditorInput::OpenBelow => self.open_line(false),
-            EditorInput::OpenAbove => self.open_line(true),
+            EditorInput::OpenBelow => self.open_line(OpenLinePlacement::Below),
+            EditorInput::OpenAbove => self.open_line(OpenLinePlacement::Above),
             EditorInput::Character(_)
             | EditorInput::Newline
             | EditorInput::Backspace
@@ -549,7 +549,7 @@ impl EditableBuffer {
         EditOutcome::Changed
     }
 
-    fn open_line(&mut self, above: bool) -> EditOutcome {
+    fn open_line(&mut self, placement: OpenLinePlacement) -> EditOutcome {
         if self
             .byte_len
             .checked_add(1)
@@ -557,7 +557,7 @@ impl EditableBuffer {
         {
             return EditOutcome::Ignored;
         }
-        let line = if above {
+        let line = if placement == OpenLinePlacement::Above {
             self.cursor.line().min(self.lines.len().saturating_sub(1))
         } else {
             self.cursor.line().saturating_add(1).min(self.lines.len())
@@ -638,6 +638,12 @@ impl EditableBuffer {
             &mut self.viewport,
         );
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OpenLinePlacement {
+    Above,
+    Below,
 }
 
 fn previous_boundary(line: &str, byte_column: usize) -> usize {

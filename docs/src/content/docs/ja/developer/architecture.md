@@ -41,7 +41,7 @@ flowchart LR
 
 ### `crates/vim-navigation`
 
-frameworkに依存しない`Cursor`、`Viewport`、`Motion`、`MotionState`と、
+frameworkに依存しない`Cursor`、`Viewport`、`Motion`、`CountSource`、`MotionState`と、
 Normal / Insertを分離した明示的にmutableな`EditableBuffer`を所有します。
 dependencyは`unicode-width`だけで、Git、LSP、crossterm、ratatui、process、
 filesystem、networkの境界を持ちません。Vim 9.1.1244との全比較条件、command
@@ -49,7 +49,7 @@ inventory、実行可能oracle、motion外の境界はcrateの`COMPATIBILITY.md`
 
 public moduleの境界はkey syntaxではなくstateの所有者で分けます。
 
-- `command.rs`は飽和するcount、未完了のfind/till文字引数、`;`/`,`の反復状態を
+- `command.rs`は飽和するcount、型付きの明示/暗黙count由来、未完了のfind/till文字引数、`;`/`,`の反復状態を
   所有します。
 - `motion.rs`はread-onlyな座標・motion語彙を所有し、privateな
   `motion/buffer.rs`の意味的scan、`motion/engine.rs`のdispatch/viewport規則、
@@ -72,12 +72,15 @@ object、検索prompt、commit messageを編集可能にせず、`i`/`a`/`I`/`A`
 
 ### `src/domain.rs`と`src/domain/`
 
-リポジトリパス、object ID、変更、コミット、差分、ツリー項目、検索一致、上限付きの現在ファイル文書を所有します。サブプロセスやターミナルへの依存はありません。
+リポジトリパス、object ID、変更、コミット、差分、ツリー項目、検索一致、document symbol、上限付きの現在またはrevisionファイル文書を所有します。サブプロセスやターミナルへの依存はありません。
 
-- `RepositoryRoot`、`RepoPath`、`ObjectId`、`RequestId`により、意味の異なる値の混同を防ぎます。
+- `RepositoryRoot`、`RepoPath`、`ObjectId`により、filesystem path、Git path、revisionの混同を防ぎます。標準の`AsRef`、`TryFrom`、`FromStr`も名前付きconstructorと同じ検証を維持します。
+- `CommitPage`は履歴offsetと0ではないpage sizeをまとめ、`LineNumber`はdiffと検索位置を1始まりかつ0以外に保ちます。
 - `CommitBaseline`は空ツリーとfirst-parentの比較を明示します。
 - `DiffTarget`はindex-to-worktreeパス、またはcommit/baseline/pathの組を識別します。
+- `FileRevision`はdiff比較へ意味を重ねず、working treeまたはcommitのsourceを識別します。
 - `DiffDocument`はテキスト、バイナリ、空、切り詰め済みを排他的なvariantで表します。
+- `TextFileDocument`は正確なUTF-8、表示専用、切り詰め済みを排他的にし、`GitTreeMode`はGit object-type/modeの組、`DocumentSymbolKind`はLSPの数値語彙を検証・正規化します。
 - UnixではGitパスを内部でバイト列として保持し、非UTF-8名の表示時だけ代替表現を使います。
 
 フィールドは非公開です。コンストラクターが、絶対パスのリポジトリルート、相対リポジトリパス、NULを含まないパス、16進数のobject IDを保証します。
@@ -88,8 +91,8 @@ object、検索prompt、commit messageを編集可能にせず、`i`/`a`/`I`/`A`
 
 - `GitCommand`は閉じた許可リストで、呼び出し側は任意の引数を渡せません。
 - `GitRunner`は唯一の差し替え用traitです。遅く状態を持つサブプロセスI/Oが実際のテスト境界であるためです。
-- `SystemGitRunner`はシェルなしで実行し、上限付きのバイト出力を取得し、任意のロック、プロンプト、pager、色、外部diff、textconv、fsmonitor実行を無効にします。
-- `GitService`は検出、status、履歴、メッセージ、変更ファイル、差分、ツリー子要素、追跡済み/非ignoreパス一覧、ファイル/内容検索、ファイル単位履歴、上限付き現在内容というドメイン操作を提供します。現在ファイルは検出済みワークツリーのdescriptorから相対的に開き、すべてのパス要素でシンボリックリンクを拒否します。
+- `SystemGitRunner`はシェルなしで実行し、上限付きのバイト出力を取得し、command statusとstream completenessを別々の内部状態として保持し、任意のロック、プロンプト、pager、色、外部diff、textconv、fsmonitor実行を無効にします。
+- `GitService`は検出、status、履歴、メッセージ、変更ファイル、差分、ツリー子要素、追跡済み/非ignoreパス一覧、ファイル/内容検索、ファイル単位履歴、上限付きの現在またはrevision内容というドメイン操作を提供します。現在ファイルは検出済みワークツリーのdescriptorから相対的に開き、すべてのパス要素でシンボリックリンクを拒否します。revisionファイルはcommitをcheckoutせず、検証済みobject/pathのGit readで取得します。
 - `git::parse`はNUL区切りの機械出力とunified patchを解析します。
 
 リポジトリのobject formatをSHA-1と仮定しません。Gitが返した完全な16進object IDを保持します。
@@ -100,13 +103,14 @@ object、検索prompt、commit messageを編集可能にせず、`i`/`a`/`I`/`A`
 
 `app::vim`はworkspaceの`vim-navigation` crateに対する座標adapterです。`SourcePosition`とpane geometryを変換し、借用した文書行へcrateのcount対応cursor/viewport motionを適用します。検索反復は現在のcursorを起点に、active文書の一致を再計算し、countを一致位置のindexで折り返します。Codeのmarkと検索は上限付きLSP jump履歴を共有し、count付き移動では最終到達先だけを読み込みます。検索query・highlightとresource-awareなmark/jumpはChronoGitの文書・pathを参照するためapplication stateに残します。
 
-- `AppView`、`FocusedPane`、`HistoryPanel`、`Overlay`が排他的なUI状態を表します。Changes、History/本文、Graph/詳細、ファイル履歴、Codeはview、リポジトリ検索、メッセージ全文、差分全文、現在ファイル内容、Code全文はoverlayです。
-- `SearchState`はCode、差分、ファイル、コミットメッセージのアクティブ文書内のsmart-case位置検索を所有します。`RepositorySearchState`はグローバルprompt、live query、結果、選択、戻り先viewを別に所有します。有効なpromptがSearchフォーカスを表し、Resultsへ移ってもクエリを保持するため、Searchへ戻して再編集できます。クエリ編集ごとに新しい型付きeffectを発行し、古い完了が新しい結果を置き換えないようRequestIdで防ぎます。`FileViewState`は検索結果の選択パス、履歴/現在内容、下段が内容か履歴差分かを所有します。`CodeViewState`は完全なパス集合、画面用ツリー、選択パス、上限付き内容、コード表示位置を所有します。
-- `SearchState`は元のUTF-8一致開始・終了位置と独立した強調表示状態を保持します。Diff・Code描画はサニタイズ後の範囲へ変換し、syntax spanに装飾を重ね、その後にカーソル装飾とviewportの切り出しを適用します。強調解除は検索・移動状態を保ち、一致への移動で再表示します。`DismissSearchOrClose`は標準Escだけが発行し、入力キャンセルと最前面の別画面を優先します。明示的な`close`設定は標準の両キーを即時close操作へ置き換えます.
+- `AppView`、`FocusedPane`、`HistoryPanel`、`Overlay`が排他的なUI状態を表します。Changes、History/本文、Graph/詳細、ファイル履歴、Codeはview、リポジトリ検索、メッセージ全文、差分全文、source内容、source全文、symbol contextはoverlayです。
+- `SearchState`はCode、差分、ファイル、コミットメッセージのアクティブ文書内のsmart-case位置検索を所有します。検索範囲、大小文字、開始位置の包含は位置引数の`bool`ではなく別々の値です。`RepositorySearchState`はグローバルprompt、live query、結果、選択、戻り先viewを別に所有します。有効なpromptがSearchフォーカスを表し、Resultsへ移ってもクエリを保持するため、Searchへ戻して再編集できます。クエリ編集ごとに新しい型付きeffectを発行し、古い完了が新しい結果を置き換えないようRequestIdで防ぎます。`FileViewState`は検索結果の選択パス、履歴/現在内容、排他的な現在内容/履歴差分modeを所有します。`CodeViewState`は完全なパス集合、画面用ツリー、選択パス、上限付き内容、コード表示位置を所有します。
+- `SearchState`は元のUTF-8一致開始・終了位置と独立した強調表示状態を保持します。Diff・Code・全文表示の描画はサニタイズ後の範囲へ変換し、syntax spanに装飾を重ね、その後にカーソル装飾とviewportの切り出しを適用します。強調解除は検索・移動状態を保ち、一致への移動で再表示します。`DismissSearchOrClose`は標準Escだけが発行し、入力キャンセルと最前面の別画面を優先します。明示的な`close`設定は標準の両キーを即時close操作へ置き換えます。
 - 文書内検索の削除は`SearchState`が所有します。Backspaceは1文字を削除し、既に空ならpromptだけをキャンセルします。reducerは同じ操作で通常移動やcloseを重ねず、確定検索と閲覧位置を保ちます。リポジトリ検索の削除は独立したlive queryの経路を維持します。
 - `LoadState<T>`はidle、request ID付きloading、ready、failedのいずれかです。
 - `Action`はユーザーの意図、`Event`は非同期完了、`GitEffect`は閉じたGit副作用記述です。`AppEffect`が既存`GitEffect`と常駐型`LspEffect`を、それぞれのlifecycleを混ぜずにroutingします。`SemanticNavigationState`は候補、request identity、上限付き双方向jump historyを所有し、`LspHoverState`はhover request、戻り先overlay、scroll offsetを所有します。
-- すべての要求に単調増加する`RequestId`を付けます。現在のリソースと選択コミットに一致する完了だけを適用します。
+- `app::source_view`はdiff cursorをnew側source行へ投影し、worktreeまたは選択commitを読み、変更されたnew側行を保持して、全文とdocument-symbol overlayを調停します。symbol選択は、その正確な読み込み済みdocument内のlocal navigationです。
+- すべての要求に単調増加する`RequestId`を付け、source snapshotには別の`DocumentRevision`を使います。現在のリソースと選択コミットまたはdocument generationに一致する完了だけを適用します。LSP operation、JSON-RPC request、document versionのcounterはprotocol adapter内で別型のまま保持します。
 - 差分要求には75 ms、live repository searchには100 msのdebounceがあり、Gitタスクは最大2つだけ同時実行します。
 - 差分キャッシュは最大16項目、16 MiBです。更新時に消去します。
 - 履歴は1ページ200コミット、ファイル履歴は最大200コミットです。メッセージ、変更ファイル、差分、現在内容、検索、ツリーディレクトリは必要時に読み込みます。
@@ -119,12 +123,14 @@ Codeツリーは別の方法を使います。Gitから追跡済み・非ignore�
 
 キー変換、ターミナルライフサイクル、レイアウト、描画、イベントループを所有します。
 
-- `KeyMapper`が組み込みまたはXDG/`--keymap`設定を使い、Vim normal-modeキーをactionへ変換します。再利用crateの`MotionState`が10進count、find/tillの文字引数、`;`/`,`の方向を所有し、adapterはterminal sequenceとresource-awareなmark引数を所有します。ChronoGitはSpaceをapplication leaderに予約するため、crateの単独Space/`RightWrap` motionを標準normal-context bindingから外します。`l`/Rightは維持し、custom mapでは`cursor_right_wrap`を競合しないキーへ配置できます。検索入力ではnormal bindingより先に印字可能なSpaceと`jj`をquery文字として解決します。曖昧なprefixを拒否し、通常の連続キーは750 msで期限切れになります。Ctrl-Cは安全な終了用に予約します。
+- `KeyMapper`が組み込みまたはXDG/`--keymap`設定を使い、Vim normal-modeキーをactionへ変換します。`KeyInputContext`は位置`bool`を使わず通常commandと検索入力を区別します。再利用crateの`MotionState`が10進count、find/tillの文字引数、`;`/`,`の方向を所有し、adapterはterminal sequenceとresource-awareなmark引数を所有します。ChronoGitはSpaceをapplication leaderに予約するため、crateの単独Space/`RightWrap` motionを標準normal-context bindingから外します。`l`/Rightは維持し、custom mapでは`cursor_right_wrap`を競合しないキーへ配置できます。検索入力ではnormal bindingより先に印字可能なSpaceと`jj`をquery文字として解決します。曖昧なprefixを拒否し、通常の連続キーは750 msで期限切れになります。Ctrl-Cは安全な終了用に予約します。
 - `TerminalSession`がraw modeとalternate screenを有効化し、`Drop`でターミナル状態を復元します。
 - panic hookも、以前のhookへ引き渡す前に同じ復元を行います。
 - `tokio::select!`がターミナル入力、resize/tick、Ctrl-C、型付き非同期完了イベントを待ちます。通常終了ではterminalを復元してから上限付きLSP shutdownを待ちます。
 - 通常のHistoryはコミット、変更ファイル/ツリー、差分を全幅の3段で描画し、本文レイアウトは同じコミット一覧、コミット本文、変更ファイルを描画します。Graphは読み込んだ親IDからクライアント側でレーンを描き、その上の中央ウィンドウへ詳細2段を描画します。ファイル履歴とCodeは2段のビューです。Changesは110列以上で2ペインを表示し、それ未満ではフォーカス中のペインが横幅を使います。
 - 80×24未満では安定したサイズ案内に置き換え、終了キーを使えるままにします。
+
+pane比率、overlay inset、border、gutter、responsive thresholdは`src/layout.rs`で共有します。描画とreducer側のviewport計算が同じ定数を使うため、cursor followの計算と表示layoutが暗黙にずれません。
 
 ## Git比較の契約
 
@@ -152,7 +158,7 @@ Git標準出力は8 MiB、標準エラーは64 KiB、コマンド時間は30秒�
 - リポジトリパスとpathspecは別々のプロセス引数にし、シェル文字列にしないこと。
 - object IDをrevisionとして再利用する前に16進数として検証すること。
 - リポジトリ設定からpager、diff、textconv、fsmonitorプログラムを起動させないこと。
-- 現在ファイルはdescriptorから相対的に読み、すべてのパス要素でシンボリックリンクを拒否すること。
+- 現在ファイルはdescriptorから相対的に読み、すべてのパス要素でシンボリックリンクを拒否すること。revision readは型付き・検証済み・shell-free・上限付きに保つこと。
 - 全読み取り操作の前後で`HEAD`、porcelain status、ワークツリーのバイト列を比較するintegration testを維持すること。
 - ChronoGitの文書入力をread-onlyに保つこと。`vim_navigation::EditableBuffer`へ流さず、repository/document search promptの既存の確定、Backspace、Esc契約を維持すること。
 - LinuxとmacOSが`0.5.0`のサポート境界です。Windows対応では未検証変換を加えず、Unixバイトパス境界を再設計すること。
@@ -162,13 +168,13 @@ Git標準出力は8 MiB、標準エラーは64 KiB、コマンド時間は30秒�
 
 ## 言語セマンティックナビゲーション
 
-`src/lsp.rs`と`src/lsp/`は共通のLSP 3.17 client境界です。`config`はtrusted user profileとextension/root-marker routing、`protocol`は上限付き`Content-Length` JSON-RPC framing、`position`はChronoGitのUTF-8 byte列から合意済みUTF-8/16/32 code unitへの変換、`session`はinitialize、document同期、navigation/hover request、cancel、server request、shutdown、child cleanup、`manager`はprofile/workspace sessionとLRU終了を所有します。
+`src/lsp.rs`と`src/lsp/`は共通のLSP 3.17 client境界です。`config`はtrusted user profileとextension/root-marker routing、`protocol`は上限付き`Content-Length` JSON-RPC framing、`position`はChronoGitのUTF-8 byte列から合意済みUTF-8/16/32 code unitへの変換、`session`はinitialize、document同期、navigation/hover/document-symbol request、cancel、server request、shutdown、child cleanup、`manager`はprofile/workspace sessionとLRU終了を所有します。
 
 LSPは新しいcrateではなく、既存`chronogit` crate内のmoduleに意図的に収めています。process lifecycleをapplicationの起動・終了と共有し、現在のconsumerはapp effect executorだけで、Tokio/serde/url dependencyも同じbinary内で使うためです。別crateは独立reuseやdependency隔離を生まないままmanifest、release/API surface、変換層だけを増やします。実際に別binary/libraryから利用する、またはCargo levelのdependency隔離が必要になった時点でextractを再検討します。
 
 appはRust、Java、Pythonで分岐しません。extensionは明示的に有効な1つの`ServerProfile`へ解決し、最も近いroot markerでworkspaceを決め、`(profile ID, workspace root)`をsession keyにします。rust-analyzer、JDT LS、Pyright、basedpyright、pylspも通常のprofile dataです。user-level TOMLで別languageを追加してもtransport実装は増えません。同じextensionを複数profileが担当する場合は暗黙順序を付けずrequest時に拒否します。
 
-各sessionはcapabilityとposition encodingを合意し、正確なopen documentを1つ保持し、refresh後はfull-content `didChange`、切替時は前documentの`didClose`を送ります。navigationと`textDocument/hover`は同じ同期済みposition request経路を使い、標準hover content形式をappへ渡す前に上限付き表示textへ正規化します。reader/writer taskを分離してnotificationやserver-to-client requestがresponseをdeadlockさせないようにします。標準log/progress notificationは1つのbounded footer statusへ変換します。`workspace/configuration`とwork-progress作成だけを応答し、advertiseしていないrequestはmethod-not-foundです。新しいLSP intentは`$/cancelRequest`を送り、reducerもrequest ID/path/cursorが古いcompletionを拒否します。
+各sessionはcapabilityとposition encodingを合意し、正確なopen documentを1つ保持し、refresh後はfull-content `didChange`、切替時は前documentの`didClose`を送ります。navigationと`textDocument/hover`は同期済みposition request経路を使い、`textDocument/documentSymbol`はcursor位置を伴わず同じdocument同期を使います。標準hover contentと階層型/flat型document symbolを、appへ渡す前に上限付きdomain値へ正規化します。reader/writer taskを分離してnotificationやserver-to-client requestがresponseをdeadlockさせないようにします。標準log/progress notificationは1つのbounded footer statusへ変換します。`workspace/configuration`とwork-progress作成だけを応答し、advertiseしていないrequestはmethod-not-foundです。新しいLSP intentは`$/cancelRequest`を送り、reducerもrequest ID/path/cursorが古いcompletionを拒否します。
 
 wireの`Location`/`LocationLink`はadapter内で正規化します。repository内`file:`結果を`RepoPath`へ変換した後、`GitService`で安全に読んだ内容を使ってwire columnを変換するため、no-follow境界を維持します。非file、`jdt:`、不正、repository外URIは表示専用です。sessionは最大4、同期documentはsessionごとに最大8 MiBです。5つ目ではLRU sessionを終了します。通常終了は`shutdown`、応答待ち、`exit`の後、猶予を超えたchildを終了し、`kill_on_drop`を最終cleanup不変条件にします。
 

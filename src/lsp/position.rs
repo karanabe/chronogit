@@ -21,7 +21,7 @@ impl PositionEncoding {
         match value {
             Some("utf-8") => Self::Utf8,
             Some("utf-32") => Self::Utf32,
-            Some("utf-16") | Some(_) | None => Self::Utf16,
+            _ => Self::Utf16,
         }
     }
 }

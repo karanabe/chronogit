@@ -46,7 +46,7 @@ move_down = j, down, ctrl-j, ctrl-n
 Unmodified `1` through `9` are reserved for counts and cannot start a binding. Use a leader sequence such as `space 3` or a modifier such as `alt-3`. Use `comma` to bind the comma key, since a literal comma separates alternatives.
 
 The built-in application leader is Space. It prefixes `1` through `4`, `f`,
-`g`, `m`, `b`, and `t`; the default map intentionally has no standalone Space
+`g`, `m`, `b`, `t`, `s`, `v`, and `d`; the default map intentionally has no standalone Space
 action. The reusable `vim-navigation` crate still implements Vim's
 line-wrapping Space motion. To expose it without disturbing the leader, bind
 `cursor_right_wrap` to a non-conflicting key such as a raw backslash:
@@ -59,7 +59,7 @@ cursor_right_wrap = \
 Backslash is an ordinary configurable character and is not reserved. Assigning
 `cursor_right_wrap = space` is rejected while any Space-prefixed default
 remains, because a key cannot be both a complete action and a sequence prefix.
-To restore standalone Space, explicitly replace all nine Space-prefixed actions
+To restore standalone Space, explicitly replace all twelve Space-prefixed actions
 as well. Search prompts handle printable Space directly as query text before
 normal bindings are resolved.
 
@@ -91,13 +91,14 @@ normal bindings are resolved.
 | `go_to_definition`, `go_to_implementation` | LSP definition / implementation (`gd` / `gi`) |
 | `go_to_type_definition`, `go_to_declaration` | LSP type definition / declaration (`gy` / `gD`) |
 | `semantic_back`, `semantic_forward` | Older / newer shared Vim/LSP jump location (`Ctrl-o` / `Ctrl-i`; Tab is the terminal-compatible forward alias) |
+| `symbol_context`, `open_full_file`, `toggle_full_file_mode` | Document-symbol context, complete source, and annotated-Changes/new-state toggle (`Space s` / `Space v` / `Space d`) |
 | `refresh`, `activate`, `close` | Current view operations |
 | `toggle_message`, `toggle_details`, `toggle_tree`, `toggle_help` | History and help views |
 | `file_search`, `content_search` | Repository-wide search |
 | `search_forward`, `search_backward`, `next_match`, `previous_match` | Prompt search and count-aware repetition in the active text document |
 | `search_word_forward`, `search_word_backward`, `search_partial_word_forward`, `search_partial_word_backward` | `*`, `#`, `g*`, and `g#` word-derived searches |
 
-ChronoGit rejects an unknown action/key, an unreadable explicit file, duplicate keys, and a binding that is a prefix of another binding. These errors are reported before terminal raw mode starts. By default, `q` closes/backs immediately and `Esc` first dismisses active Diff/Code search highlights before close/back, while `quit` uses uppercase `Q`; `Ctrl-C` is always reserved as an emergency safe-exit binding even when `quit` is replaced. Query editing reserves `Enter`, `Ctrl-j`, `Ctrl-k`, `Esc`, Backspace, and `Ctrl-C`; normal-mode `Ctrl-h` / `Ctrl-l` bindings do not apply there. In repository Search, reserved `Ctrl-j` confirms Results and `Ctrl-k` leaves Search unchanged. In a document-search prompt, reserved `Ctrl-j/k` cancel input and request next/previous focus; a single text overlay consumes that focus action without moving its underlying pane. Printable `q` and uppercase `Q` remain available as query text. In-app help describes the built-in defaults, not custom bindings.
+ChronoGit rejects an unknown action/key, an unreadable explicit file, duplicate keys, and a binding that is a prefix of another binding. These errors are reported before terminal raw mode starts. By default, `q` closes/backs immediately and `Esc` first dismisses active Diff/Code/full-file search highlights before close/back, while `quit` uses uppercase `Q`; `Ctrl-C` is always reserved as an emergency safe-exit binding even when `quit` is replaced. Query editing reserves `Enter`, `Ctrl-j`, `Ctrl-k`, `Esc`, Backspace, and `Ctrl-C`; normal-mode `Ctrl-h` / `Ctrl-l` bindings do not apply there. In repository Search, reserved `Ctrl-j` confirms Results and `Ctrl-k` leaves Search unchanged. In a document-search prompt, reserved `Ctrl-j/k` cancel input and request next/previous focus; a single text overlay consumes that focus action without moving its underlying pane. Printable `q` and uppercase `Q` remain available as query text. In-app help describes the built-in defaults, not custom bindings.
 
 An explicit `close` assignment replaces both default `q` and `Esc` bindings. Every assigned key closes/backs immediately: even `close = q, esc` makes Esc close without dismissing highlights first. With `close = x`, default Esc is removed and can be bound to another action. Leave `close` unset to retain the default two-step Esc. Prompt and character-wait cancellation by Esc remains reserved regardless of configuration.
 

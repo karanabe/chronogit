@@ -31,10 +31,70 @@ impl SearchDirection {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SearchScope {
+    Substring,
+    WholeWord,
+}
+
+impl SearchScope {
+    const fn requires_word_boundaries(self) -> bool {
+        matches!(self, Self::WholeWord)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum CaseSensitivity {
+    Sensitive,
+    Insensitive,
+}
+
+impl CaseSensitivity {
+    fn for_query(query: &str) -> Self {
+        if query.chars().any(char::is_uppercase) {
+            Self::Sensitive
+        } else {
+            Self::Insensitive
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum AnchorInclusion {
+    Include,
+    Exclude,
+}
+
+impl AnchorInclusion {
+    const fn includes_anchor(self) -> bool {
+        matches!(self, Self::Include)
+    }
+}
+
 #[derive(Debug)]
 struct SearchPrompt {
     direction: SearchDirection,
     input: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum HighlightVisibility {
+    Hidden,
+    Visible,
+}
+
+impl HighlightVisibility {
+    const fn from_selection(selection: Option<usize>) -> Self {
+        if selection.is_some() {
+            Self::Visible
+        } else {
+            Self::Hidden
+        }
+    }
+
+    const fn is_visible(self) -> bool {
+        matches!(self, Self::Visible)
+    }
 }
 
 #[derive(Debug)]
@@ -42,10 +102,10 @@ pub(crate) struct SearchState {
     prompt: Option<SearchPrompt>,
     query: String,
     direction: SearchDirection,
-    whole_word: bool,
+    scope: SearchScope,
     matches: Vec<SearchMatch>,
     current: Option<usize>,
-    highlights_visible: bool,
+    highlight_visibility: HighlightVisibility,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -70,10 +130,10 @@ impl SearchState {
             prompt: None,
             query: String::new(),
             direction: SearchDirection::Forward,
-            whole_word: false,
+            scope: SearchScope::Substring,
             matches: Vec::new(),
             current: None,
-            highlights_visible: false,
+            highlight_visibility: HighlightVisibility::Hidden,
         }
     }
 
@@ -105,10 +165,10 @@ impl SearchState {
     pub(crate) fn clear(&mut self) {
         self.prompt = None;
         self.query.clear();
-        self.whole_word = false;
+        self.scope = SearchScope::Substring;
         self.matches.clear();
         self.current = None;
-        self.highlights_visible = false;
+        self.highlight_visibility = HighlightVisibility::Hidden;
     }
 
     pub(crate) fn is_input_active(&self) -> bool {
@@ -149,12 +209,12 @@ impl SearchState {
     }
 
     pub(crate) fn has_highlights(&self) -> bool {
-        self.highlights_visible && !self.matches.is_empty()
+        self.highlight_visibility.is_visible() && !self.matches.is_empty()
     }
 
     pub(crate) fn dismiss_highlights(&mut self) -> bool {
         let dismissed = self.has_highlights();
-        self.highlights_visible = false;
+        self.highlight_visibility = HighlightVisibility::Hidden;
         dismissed
     }
 
@@ -184,9 +244,9 @@ impl SearchState {
         self.direction = prompt.direction;
         if !prompt.input.is_empty() {
             self.query = prompt.input;
-            self.whole_word = false;
+            self.scope = SearchScope::Substring;
         }
-        self.matches = matching_positions(values, &self.query, self.whole_word);
+        self.matches = matching_positions(values, &self.query, self.scope);
         self.current = select_match(
             &self.matches,
             (
@@ -198,9 +258,9 @@ impl SearchState {
                 },
             ),
             self.direction,
-            true,
+            AnchorInclusion::Include,
         );
-        self.highlights_visible = self.current.is_some();
+        self.highlight_visibility = HighlightVisibility::from_selection(self.current);
         self.current_line()
     }
 
@@ -213,9 +273,9 @@ impl SearchState {
         self.direction = prompt.direction;
         if !prompt.input.is_empty() {
             self.query = prompt.input;
-            self.whole_word = false;
+            self.scope = SearchScope::Substring;
         }
-        self.matches = matching_positions(values, &self.query, self.whole_word);
+        self.matches = matching_positions(values, &self.query, self.scope);
         self.current = select_match(
             &self.matches,
             (
@@ -223,9 +283,9 @@ impl SearchState {
                 anchor.byte_column(),
             ),
             self.direction,
-            false,
+            AnchorInclusion::Exclude,
         );
-        self.highlights_visible = self.current.is_some();
+        self.highlight_visibility = HighlightVisibility::from_selection(self.current);
         self.current_position()
     }
 
@@ -250,7 +310,7 @@ impl SearchState {
         direction: SearchDirection,
         count: usize,
     ) -> Option<SourcePosition> {
-        self.matches = matching_positions(values, &self.query, self.whole_word);
+        self.matches = matching_positions(values, &self.query, self.scope);
         self.select_from(anchor, direction, count)
     }
 
@@ -264,7 +324,7 @@ impl SearchState {
             usize::try_from(anchor.line()).unwrap_or(usize::MAX),
             anchor.byte_column(),
         );
-        self.current = select_match(&self.matches, anchor, direction, false);
+        self.current = select_match(&self.matches, anchor, direction, AnchorInclusion::Exclude);
         if let Some(first) = self.current {
             let len = self.matches.len();
             let offset = count.max(1).saturating_sub(1) % len;
@@ -273,7 +333,7 @@ impl SearchState {
                 SearchDirection::Backward => (first + len - offset) % len,
             });
         }
-        self.highlights_visible = self.current.is_some();
+        self.highlight_visibility = HighlightVisibility::from_selection(self.current);
         self.current_position()
     }
 
@@ -281,16 +341,16 @@ impl SearchState {
         &mut self,
         values: impl IntoIterator<Item = &'a str>,
         query: &str,
-        whole_word: bool,
+        scope: SearchScope,
         anchor: SourcePosition,
         direction: SearchDirection,
         count: usize,
     ) -> Option<SourcePosition> {
         self.prompt = None;
-        self.query = query.to_owned();
+        query.clone_into(&mut self.query);
         self.direction = direction;
-        self.whole_word = whole_word;
-        self.matches = matching_positions(values, query, whole_word);
+        self.scope = scope;
+        self.matches = matching_positions(values, query, scope);
         self.select_from(anchor, direction, count)
     }
 }
@@ -300,25 +360,27 @@ fn matching_indices<'a>(
     values: impl IntoIterator<Item = &'a str>,
     query: &str,
 ) -> Vec<SearchMatch> {
-    matching_positions(values, query, false)
+    matching_positions(values, query, SearchScope::Substring)
 }
 
 fn matching_positions<'a>(
     values: impl IntoIterator<Item = &'a str>,
     query: &str,
-    whole_word: bool,
+    scope: SearchScope,
 ) -> Vec<SearchMatch> {
     if query.is_empty() {
         return Vec::new();
     }
-    let case_sensitive = query.chars().any(char::is_uppercase);
+    let case_sensitivity = CaseSensitivity::for_query(query);
     values
         .into_iter()
         .enumerate()
         .flat_map(|(line, value)| {
-            match_starts(value, query, case_sensitive)
+            match_starts(value, query, case_sensitivity)
                 .into_iter()
-                .filter(move |(start, end)| !whole_word || is_whole_word(value, *start, *end))
+                .filter(move |(start, end)| {
+                    !scope.requires_word_boundaries() || is_whole_word(value, *start, *end)
+                })
                 .map(move |(byte_column, byte_end)| SearchMatch {
                     line,
                     byte_column,
@@ -328,8 +390,12 @@ fn matching_positions<'a>(
         .collect()
 }
 
-fn match_starts(value: &str, query: &str, case_sensitive: bool) -> Vec<(usize, usize)> {
-    if case_sensitive {
+fn match_starts(
+    value: &str,
+    query: &str,
+    case_sensitivity: CaseSensitivity,
+) -> Vec<(usize, usize)> {
+    if matches!(case_sensitivity, CaseSensitivity::Sensitive) {
         return overlapping_matches(value, query);
     }
     let folded_query = query.to_lowercase();
@@ -386,7 +452,7 @@ fn select_match(
     matches: &[SearchMatch],
     anchor: (usize, usize),
     direction: SearchDirection,
-    include_anchor: bool,
+    anchor_inclusion: AnchorInclusion,
 ) -> Option<usize> {
     if matches.is_empty() {
         return None;
@@ -396,7 +462,7 @@ fn select_match(
             .iter()
             .position(|found| {
                 let found = (found.line, found.byte_column);
-                if include_anchor {
+                if anchor_inclusion.includes_anchor() {
                     found >= anchor
                 } else {
                     found > anchor
@@ -407,7 +473,7 @@ fn select_match(
             .iter()
             .rposition(|found| {
                 let found = (found.line, found.byte_column);
-                if include_anchor {
+                if anchor_inclusion.includes_anchor() {
                     found <= anchor
                 } else {
                     found < anchor
@@ -419,7 +485,7 @@ fn select_match(
 
 #[cfg(test)]
 mod tests {
-    use super::{SearchDirection, SearchState, matching_indices};
+    use super::{CaseSensitivity, SearchDirection, SearchScope, SearchState, matching_indices};
 
     #[test]
     fn matching_is_case_insensitive_unless_the_query_contains_uppercase() {
@@ -522,7 +588,7 @@ mod tests {
             search.search_word(
                 ["cat cat cat"],
                 "cat",
-                true,
+                SearchScope::WholeWord,
                 crate::domain::SourcePosition::new(0, 0),
                 SearchDirection::Forward,
                 usize::MAX
@@ -546,18 +612,24 @@ mod tests {
     #[test]
     fn smart_case_matches_keep_unicode_offsets_and_overlapping_hits() {
         assert_eq!(
-            super::match_starts("界İ cat CAT", "cat", false),
+            super::match_starts("界İ cat CAT", "cat", CaseSensitivity::Insensitive,),
             vec![(6, 9), (10, 13)]
         );
-        assert_eq!(super::match_starts("İi", "i\u{307}", false), vec![(0, 2)]);
         assert_eq!(
-            super::match_starts("aaa", "aa", false),
+            super::match_starts("İi", "i\u{307}", CaseSensitivity::Insensitive),
+            vec![(0, 2)]
+        );
+        assert_eq!(
+            super::match_starts("aaa", "aa", CaseSensitivity::Insensitive),
             vec![(0, 2), (1, 3)]
         );
-        assert_eq!(super::match_starts("AAA", "AA", true), vec![(0, 2), (1, 3)]);
+        assert_eq!(
+            super::match_starts("AAA", "AA", CaseSensitivity::Sensitive),
+            vec![(0, 2), (1, 3)]
+        );
         let line = "a".repeat(100_000);
         let query = format!("{}b", "a".repeat(1_000));
-        assert!(super::match_starts(&line, &query, false).is_empty());
+        assert!(super::match_starts(&line, &query, CaseSensitivity::Insensitive).is_empty());
     }
 
     #[test]
@@ -568,7 +640,7 @@ mod tests {
             search.search_word(
                 values,
                 "cat",
-                true,
+                SearchScope::WholeWord,
                 crate::domain::SourcePosition::new(0, 0),
                 SearchDirection::Forward,
                 1,
@@ -584,7 +656,7 @@ mod tests {
             search.search_word(
                 values,
                 "cat",
-                false,
+                SearchScope::Substring,
                 crate::domain::SourcePosition::new(0, 0),
                 SearchDirection::Forward,
                 1,

@@ -40,6 +40,21 @@ Syntax highlighting falls back to plain diff text for unrecognized files or unus
 
 At widths below 110 columns, only the focused pane is visible. Use `Ctrl-h` / `Ctrl-k` and `Ctrl-j` / `Ctrl-l` to move between the file list and diff. The existing `Ctrl-w` forms and list-context `h` / `l` remain available. See [Navigation and layout](/guides/navigation/) for every key.
 
+## Move from a diff to source
+
+From the focused diff pane or a floating diff, press `Space v` to open the
+complete working-tree file at the corresponding new-side line. The full-file
+view starts in **changes** mode, which emphasizes added new-side lines while
+preserving the complete file around them. Press `Space d` to switch between
+that emphasis and the plain **new state** view.
+
+When at least one language-server profile is enabled, `Space s` asks the
+matching server for document symbols. For a diff, the list is reduced to
+symbols whose ranges contain changed new-side lines. Select a symbol to jump to
+it in the complete file, or select **Open full file without selecting a
+symbol**. Without `--lsp PROFILE`, ChronoGit keeps this action unavailable and
+shows a notice instead of opening an empty chooser.
+
 ## Refresh after an external edit
 
 Press `r` to reread the current view after an editor or another process changes the repository. Refresh preserves the selected path when it still exists and clears cached diffs so displayed content cannot remain stale.

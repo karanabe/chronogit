@@ -1,8 +1,13 @@
-use super::{Cursor, Motion, MotionKind};
+use super::{CountSource, Cursor, Motion, MotionKind};
 use super::{Viewport, apply};
 
 fn motion(kind: MotionKind, count: usize) -> Motion {
-    Motion::new(kind).counted(count, count != 1)
+    let source = if count == 1 {
+        CountSource::Implicit
+    } else {
+        CountSource::Explicit
+    };
+    Motion::new(kind).counted(count, source)
 }
 
 #[test]
@@ -159,7 +164,7 @@ fn character_search_and_matching_pairs_keep_utf8_boundaries() {
     let lines = ["a界(b(c)d)e"];
     let mut viewport = Viewport::new(0, 0, 4, 20, 0);
     let find = Motion::new(MotionKind::FindForward)
-        .counted(2, true)
+        .counted(2, CountSource::Explicit)
         .targeting('c');
     let cursor = apply(&lines, Cursor::new(0, 0), &mut viewport, find);
     assert_eq!(cursor, Cursor::new(0, 0));
@@ -279,7 +284,7 @@ fn an_explicit_half_page_count_is_a_line_count() {
         &lines,
         Cursor::new(0, 0),
         &mut viewport,
-        Motion::new(MotionKind::HalfPageDown).counted(2, true),
+        Motion::new(MotionKind::HalfPageDown).counted(2, CountSource::Explicit),
     );
     assert_eq!(cursor, Cursor::new(2, 0));
 
@@ -359,7 +364,7 @@ fn z_commands_preserve_or_reset_columns_and_horizontal_scroll_follows_cursor() {
         &lines,
         Cursor::new(0, 4),
         &mut viewport,
-        Motion::new(MotionKind::CursorToWindowTop).counted(2, true),
+        Motion::new(MotionKind::CursorToWindowTop).counted(2, CountSource::Explicit),
     );
     assert_eq!(cursor, Cursor::new(1, 4));
     assert_eq!(viewport.top, 1);
@@ -368,7 +373,8 @@ fn z_commands_preserve_or_reset_columns_and_horizontal_scroll_follows_cursor() {
         &lines,
         cursor,
         &mut viewport,
-        Motion::new(MotionKind::CursorToWindowMiddleFirstNonBlank).counted(3, true),
+        Motion::new(MotionKind::CursorToWindowMiddleFirstNonBlank)
+            .counted(3, CountSource::Explicit),
     );
     assert_eq!(cursor, Cursor::new(2, 2));
     assert_eq!(viewport.top, 0);
@@ -377,7 +383,7 @@ fn z_commands_preserve_or_reset_columns_and_horizontal_scroll_follows_cursor() {
         &lines,
         cursor,
         &mut viewport,
-        Motion::new(MotionKind::PreviousWindowBottom).counted(6, true),
+        Motion::new(MotionKind::PreviousWindowBottom).counted(6, CountSource::Explicit),
     );
     assert_eq!(cursor, Cursor::new(1, 4));
     assert_eq!(viewport.top, 0);
@@ -388,7 +394,7 @@ fn z_commands_preserve_or_reset_columns_and_horizontal_scroll_follows_cursor() {
         &horizontal,
         Cursor::new(0, 0),
         &mut viewport,
-        Motion::new(MotionKind::ScrollColumnRight).counted(3, true),
+        Motion::new(MotionKind::ScrollColumnRight).counted(3, CountSource::Explicit),
     );
     assert_eq!(viewport.left, 3);
     assert_eq!(cursor, Cursor::new(0, 3));
@@ -428,7 +434,7 @@ fn counted_screen_end_motions_move_down_before_selecting_the_column() {
         &lines,
         Cursor::new(0, 0),
         &mut viewport,
-        Motion::new(MotionKind::ScreenLineEnd).counted(2, true),
+        Motion::new(MotionKind::ScreenLineEnd).counted(2, CountSource::Explicit),
     );
     assert_eq!(cursor, Cursor::new(1, 8));
 
@@ -436,7 +442,7 @@ fn counted_screen_end_motions_move_down_before_selecting_the_column() {
         &lines,
         Cursor::new(0, 0),
         &mut viewport,
-        Motion::new(MotionKind::ScreenLastNonBlank).counted(2, true),
+        Motion::new(MotionKind::ScreenLastNonBlank).counted(2, CountSource::Explicit),
     );
     assert_eq!(cursor, Cursor::new(1, 5));
 }

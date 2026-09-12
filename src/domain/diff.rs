@@ -1,6 +1,29 @@
 //! Typed diff targets and display-oriented unified-diff documents.
 
-use crate::domain::{CommitBaseline, ObjectId, RepoPath};
+use std::error::Error;
+use std::fmt::{self, Display, Formatter};
+use std::num::NonZeroU32;
+
+use crate::domain::{ChangeKind, CommitBaseline, ObjectId, RepoPath};
+
+/// The Git mechanism used to produce an index-to-working-tree comparison.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum WorktreeDiffKind {
+    /// Compare an indexed path with the working tree.
+    Tracked,
+    /// Compare an untracked path with an empty file through `--no-index`.
+    Untracked,
+}
+
+impl From<ChangeKind> for WorktreeDiffKind {
+    fn from(value: ChangeKind) -> Self {
+        if value == ChangeKind::Untracked {
+            Self::Untracked
+        } else {
+            Self::Tracked
+        }
+    }
+}
 
 /// A repository comparison that can be requested from the Git service.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -9,8 +32,8 @@ pub enum DiffTarget {
     Worktree {
         /// Repository-relative path to compare.
         path: RepoPath,
-        /// Whether the path has no index entry and must compare from `/dev/null`.
-        untracked: bool,
+        /// Whether Git reads an indexed path or compares an untracked file.
+        kind: WorktreeDiffKind,
     },
     /// Compare one commit path with its explicit baseline.
     Commit {
@@ -25,19 +48,62 @@ pub enum DiffTarget {
 
 /// A one-based source or destination line number from a diff hunk.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct LineNumber(u32);
+pub struct LineNumber(NonZeroU32);
+
+/// Error returned when zero is used where a one-based line is required.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LineNumberError;
+
+impl Display for LineNumberError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str("line number must be one or greater")
+    }
+}
+
+impl Error for LineNumberError {}
 
 impl LineNumber {
     /// Creates a line number as reported by a unified-diff hunk.
+    ///
+    /// Returns `None` for zero, which is not a valid one-based source line.
     #[must_use]
-    pub fn new(value: u32) -> Self {
-        Self(value)
+    pub const fn new(value: u32) -> Option<Self> {
+        match NonZeroU32::new(value) {
+            Some(value) => Some(Self(value)),
+            None => None,
+        }
     }
 
     /// Returns the numeric line value.
     #[must_use]
     pub fn value(self) -> u32 {
-        self.0
+        self.0.get()
+    }
+}
+
+impl Display for LineNumber {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+impl From<NonZeroU32> for LineNumber {
+    fn from(value: NonZeroU32) -> Self {
+        Self(value)
+    }
+}
+
+impl From<LineNumber> for u32 {
+    fn from(value: LineNumber) -> Self {
+        value.value()
+    }
+}
+
+impl TryFrom<u32> for LineNumber {
+    type Error = LineNumberError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        Self::new(value).ok_or(LineNumberError)
     }
 }
 

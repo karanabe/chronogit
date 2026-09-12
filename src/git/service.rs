@@ -3,6 +3,7 @@
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::Read;
+use std::num::NonZeroUsize;
 use std::os::fd::OwnedFd;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,14 +16,34 @@ use rustix::fs::{FileType, Mode, OFlags};
 use rustix::io::Errno;
 
 use crate::domain::{
-    ChangedFile, CommitBaseline, CommitMessage, CommitSummary, DiffDocument, DiffTarget,
-    FileDocument, ObjectId, RepoPath, RepositoryRoot, SearchHit, TreeEntry, WorktreeChange,
+    ChangedFile, CommitBaseline, CommitMessage, CommitPage, CommitSummary, DiffDocument,
+    DiffTarget, FileDocument, FileRevision, ObjectId, RepoPath, RepositoryRoot, SearchHit,
+    TextFileDocument, TreeEntry, WorktreeChange, WorktreeDiffKind,
 };
 use crate::git::parse::{
     parse_changed_files, parse_commits, parse_file_paths, parse_grep_matches, parse_patch,
     parse_status, parse_tree_entries,
 };
-use crate::git::{CommandOutput, GitCommand, GitError, GitRunner};
+use crate::git::{CommandOutput, GitCommand, GitError, GitRunner, OutputCompleteness};
+
+const MAX_FILE_BYTES: usize = 8 * 1024 * 1024;
+const FILE_READ_WITH_TRUNCATION_SENTINEL: u64 = MAX_FILE_BYTES as u64 + 1;
+const REVISION_NOT_FOUND_EXIT_CODE: i32 = 1;
+const GREP_NO_MATCH_EXIT_CODE: i32 = 1;
+const OBJECT_NOT_FOUND_EXIT_CODE: i32 = 128;
+const DIFF_DIFFERENCES_EXIT_CODE: i32 = 1;
+
+#[derive(Clone, Copy)]
+enum SourceRetention {
+    DisplayOnly,
+    RetainExact,
+}
+
+impl SourceRetention {
+    const fn retains_exact_source(self) -> bool {
+        matches!(self, Self::RetainExact)
+    }
+}
 
 /// A discovered, non-bare repository accessed through a [`GitRunner`].
 ///
@@ -71,7 +92,7 @@ impl<R: GitRunner> GitService<R> {
         #[cfg(unix)]
         let path = std::path::PathBuf::from(OsString::from_vec(raw.to_vec()));
         let root = RepositoryRoot::new(path)
-            .map_err(|detail| GitError::parse("repository root", detail))?;
+            .map_err(|detail| GitError::parse("repository root", detail.to_string()))?;
         let bare = runner.run(Some(&root), &GitCommand::IsBare)?;
         ensure_complete(&bare, "check bare repository")?;
         ensure_success(&bare, "check bare repository")?;
@@ -121,7 +142,7 @@ impl<R: GitRunner> GitService<R> {
         parse_status(output.stdout())
     }
 
-    /// Reads at most `limit` commit summaries after skipping `skip` commits.
+    /// Reads one validated, non-empty page of commit summaries.
     ///
     /// An unborn `HEAD` is a valid empty history. Parent order and complete
     /// object IDs are retained for graph rendering and baseline selection.
@@ -130,16 +151,16 @@ impl<R: GitRunner> GitService<R> {
     ///
     /// Returns an error when Git execution fails, bounded output is incomplete,
     /// or a commit record is malformed.
-    pub fn commits(&self, skip: usize, limit: usize) -> Result<Vec<CommitSummary>, GitError> {
+    pub fn commits(&self, page: CommitPage) -> Result<Vec<CommitSummary>, GitError> {
         let head = self.runner.run(Some(&self.root), &GitCommand::HasHead)?;
         ensure_complete(&head, "check HEAD")?;
-        if !head.success() && head.code() == Some(1) {
+        if !head.success() && head.code() == Some(REVISION_NOT_FOUND_EXIT_CODE) {
             return Ok(Vec::new());
         }
         ensure_success(&head, "check HEAD")?;
         let output = self
             .runner
-            .run(Some(&self.root), &GitCommand::Commits { skip, limit })?;
+            .run(Some(&self.root), &GitCommand::Commits { page })?;
         ensure_complete(&output, "read commit history")?;
         ensure_success(&output, "read commit history")?;
         parse_commits(output.stdout())
@@ -218,7 +239,10 @@ impl<R: GitRunner> GitService<R> {
             },
         )?;
         ensure_complete(&output, "search repository content")?;
-        if !output.success() && output.code() == Some(1) && output.stderr().is_empty() {
+        if !output.success()
+            && output.code() == Some(GREP_NO_MATCH_EXIT_CODE)
+            && output.stderr().is_empty()
+        {
             return Ok(Vec::new());
         }
         ensure_success(&output, "search repository content")?;
@@ -234,7 +258,7 @@ impl<R: GitRunner> GitService<R> {
     pub fn file_history(
         &self,
         path: &RepoPath,
-        limit: usize,
+        limit: NonZeroUsize,
     ) -> Result<Vec<CommitSummary>, GitError> {
         let output = self.runner.run(
             Some(&self.root),
@@ -260,7 +284,6 @@ impl<R: GitRunner> GitService<R> {
     /// Returns an error when metadata, link-target, open, or read operations fail
     /// for reasons other than a missing path or a rejected intermediate link.
     pub fn file_content(&self, path: &RepoPath) -> Result<FileDocument, GitError> {
-        const MAX_FILE_BYTES: usize = 8 * 1024 * 1024;
         let (mut file, size) = match open_current_file(&self.worktree, path)? {
             CurrentFile::Regular { file, size } => (file, size),
             CurrentFile::Symlink { target } => return Ok(FileDocument::Symlink { target }),
@@ -270,7 +293,7 @@ impl<R: GitRunner> GitService<R> {
         };
         let mut bytes = Vec::with_capacity(size.min(MAX_FILE_BYTES));
         file.by_ref()
-            .take((MAX_FILE_BYTES + 1) as u64)
+            .take(FILE_READ_WITH_TRUNCATION_SENTINEL)
             .read_to_end(&mut bytes)
             .map_err(|source| GitError::Io {
                 operation: "read working tree file",
@@ -278,26 +301,72 @@ impl<R: GitRunner> GitService<R> {
             })?;
         let truncated = bytes.len() > MAX_FILE_BYTES;
         bytes.truncate(MAX_FILE_BYTES);
-        if bytes.contains(&0) {
-            return Ok(FileDocument::Binary {
-                summary: format!("Binary file: {}", path.display()),
+        let completeness = OutputCompleteness::from_truncated(truncated);
+        let retention = if self.retain_exact_source.load(Ordering::Relaxed) {
+            SourceRetention::RetainExact
+        } else {
+            SourceRetention::DisplayOnly
+        };
+        Ok(decode_file_document(&bytes, completeness, path, retention))
+    }
+
+    /// Reads a complete source file from the working tree or an immutable commit.
+    ///
+    /// Revision reads use a validated object ID and repository path through the
+    /// closed Git command boundary. Like working-tree reads, retained output is
+    /// capped at 8 MiB and exact UTF-8 source is kept only when LSP support is enabled.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when Git cannot read a requested commit path or when its
+    /// diagnostic stream is incomplete.
+    pub fn source_file(
+        &self,
+        revision: &FileRevision,
+        path: &RepoPath,
+    ) -> Result<FileDocument, GitError> {
+        let revision = match revision {
+            FileRevision::WorkingTree => return self.file_content(path),
+            FileRevision::Commit(revision) => revision,
+        };
+        let command = GitCommand::RevisionFile {
+            revision: revision.clone(),
+            path: path.clone(),
+        };
+        let output = self.runner.run(Some(&self.root), &command)?;
+        if output.stderr_truncated() {
+            return Err(GitError::OutputLimit {
+                operation: command.kind(),
             });
         }
-        let text = bytes.to_str_lossy();
-        let valid_utf8 = self.retain_exact_source.load(Ordering::Relaxed)
-            && !truncated
-            && matches!(&text, std::borrow::Cow::Borrowed(_));
-        let source = if valid_utf8 {
-            text.as_ref().to_owned()
+        if !output.success()
+            && !output.stdout_truncated()
+            && output.code() == Some(OBJECT_NOT_FOUND_EXIT_CODE)
+            && output.stdout().is_empty()
+        {
+            return Ok(FileDocument::Unavailable {
+                summary: format!(
+                    "File does not exist in {}: {}",
+                    FileRevision::Commit(revision.clone()).display(),
+                    path.display()
+                ),
+            });
+        }
+        if !output.success() && !output.stdout_truncated() {
+            ensure_success(&output, command.kind())?;
+        }
+        let completeness = OutputCompleteness::from_truncated(output.stdout_truncated());
+        let retention = if self.retain_exact_source.load(Ordering::Relaxed) {
+            SourceRetention::RetainExact
         } else {
-            String::new()
+            SourceRetention::DisplayOnly
         };
-        Ok(FileDocument::Text {
-            lines: text.lines().map(ToOwned::to_owned).collect(),
-            source,
-            valid_utf8,
-            truncated,
-        })
+        Ok(decode_file_document(
+            output.stdout(),
+            completeness,
+            path,
+            retention,
+        ))
     }
 
     /// Reads the complete subject and body of `commit`.
@@ -359,9 +428,10 @@ impl<R: GitRunner> GitService<R> {
     /// `--no-index` difference produced for an untracked path.
     pub fn diff(&self, target: &DiffTarget) -> Result<DiffDocument, GitError> {
         let command = match target {
-            DiffTarget::Worktree { path, untracked } if *untracked => {
-                GitCommand::UntrackedDiff { path: path.clone() }
-            }
+            DiffTarget::Worktree {
+                path,
+                kind: WorktreeDiffKind::Untracked,
+            } => GitCommand::UntrackedDiff { path: path.clone() },
             DiffTarget::Worktree { path, .. } => GitCommand::WorktreeDiff { path: path.clone() },
             DiffTarget::Commit {
                 commit,
@@ -380,12 +450,15 @@ impl<R: GitRunner> GitService<R> {
             });
         }
         let allowed_no_index_difference = matches!(command, GitCommand::UntrackedDiff { .. })
-            && output.code() == Some(1)
+            && output.code() == Some(DIFF_DIFFERENCES_EXIT_CODE)
             && output.stderr().is_empty();
         if !output.success() && !allowed_no_index_difference && !output.stdout_truncated() {
             return Err(command_failed(&output, command.kind()));
         }
-        Ok(parse_patch(output.stdout(), output.stdout_truncated()))
+        Ok(parse_patch(
+            output.stdout(),
+            OutputCompleteness::from_truncated(output.stdout_truncated()),
+        ))
     }
 
     /// Reads the direct children of one commit or tree object.
@@ -408,6 +481,29 @@ impl<R: GitRunner> GitService<R> {
         ensure_success(&output, "read tree entries")?;
         parse_tree_entries(output.stdout())
     }
+}
+
+fn decode_file_document(
+    bytes: &[u8],
+    completeness: OutputCompleteness,
+    path: &RepoPath,
+    retention: SourceRetention,
+) -> FileDocument {
+    if bytes.contains(&0) {
+        return FileDocument::Binary {
+            summary: format!("Binary file: {}", path.display()),
+        };
+    }
+    let text = bytes.to_str_lossy();
+    let lines = text.lines().map(ToOwned::to_owned).collect();
+    let text = if completeness.is_truncated() {
+        TextFileDocument::truncated(lines)
+    } else if retention.retains_exact_source() && matches!(&text, std::borrow::Cow::Borrowed(_)) {
+        TextFileDocument::exact(text.into_owned())
+    } else {
+        TextFileDocument::display_only(lines)
+    };
+    FileDocument::Text(text)
 }
 
 enum CurrentFile {

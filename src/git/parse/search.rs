@@ -2,7 +2,7 @@
 
 use bstr::ByteSlice;
 
-use crate::domain::{RepoPath, SearchHit};
+use crate::domain::{LineNumber, RepoPath, SearchHit};
 use crate::git::GitError;
 
 pub(crate) fn parse_file_paths(input: &[u8]) -> Result<Vec<SearchHit>, GitError> {
@@ -12,7 +12,7 @@ pub(crate) fn parse_file_paths(input: &[u8]) -> Result<Vec<SearchHit>, GitError>
         .map(|field| {
             RepoPath::from_bytes(field.to_vec())
                 .map(SearchHit::file)
-                .map_err(|detail| GitError::parse("repository file list", detail))
+                .map_err(|detail| GitError::parse("repository file list", detail.to_string()))
         })
         .collect()
 }
@@ -27,7 +27,7 @@ pub(crate) fn parse_grep_matches(mut input: &[u8]) -> Result<Vec<SearchHit>, Git
             ));
         };
         let path = RepoPath::from_bytes(input[..path_end].to_vec())
-            .map_err(|detail| GitError::parse("content search path", detail))?;
+            .map_err(|detail| GitError::parse("content search path", detail.to_string()))?;
         input = &input[path_end + 1..];
 
         let Some(line_end) = input.find_byte(0) else {
@@ -40,6 +40,8 @@ pub(crate) fn parse_grep_matches(mut input: &[u8]) -> Result<Vec<SearchHit>, Git
             .map_err(|_| GitError::parse("content search", "line number is not ASCII"))?
             .parse::<u32>()
             .map_err(|_| GitError::parse("content search", "line number is invalid"))?;
+        let line = LineNumber::new(line)
+            .ok_or_else(|| GitError::parse("content search", "line number must be one-based"))?;
         input = &input[line_end + 1..];
 
         let preview_end = input.find_byte(b'\n').unwrap_or(input.len());
@@ -57,6 +59,7 @@ pub(crate) fn parse_grep_matches(mut input: &[u8]) -> Result<Vec<SearchHit>, Git
 #[cfg(test)]
 mod tests {
     use super::{parse_file_paths, parse_grep_matches};
+    use crate::domain::LineNumber;
 
     #[test]
     fn parses_nul_delimited_files_and_grep_records() {
@@ -68,7 +71,7 @@ mod tests {
         let matches = parse_grep_matches(b"src/main.rs\x0012\0let needle = true;\n")
             .unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].line(), Some(12));
+        assert_eq!(matches[0].line().map(LineNumber::value), Some(12));
         assert_eq!(matches[0].preview(), "let needle = true;");
     }
 

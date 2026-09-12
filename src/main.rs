@@ -1,4 +1,4 @@
-//! Binary composition root and top-level error reporting for ChronoGit.
+//! Binary composition root and top-level error reporting for `ChronoGit`.
 
 use std::io::{self, IsTerminal};
 use std::process::ExitCode;
@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use clap::Parser;
 
-use chronogit::app::{AppState, EffectExecutor};
+use chronogit::app::{AppState, EffectExecutor, LspAvailability};
 use chronogit::cli::Cli;
 use chronogit::error::AppError;
 use chronogit::git::{GitService, SystemGitRunner};
@@ -57,7 +57,12 @@ async fn run() -> Result<(), AppError> {
     }
 
     tui::terminal::install_panic_hook();
-    let state = AppState::new(service.root().clone(), cli.initial_view());
+    let mut state = AppState::new(service.root().clone(), cli.initial_view());
+    state.set_lsp_availability(if lsp_config.is_disabled() {
+        LspAvailability::Disabled
+    } else {
+        LspAvailability::Enabled
+    });
     let executor = if lsp_config.is_disabled() {
         EffectExecutor::new(service)
     } else {

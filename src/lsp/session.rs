@@ -16,11 +16,13 @@ use tokio::sync::{Mutex, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use url::Url;
 
-use crate::domain::{SemanticNavigationKind, SourcePosition};
-use crate::lsp::LspError;
+use crate::domain::{
+    DocumentSymbol, DocumentSymbolKind, SemanticNavigationKind, SourcePosition, SourceRange,
+};
 use crate::lsp::config::ServerProfile;
-use crate::lsp::position::{PositionEncoding, to_lsp_character};
+use crate::lsp::position::{PositionEncoding, from_lsp_character, to_lsp_character};
 use crate::lsp::protocol::{read_message, write_message};
+use crate::lsp::{LspError, LspOperationId};
 
 const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(30);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
@@ -29,28 +31,91 @@ const WRITER_QUEUE: usize = 64;
 const STDERR_LIMIT: usize = 16 * 1024;
 const STATUS_LIMIT: usize = 256;
 const HOVER_LIMIT: usize = 256 * 1024;
+const SYMBOL_LIMIT: usize = 10_000;
+const SYMBOL_DEPTH_LIMIT: usize = 64;
+const FIRST_PROTOCOL_REQUEST_ID: i64 = 1;
+const CONTENT_MODIFIED_ERROR_CODE: i64 = -32_801;
+const CONTENT_MODIFIED_ATTEMPTS: usize = 2;
+const CONTENT_MODIFIED_RETRY_DELAY: Duration = Duration::from_millis(50);
+const DIAGNOSTIC_TEXT_LIMIT: usize = 512;
+const SYMBOL_TEXT_LIMIT: usize = 256;
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct ProtocolRequestId(i64);
+
+impl ProtocolRequestId {
+    const fn new(value: i64) -> Self {
+        Self(value)
+    }
+
+    const fn value(self) -> i64 {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct LspDocumentVersion(i32);
+
+impl LspDocumentVersion {
+    const INITIAL: Self = Self(1);
+
+    fn advance(&mut self) {
+        self.0 = self.0.saturating_add(1);
+    }
+
+    const fn value(self) -> i32 {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum ServerCapability {
+    Definition = 1 << 0,
+    Implementation = 1 << 1,
+    TypeDefinition = 1 << 2,
+    Declaration = 1 << 3,
+    Hover = 1 << 4,
+    DocumentSymbol = 1 << 5,
+}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ServerCapabilities {
-    definition: bool,
-    implementation: bool,
-    type_definition: bool,
-    declaration: bool,
-    hover: bool,
+    bits: u8,
 }
 
 impl ServerCapabilities {
-    fn supports(self, kind: SemanticNavigationKind) -> bool {
-        match kind {
-            SemanticNavigationKind::Definition => self.definition,
-            SemanticNavigationKind::Implementation => self.implementation,
-            SemanticNavigationKind::TypeDefinition => self.type_definition,
-            SemanticNavigationKind::Declaration => self.declaration,
+    #[cfg(test)]
+    const fn only(capability: ServerCapability) -> Self {
+        Self {
+            bits: capability as u8,
         }
     }
 
+    fn insert(&mut self, capability: ServerCapability) {
+        self.bits |= capability as u8;
+    }
+
+    const fn contains(self, capability: ServerCapability) -> bool {
+        self.bits & capability as u8 != 0
+    }
+
+    fn supports(self, kind: SemanticNavigationKind) -> bool {
+        let capability = match kind {
+            SemanticNavigationKind::Definition => ServerCapability::Definition,
+            SemanticNavigationKind::Implementation => ServerCapability::Implementation,
+            SemanticNavigationKind::TypeDefinition => ServerCapability::TypeDefinition,
+            SemanticNavigationKind::Declaration => ServerCapability::Declaration,
+        };
+        self.contains(capability)
+    }
+
     fn supports_hover(self) -> bool {
-        self.hover
+        self.contains(ServerCapability::Hover)
+    }
+
+    fn supports_document_symbols(self) -> bool {
+        self.contains(ServerCapability::DocumentSymbol)
     }
 }
 
@@ -77,7 +142,7 @@ pub(crate) struct Session {
     connection: Connection,
     child: Mutex<Option<Child>>,
     opened: Mutex<Option<OpenedDocument>>,
-    active_request: Mutex<Option<(u64, i64)>>,
+    active_request: Mutex<Option<(LspOperationId, ProtocolRequestId)>>,
     stderr_tail: Arc<Mutex<VecDeque<u8>>>,
     capabilities: ServerCapabilities,
     encoding: PositionEncoding,
@@ -87,7 +152,7 @@ pub(crate) struct Session {
 #[derive(Debug)]
 struct OpenedDocument {
     uri: String,
-    version: i32,
+    version: LspDocumentVersion,
     text: String,
 }
 
@@ -153,7 +218,8 @@ impl Session {
                     "implementation": { "linkSupport": true },
                     "typeDefinition": { "linkSupport": true },
                     "declaration": { "linkSupport": true },
-                    "hover": { "contentFormat": ["markdown", "plaintext"] }
+                    "hover": { "contentFormat": ["markdown", "plaintext"] },
+                    "documentSymbol": { "hierarchicalDocumentSymbolSupport": true }
                 }
             },
             "workspaceFolders": [{ "uri": root_uri, "name": workspace_name(&workspace_root) }],
@@ -192,7 +258,7 @@ impl Session {
 
     pub(crate) async fn navigate(
         &self,
-        app_request_id: u64,
+        app_request_id: LspOperationId,
         kind: SemanticNavigationKind,
         document_path: &Path,
         text: &str,
@@ -213,7 +279,7 @@ impl Session {
 
     pub(crate) async fn hover(
         &self,
-        app_request_id: u64,
+        app_request_id: LspOperationId,
         document_path: &Path,
         text: &str,
         position: SourcePosition,
@@ -233,10 +299,33 @@ impl Session {
                 position,
             )
             .await?;
-        normalize_hover(response)
+        normalize_hover(&response)
     }
 
-    pub(crate) async fn cancel_obsolete(&self, current_request_id: u64) {
+    pub(crate) async fn document_symbols(
+        &self,
+        app_request_id: LspOperationId,
+        document_path: &Path,
+        text: &str,
+    ) -> Result<Vec<DocumentSymbol>, LspError> {
+        if !self.capabilities.supports_document_symbols() {
+            return Err(LspError::Unsupported(format!(
+                "{} does not advertise document symbols",
+                self.profile.id()
+            )));
+        }
+        let response = self
+            .request_document(
+                app_request_id,
+                "textDocument/documentSymbol",
+                document_path,
+                text,
+            )
+            .await?;
+        normalize_document_symbols(&response, text, self.encoding)
+    }
+
+    pub(crate) async fn cancel_obsolete(&self, current_request_id: LspOperationId) {
         let active = *self.active_request.lock().await;
         if let Some((app_id, protocol_id)) = active
             && app_id != current_request_id
@@ -269,14 +358,17 @@ impl Session {
         match opened.as_mut() {
             Some(document) if document.uri == uri && document.text == text => return Ok(()),
             Some(document) if document.uri == uri => {
-                document.version = document.version.saturating_add(1);
+                document.version.advance();
                 document.text.clear();
                 document.text.push_str(text);
                 self.connection
                     .notify(
                         "textDocument/didChange",
                         json!({
-                            "textDocument": { "uri": uri, "version": document.version },
+                            "textDocument": {
+                                "uri": uri,
+                                "version": document.version.value()
+                            },
                             "contentChanges": [{ "text": text }]
                         }),
                     )
@@ -300,7 +392,7 @@ impl Session {
                     "textDocument": {
                         "uri": uri,
                         "languageId": self.profile.language_id(),
-                        "version": 1,
+                        "version": LspDocumentVersion::INITIAL.value(),
                         "text": text
                     }
                 }),
@@ -308,7 +400,7 @@ impl Session {
             .await?;
         *opened = Some(OpenedDocument {
             uri: uri.to_owned(),
-            version: 1,
+            version: LspDocumentVersion::INITIAL,
             text: text.to_owned(),
         });
         Ok(())
@@ -316,7 +408,7 @@ impl Session {
 
     async fn request_at_position(
         &self,
-        app_request_id: u64,
+        app_request_id: LspOperationId,
         method: &str,
         document_path: &Path,
         text: &str,
@@ -332,7 +424,31 @@ impl Session {
             "textDocument": { "uri": uri },
             "position": { "line": position.line(), "character": character }
         });
-        for attempt in 0..2 {
+        self.request_with_content_retry(app_request_id, method, params)
+            .await
+    }
+
+    async fn request_document(
+        &self,
+        app_request_id: LspOperationId,
+        method: &str,
+        document_path: &Path,
+        text: &str,
+    ) -> Result<Value, LspError> {
+        let uri = file_uri(document_path)?;
+        self.synchronize_document(&uri, text).await?;
+        let params = json!({ "textDocument": { "uri": uri } });
+        self.request_with_content_retry(app_request_id, method, params)
+            .await
+    }
+
+    async fn request_with_content_retry(
+        &self,
+        app_request_id: LspOperationId,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, LspError> {
+        for attempt in 0..CONTENT_MODIFIED_ATTEMPTS {
             let id = self.connection.next_id();
             *self.active_request.lock().await = Some((app_request_id, id));
             let response = self
@@ -344,8 +460,10 @@ impl Session {
                 *active = None;
             }
             drop(active);
-            if matches!(response, Err(LspError::ContentModified)) && attempt == 0 {
-                tokio::time::sleep(Duration::from_millis(50)).await;
+            if matches!(response, Err(LspError::ContentModified))
+                && attempt.saturating_add(1) < CONTENT_MODIFIED_ATTEMPTS
+            {
+                tokio::time::sleep(CONTENT_MODIFIED_RETRY_DELAY).await;
                 continue;
             }
             return response.map_err(|error| with_stderr(error, &self.stderr_tail));
@@ -354,7 +472,8 @@ impl Session {
     }
 }
 
-type PendingRequests = Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value, LspError>>>>>;
+type PendingRequests =
+    Arc<Mutex<HashMap<ProtocolRequestId, oneshot::Sender<Result<Value, LspError>>>>>;
 
 struct Connection {
     writer: mpsc::Sender<Value>,
@@ -413,7 +532,7 @@ impl Connection {
     {
         let (writer, mut messages) = mpsc::channel::<Value>(WRITER_QUEUE);
         let pending = Arc::new(Mutex::new(HashMap::<
-            i64,
+            ProtocolRequestId,
             oneshot::Sender<Result<Value, LspError>>,
         >::new()));
         let (closed_sender, closed) = watch::channel(None::<LspError>);
@@ -436,7 +555,7 @@ impl Connection {
 
         let reader_pending = Arc::clone(&pending);
         let reader_writer = writer.clone();
-        let reader_closed = closed_sender.clone();
+        let reader_closed = closed_sender;
         let reader_task = tokio::spawn(async move {
             let mut stdout = BufReader::new(stdout);
             loop {
@@ -462,13 +581,13 @@ impl Connection {
             writer,
             pending,
             closed,
-            next_request: AtomicI64::new(1),
+            next_request: AtomicI64::new(FIRST_PROTOCOL_REQUEST_ID),
             tasks: Mutex::new(extra_tasks),
         }
     }
 
-    fn next_id(&self) -> i64 {
-        self.next_request.fetch_add(1, Ordering::Relaxed)
+    fn next_id(&self) -> ProtocolRequestId {
+        ProtocolRequestId::new(self.next_request.fetch_add(1, Ordering::Relaxed))
     }
 
     async fn request(
@@ -483,7 +602,7 @@ impl Connection {
 
     async fn request_with_id(
         &self,
-        id: i64,
+        id: ProtocolRequestId,
         method: &str,
         params: Value,
         timeout: Duration,
@@ -493,7 +612,12 @@ impl Connection {
         }
         let (sender, receiver) = oneshot::channel();
         self.pending.lock().await.insert(id, sender);
-        let message = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
+        let message = json!({
+            "jsonrpc": "2.0",
+            "id": id.value(),
+            "method": method,
+            "params": params
+        });
         if self.writer.send(message).await.is_err() {
             self.pending.lock().await.remove(&id);
             return Err(LspError::Process(
@@ -522,8 +646,9 @@ impl Connection {
             .map_err(|_| LspError::Process("language server request channel closed".to_owned()))
     }
 
-    async fn cancel(&self, id: i64) -> Result<(), LspError> {
-        self.notify("$/cancelRequest", json!({ "id": id })).await
+    async fn cancel(&self, id: ProtocolRequestId) -> Result<(), LspError> {
+        self.notify("$/cancelRequest", json!({ "id": id.value() }))
+            .await
     }
 
     async fn stop(&self) {
@@ -536,7 +661,7 @@ impl Connection {
 
 async fn route_incoming(
     message: Value,
-    pending: &Mutex<HashMap<i64, oneshot::Sender<Result<Value, LspError>>>>,
+    pending: &Mutex<HashMap<ProtocolRequestId, oneshot::Sender<Result<Value, LspError>>>>,
     writer: &mpsc::Sender<Value>,
     status: &watch::Sender<Option<String>>,
 ) {
@@ -550,7 +675,7 @@ async fn route_incoming(
             let _ignored = writer.send(response).await;
             return;
         }
-        let Some(id) = response_id.as_i64() else {
+        let Some(id) = response_id.as_i64().map(ProtocolRequestId::new) else {
             return;
         };
         if let Some(sender) = pending.lock().await.remove(&id) {
@@ -559,12 +684,12 @@ async fn route_incoming(
                     .get("message")
                     .and_then(Value::as_str)
                     .unwrap_or("language server returned an error");
-                if error.get("code").and_then(Value::as_i64) == Some(-32801) {
+                if error.get("code").and_then(Value::as_i64) == Some(CONTENT_MODIFIED_ERROR_CODE) {
                     Err(LspError::ContentModified)
                 } else {
                     Err(LspError::RequestFailed(format!(
                         "language server rejected the request: {}",
-                        sanitize(message, 512)
+                        sanitize(message, DIAGNOSTIC_TEXT_LIMIT)
                     )))
                 }
             } else {
@@ -623,16 +748,131 @@ fn parse_capabilities(value: &Value) -> ServerCapabilities {
             .get(name)
             .is_some_and(|provider| !provider.is_null() && provider != &Value::Bool(false))
     };
-    ServerCapabilities {
-        definition: enabled("definitionProvider"),
-        implementation: enabled("implementationProvider"),
-        type_definition: enabled("typeDefinitionProvider"),
-        declaration: enabled("declarationProvider"),
-        hover: enabled("hoverProvider"),
+    let mut capabilities = ServerCapabilities::default();
+    for (provider, capability) in [
+        ("definitionProvider", ServerCapability::Definition),
+        ("implementationProvider", ServerCapability::Implementation),
+        ("typeDefinitionProvider", ServerCapability::TypeDefinition),
+        ("declarationProvider", ServerCapability::Declaration),
+        ("hoverProvider", ServerCapability::Hover),
+        ("documentSymbolProvider", ServerCapability::DocumentSymbol),
+    ] {
+        if enabled(provider) {
+            capabilities.insert(capability);
+        }
     }
+    capabilities
 }
 
-fn normalize_hover(value: Value) -> Result<Option<String>, LspError> {
+fn normalize_document_symbols(
+    value: &Value,
+    source: &str,
+    encoding: PositionEncoding,
+) -> Result<Vec<DocumentSymbol>, LspError> {
+    if value.is_null() {
+        return Ok(Vec::new());
+    }
+    let items = value.as_array().ok_or_else(|| {
+        LspError::Protocol("language server returned invalid document symbols".to_owned())
+    })?;
+    let source_lines = source
+        .split('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line))
+        .collect::<Vec<_>>();
+    let mut symbols = Vec::new();
+    append_document_symbols(items, &source_lines, encoding, 0, &mut symbols)?;
+    Ok(symbols)
+}
+
+fn append_document_symbols(
+    items: &[Value],
+    source_lines: &[&str],
+    encoding: PositionEncoding,
+    depth: usize,
+    symbols: &mut Vec<DocumentSymbol>,
+) -> Result<(), LspError> {
+    for item in items {
+        if symbols.len() == SYMBOL_LIMIT {
+            break;
+        }
+        let name = item.get("name").and_then(Value::as_str).ok_or_else(|| {
+            LspError::Protocol("language server returned a symbol without a name".to_owned())
+        })?;
+        let range_value = item
+            .get("range")
+            .or_else(|| {
+                item.get("location")
+                    .and_then(|location| location.get("range"))
+            })
+            .ok_or_else(|| {
+                LspError::Protocol("language server returned a symbol without a range".to_owned())
+            })?;
+        let wire_range = parse_range(range_value)?;
+        let selection_value = item.get("selectionRange").unwrap_or(range_value);
+        let wire_selection = parse_range(selection_value)?;
+        let range = source_range(source_lines, wire_range, encoding)?;
+        let selection = source_range(source_lines, wire_selection, encoding)?.start();
+        let detail = item
+            .get("detail")
+            .and_then(Value::as_str)
+            .or_else(|| item.get("containerName").and_then(Value::as_str))
+            .map(|value| sanitize(value, SYMBOL_TEXT_LIMIT));
+        let kind = item
+            .get("kind")
+            .and_then(Value::as_u64)
+            .map_or(DocumentSymbolKind::Unspecified, DocumentSymbolKind::from);
+        symbols.push(DocumentSymbol::new(
+            sanitize(name, SYMBOL_TEXT_LIMIT),
+            detail,
+            kind,
+            range,
+            selection,
+            depth,
+        ));
+        if depth < SYMBOL_DEPTH_LIMIT
+            && let Some(children) = item.get("children").and_then(Value::as_array)
+        {
+            append_document_symbols(
+                children,
+                source_lines,
+                encoding,
+                depth.saturating_add(1),
+                symbols,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn source_range(
+    source_lines: &[&str],
+    range: WireRange,
+    encoding: PositionEncoding,
+) -> Result<SourceRange, LspError> {
+    let convert = |position: WirePosition| -> Result<SourcePosition, LspError> {
+        let line = source_lines
+            .get(usize::try_from(position.line).unwrap_or(usize::MAX))
+            .ok_or_else(|| {
+                LspError::Protocol(
+                    "language server returned a symbol outside the document".to_owned(),
+                )
+            })?;
+        Ok(SourcePosition::new(
+            position.line,
+            from_lsp_character(line, position.character, encoding)?,
+        ))
+    };
+    let start = convert(range.start)?;
+    let end = convert(range.end)?;
+    if (end.line(), end.byte_column()) < (start.line(), start.byte_column()) {
+        return Err(LspError::Protocol(
+            "language server returned an inverted source range".to_owned(),
+        ));
+    }
+    Ok(SourceRange::new(start, end))
+}
+
+fn normalize_hover(value: &Value) -> Result<Option<String>, LspError> {
     if value.is_null() {
         return Ok(None);
     }
@@ -809,7 +1049,7 @@ fn with_stderr(error: LspError, tail: &Mutex<VecDeque<u8>>) -> LspError {
         return error;
     }
     let bytes = tail.iter().copied().collect::<Vec<_>>();
-    let detail = sanitize(&String::from_utf8_lossy(&bytes), 512);
+    let detail = sanitize(&String::from_utf8_lossy(&bytes), DIAGNOSTIC_TEXT_LIMIT);
     LspError::Process(format!("{error}; server stderr: {detail}"))
 }
 
@@ -826,12 +1066,13 @@ mod tests {
     use tokio::sync::Mutex;
 
     use super::{
-        Connection, ServerCapabilities, Session, create_workspace_data, normalize_hover,
-        normalize_locations, notification_status, parse_capabilities, server_request_response,
+        Connection, SYMBOL_DEPTH_LIMIT, ServerCapabilities, ServerCapability, Session,
+        create_workspace_data, normalize_document_symbols, normalize_hover, normalize_locations,
+        notification_status, parse_capabilities, server_request_response,
     };
-    use crate::domain::SourcePosition;
+    use crate::domain::{DocumentSymbolKind, SourcePosition};
     use crate::lsp::protocol::{read_message, write_message};
-    use crate::lsp::{LspConfig, PositionEncoding};
+    use crate::lsp::{LspConfig, LspOperationId, PositionEncoding};
 
     #[test]
     fn normalizes_location_and_location_links() {
@@ -846,20 +1087,98 @@ mod tests {
 
     #[test]
     fn normalizes_all_standard_hover_content_shapes() {
-        let markdown = normalize_hover(json!({
+        let markdown = normalize_hover(&json!({
             "contents": {"kind":"markdown", "value":"```rust\nstruct Action;\n```"}
         }))
         .unwrap_or_else(|error| panic!("hover: {error}"));
         assert_eq!(markdown.as_deref(), Some("```rust\nstruct Action;\n```"));
 
-        let marked = normalize_hover(json!({
+        let marked = normalize_hover(&json!({
             "contents": ["Documentation", {"language":"rust", "value":"struct Action;"}]
         }))
         .unwrap_or_else(|error| panic!("hover: {error}"));
         assert_eq!(marked.as_deref(), Some("Documentation\n\nstruct Action;"));
         assert_eq!(
-            normalize_hover(json!(null)).unwrap_or_else(|error| panic!("hover: {error}")),
+            normalize_hover(&json!(null)).unwrap_or_else(|error| panic!("hover: {error}")),
             None
+        );
+    }
+
+    #[test]
+    fn flattens_hierarchical_and_flat_document_symbols_with_utf8_positions() {
+        let symbols = normalize_document_symbols(
+            &json!([
+                {
+                    "name":"module",
+                    "detail":"mod detail",
+                    "kind":2,
+                    "range":{"start":{"line":0,"character":0},"end":{"line":1,"character":8}},
+                    "selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":6}},
+                    "children":[{
+                        "name":"界value",
+                        "kind":13,
+                        "range":{"start":{"line":1,"character":2},"end":{"line":1,"character":8}},
+                        "selectionRange":{"start":{"line":1,"character":2},"end":{"line":1,"character":8}}
+                    }]
+                },
+                {
+                    "name":"flat",
+                    "kind":12,
+                    "containerName":"root",
+                    "location":{"uri":"file:///tmp/example.rs","range":{"start":{"line":2,"character":0},"end":{"line":2,"character":4}}}
+                }
+            ]),
+            "module\n  界value\nflat\n",
+            PositionEncoding::Utf16,
+        )
+        .unwrap_or_else(|error| panic!("symbols: {error}"));
+        assert_eq!(symbols.len(), 3);
+        assert_eq!(symbols[0].kind(), DocumentSymbolKind::Module);
+        assert_eq!(symbols[1].depth(), 1);
+        assert_eq!(symbols[1].selection(), SourcePosition::new(1, 2));
+        assert_eq!(symbols[2].detail(), Some("root"));
+    }
+
+    #[test]
+    fn rejects_inverted_document_symbol_ranges() {
+        let error = normalize_document_symbols(
+            &json!([{
+                "name":"broken",
+                "kind":12,
+                "range":{"start":{"line":1,"character":0},"end":{"line":0,"character":1}},
+                "selectionRange":{"start":{"line":1,"character":0},"end":{"line":1,"character":1}}
+            }]),
+            "a\nb\n",
+            PositionEncoding::Utf8,
+        )
+        .err()
+        .unwrap_or_else(|| panic!("an inverted untrusted range must be rejected"));
+        assert!(error.to_string().contains("inverted source range"));
+    }
+
+    #[test]
+    fn bounds_document_symbol_nesting() {
+        let mut item = json!({
+            "name":"leaf",
+            "kind":12,
+            "range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},
+            "selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}
+        });
+        for index in 0..SYMBOL_DEPTH_LIMIT.saturating_add(20) {
+            item = json!({
+                "name":format!("parent-{index}"),
+                "kind":2,
+                "range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},
+                "selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},
+                "children":[item]
+            });
+        }
+        let symbols = normalize_document_symbols(&json!([item]), "x\n", PositionEncoding::Utf8)
+            .unwrap_or_else(|error| panic!("symbols: {error}"));
+        assert_eq!(symbols.len(), SYMBOL_DEPTH_LIMIT.saturating_add(1));
+        assert_eq!(
+            symbols.last().map(|symbol| symbol.depth()),
+            Some(SYMBOL_DEPTH_LIMIT)
         );
     }
 
@@ -909,17 +1228,14 @@ mod tests {
             opened: Mutex::new(None),
             active_request: Mutex::new(None),
             stderr_tail: Arc::new(Mutex::new(VecDeque::new())),
-            capabilities: ServerCapabilities {
-                hover: true,
-                ..ServerCapabilities::default()
-            },
+            capabilities: ServerCapabilities::only(ServerCapability::Hover),
             encoding: PositionEncoding::Utf16,
             _workspace_data: None,
         };
 
         let result = session
             .hover(
-                7,
+                LspOperationId::new(7),
                 Path::new("/tmp/example.rs"),
                 "界Action\n",
                 SourcePosition::new(0, "界".len()),
@@ -933,18 +1249,94 @@ mod tests {
         session.connection.stop().await;
     }
 
+    #[tokio::test]
+    async fn document_symbols_synchronize_the_exact_displayed_document() {
+        let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("temp: {error}"));
+        let config_path = directory.path().join("lsp.toml");
+        std::fs::write(&config_path, "[servers]\n")
+            .unwrap_or_else(|error| panic!("config: {error}"));
+        let profile = LspConfig::load(&["rust-analyzer".to_owned()], Some(&config_path))
+            .unwrap_or_else(|error| panic!("profile: {error}"))
+            .profiles()[0]
+            .clone();
+        let (client, server) = duplex(4096);
+        let (client_read, client_write) = split(client);
+        let connection = Connection::from_transport(client_write, client_read, Vec::new());
+        let fake_server = tokio::spawn(async move {
+            let (server_read, mut server_write) = split(server);
+            let mut reader = BufReader::new(server_read);
+            let opened = read_message(&mut reader)
+                .await
+                .unwrap_or_else(|error| panic!("didOpen: {error}"));
+            assert_eq!(opened["method"], "textDocument/didOpen");
+            assert_eq!(
+                opened["params"]["textDocument"]["text"],
+                "fn historical() {}\n"
+            );
+            let request = read_message(&mut reader)
+                .await
+                .unwrap_or_else(|error| panic!("document symbols: {error}"));
+            assert_eq!(request["method"], "textDocument/documentSymbol");
+            assert!(request["params"].get("position").is_none());
+            write_message(
+                &mut server_write,
+                &json!({
+                    "jsonrpc":"2.0",
+                    "id":request["id"].clone(),
+                    "result":[{
+                        "name":"historical",
+                        "kind":12,
+                        "range":{"start":{"line":0,"character":0},"end":{"line":0,"character":18}},
+                        "selectionRange":{"start":{"line":0,"character":3},"end":{"line":0,"character":13}}
+                    }]
+                }),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("symbol response: {error}"));
+        });
+        let session = Session {
+            profile,
+            connection,
+            child: Mutex::new(None),
+            opened: Mutex::new(None),
+            active_request: Mutex::new(None),
+            stderr_tail: Arc::new(Mutex::new(VecDeque::new())),
+            capabilities: ServerCapabilities::only(ServerCapability::DocumentSymbol),
+            encoding: PositionEncoding::Utf8,
+            _workspace_data: None,
+        };
+
+        let symbols = session
+            .document_symbols(
+                LspOperationId::new(8),
+                Path::new("/tmp/example.rs"),
+                "fn historical() {}\n",
+            )
+            .await
+            .unwrap_or_else(|error| panic!("document-symbol request: {error}"));
+        assert_eq!(symbols.len(), 1);
+        assert_eq!(symbols[0].name(), "historical");
+        assert_eq!(symbols[0].selection(), SourcePosition::new(0, 3));
+        fake_server
+            .await
+            .unwrap_or_else(|error| panic!("fake server: {error}"));
+        session.connection.stop().await;
+    }
+
     #[test]
     fn capabilities_accept_boolean_and_registration_objects() {
         let capabilities = parse_capabilities(&json!({
             "definitionProvider": true,
             "implementationProvider": {"documentSelector": null},
             "typeDefinitionProvider": false,
-            "hoverProvider": true
+            "hoverProvider": true,
+            "documentSymbolProvider": {}
         }));
-        assert!(capabilities.definition);
-        assert!(capabilities.implementation);
-        assert!(!capabilities.type_definition);
-        assert!(capabilities.hover);
+        assert!(capabilities.contains(ServerCapability::Definition));
+        assert!(capabilities.contains(ServerCapability::Implementation));
+        assert!(!capabilities.contains(ServerCapability::TypeDefinition));
+        assert!(capabilities.contains(ServerCapability::Hover));
+        assert!(capabilities.contains(ServerCapability::DocumentSymbol));
     }
 
     #[test]

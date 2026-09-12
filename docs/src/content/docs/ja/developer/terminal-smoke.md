@@ -59,6 +59,7 @@ trap - 0 1 2 15
 2. 枠線、矢印、Unicodeファイル名が安定した列幅で表示されることを確認します。
 3. 追加、削除、hunk、header、metadataの行を視覚的に区別できることを確認します。短いまたはほぼ空の追加・削除行とhunk行で、既存の背景がdiff contentの右端まで続き、枠の手前で止まることを確認します。context、header、metadata行に新しい背景が付いてはいけません。
 4. `j`と`k`でファイルを素早く移動し、最後に表示される差分が最終選択と一致することを確認します。
+   - diffの読み込み後に`Space v`を押し、対応するnew側の行でworking-tree file全文が開くことを確認します。Changesで追加行が強調され、削除行が元の位置へ赤色で挿入されることを確認します。`Space d`で通常のnew-state表示へ切り替えると削除行が消え、source位置は変わらないこと、`--lsp`なしの`Space s`はchooserを開かずdisabled noticeになることを確認します。
 5. 140×40以上から約90×24へresizeします。複数paneがフォーカス中の1paneになり、単独`Ctrl-h/k/j/l`が文書どおりの各方向へfocusを変えること、diff行の背景が現在のcontent右端に追従して枠や隣接paneへ入らないことを確認します。従来の`Ctrl-w`形式でも繰り返します。
 6. 80×24未満へresizeします。最小サイズの案内と終了ヒントがcrashなしで表示されることを確認し、元に戻します。
 7. `F1`でhelpを開き、`q`で閉じてから、大文字の`Q`で終了します。
@@ -81,6 +82,7 @@ printf 'terminal accepts normal input after Q\n'
 5. 変更されたtext/binary fileを選んで`Enter`を押し、大きなフロートでpatchまたはbinary summaryが開くことを確認します。textでは`Enter`が次行の最初の非空白へ移動することを確認し、`q`で閉じ、検索強調がない場合は`Esc`でも閉じます。
 6. 種別を判別できるソースファイルを通常paneとfloating diffの両方で開きます。コードのトークンがシンタックスハイライトされ、追加・削除・hunkの背景がcontent右端まで続き、現在行のガターマーカーがコードの色を塗り替えないことを確認します。tab、wide character、長い行を含め、横スクロール後も本文が背景と独立して従来どおりclip・scrollすることを確認します。cacheされていない長いtext diffを開くと同時に`Ctrl-d`を押し、表示された直後にマーカーが半ページ移動していることを確認します。`j` / `k`でマーカーが1行ずつ目に見えて移動し、`Ctrl-u`も遅延なく上へ移動することを確認します。
 7. countに加え、`w/W/e/E`、`b/B/ge/gE`、`0/^/$/g_`、`f/F/t/T`と`;` / `,`、`gg/G/%/go/H/M/L`、文・段落・section・delimiter motion、page/scroll/`z` motion、`[c` / `]c`を確認します。`/`、`?`、`n/N`、`*` / `#`、`g*` / `g#`も試します。
+   - commit diffから`Space v`を押し、working treeではなく選択commitのfileが対応行で開くことを確認します。`Space d`を切り替えます。対応するtrusted LSP profileで`Space s`を使い、new側変更行を含むsymbolだけが並ぶこと、選択すると全文内のsymbolへjumpすること、symbolを選ばない全文行も使えることを確認します。
 8. `Space m`を押し、commit message全文を文字・word motionで移動し、`Space m`、`q`、`Esc`のそれぞれで閉じることを確認します。
 9. `Space b`を押し、通常と同じcommit一覧、commit body、変更ファイルの3段を確認します。単独`Ctrl-h/k/j/l`を1つずつ使い、次に従来の`Ctrl-w`形式でもfocusを移します。上段のcommit変更時に残りの段が更新されることを確認し、bodyをscrollして下段ファイルのdiffを開きます。もう一度`Space b`を押して通常のHistoryへ戻ります。
 10. `Space t`を押し、2階層のdirectoryを展開・折りたたみ、blobの差分を開きます。
@@ -103,6 +105,7 @@ printf 'terminal accepts normal input after Q\n'
 4. 単独`Ctrl-h/k/j/l`を1つずつ使ってツリーとコード間を移動し、従来の`Ctrl-w`形式でも繰り返します。コードペインで完全なcount対応motion setと、短い行をまたぐ希望列の維持を確認します。
 5. ツリーのファイルと下段の両方から`Enter`を押します。Code全文ウィンドウが開き、`Enter`は`+`と同様に移動し、検索が折り返し、`q`でCodeへ即座に戻り、`Esc`は検索強調があれば先に解除することを確認します。
 6. language serverを有効にし、文字cursorをsymbolへ合わせます。`K`でhoverを開閉でき、`gd` / `gi` / `gy` / `gD`が4種類のsemantic targetを要求し、成功したjumpを`Ctrl-o` / `Ctrl-i`で前後移動できることを確認します。戻った後に新しいjumpを実行し、以前の進み先へ移動できなくなることも確認します。
+   - フォーカス中のCode内容とそのfloatで`Space s`を押し、document-symbol listにsymbolを選ばない全文行があり、symbol選択で全文の該当位置へ移動し、`Space v`でも同じfileを直接開けることを確認します。file historyの現在内容でも繰り返します。
 7. Codeから`Space f`と`Space g`を実行します。ネストした結果を開き、Codeへ直接戻ってツリー内のパスが展開され、内容一致行にmarkerが置かれることを確認します。小文字・大文字markを設定し、apostropheとbacktickでjumpし、file間を移動し、count付き`Ctrl-o` / `Ctrl-i`で統合履歴をたどります。
 8. binary、symbolic link、削除済み追跡パス、8 MiBを超えるファイルを開きます。安全な要約またはtruncated markerが表示され、symbolic linkのtargetを読まないことを確認します。
 
@@ -110,7 +113,7 @@ printf 'terminal accepts normal input after Q\n'
 
 版・revision、OS、端末、画面寸法、検索語、通常ペイン/フロート、キーマップを記録します。同じファイルと操作列で修正前後を比較し、報告時の環境を再現できなければ限界を残します。
 
-1. Diff・Codeの通常ペインとフロートを140×40、80×24で試します。`/needle`、`Enter`、`n`、`Esc`と操作し、`?needle`と`N`でも繰り返します。Esc前後で周辺を読み、一致文字列だけに装飾が付き、現在と他の一致を見分けられることを確認します。行番号・余白に検索装飾がなく、syntax色・diffの追加/削除・カーソル・フォーカス・スクロール位置が保たれることも確認します。
+1. Diff・Code・new-state全文表示の該当paneまたはfloatを140×40、80×24で試します。`/needle`、`Enter`、`n`、`Esc`と操作し、`?needle`と`N`でも繰り返します。Esc前後で周辺を読み、一致文字列だけに装飾が付き、現在と他の一致を見分けられることを確認します。行番号・余白に検索装飾がなく、syntax色・diffの追加/削除・カーソル・フォーカス・スクロール位置が保たれることも確認します。
 2. 語を再入力せず`n` / `N`で再開し、countと折り返しを試します。再解除して別の検索を確定し、強調が戻ることを見ます。解除後の2回目のEscと強調中の`q`で従来のclose/backへ進むこと、一致なしで追加Escを要求しないことを比べます。
 3. 直前の強調が表示中/解除済みの両方で、`/`・`?`入力とfind/till・markの文字待ちをEscで取り消します。入力だけを取り消すこと、最前面のhelp・リポジトリ検索（prompt/結果）を先に閉じることを確認します。hoverは既存のopt-in環境があれば確認し、未実施なら理由を残します。
 4. 日本語・tab・一致した空白・同一行の複数一致を含め、一致の途中まで横スクロールします。見える一致範囲と装飾が対応し、周辺の本文を読み続けられることを確認します。

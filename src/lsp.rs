@@ -1,6 +1,6 @@
 //! Optional, profile-driven Language Server Protocol client support.
 //!
-//! ChronoGit does not bundle or download language servers. A client is created
+//! `ChronoGit` does not bundle or download language servers. A client is created
 //! only for profiles explicitly enabled by the user, and every process is
 //! started directly with an argument vector rather than through a shell.
 
@@ -19,7 +19,22 @@ pub(crate) use manager::WireNavigationTarget;
 pub(crate) use position::from_lsp_character;
 pub use position::{PositionEncoding, display_column, next_byte_column, previous_byte_column};
 
+/// Application operation identity kept distinct from JSON-RPC request IDs.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct LspOperationId(u64);
+
+impl LspOperationId {
+    pub(crate) const fn new(value: u64) -> Self {
+        Self(value)
+    }
+
+    pub(crate) const fn value(self) -> u64 {
+        self.0
+    }
+}
+
 /// A recoverable failure at the optional language-server boundary.
+#[non_exhaustive]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LspError {
     /// No profile was explicitly enabled for the current file.

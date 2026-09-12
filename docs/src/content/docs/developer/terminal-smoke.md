@@ -59,6 +59,7 @@ A common distinct result is `08 0a 0b 0c 7f`. If Backspace is also `08`, record 
 2. Confirm borders, arrows, and Unicode filenames occupy stable columns.
 3. Confirm added, removed, hunk, header, and metadata lines are visually distinct. On short or nearly empty added and removed rows, and on hunk rows, confirm the existing background reaches the right edge of the diff content and stops before the border. Context, header, and metadata rows must not gain a background.
 4. Move rapidly through files with `j` and `k`; confirm the final displayed diff matches the final selection.
+   - With the diff ready, press `Space v`; confirm the complete working-tree file opens at the corresponding new-side line. Confirm Changes highlights additions and inserts red removed rows at their former positions, then toggle `Space d` and confirm the plain new-state view hides those removed rows without changing the source position. Without `--lsp`, `Space s` must show a disabled notice without opening the chooser.
 5. Resize from at least 140×40 to approximately 90×24. Confirm multiple panes become one focused pane, each standalone `Ctrl-h/k/j/l` changes focus in its documented direction, and diff row backgrounds follow the current content edge without entering a border or adjacent pane. Repeat with the retained `Ctrl-w` forms.
 6. Resize below 80×24. Confirm the minimum-size message and quit hint appear without a crash, then resize back.
 7. Open help with `F1`, close it with `q`, then exit with uppercase `Q`.
@@ -81,6 +82,7 @@ Confirm typed input echoes normally, the cursor is visible, mouse selection work
 5. Select changed text and binary files, press `Enter`, and confirm a large floating patch or binary summary opens. In text, confirm `Enter` moves to the next line's first nonblank. Close it with `q` and, when no search highlights are present, `Esc`.
 6. Open a recognized source file in both the regular pane and floating diff. Confirm code tokens are syntax-highlighted, addition/removal/hunk backgrounds reach the content edge, and the current-line gutter marker does not recolor the code. Include a tab, a wide character, and a long line; scroll horizontally and confirm the text still clips and scrolls independently of the background. While opening an uncached long text diff, immediately press `Ctrl-d` and confirm the marker moves half a page as soon as the diff appears. Confirm `j` / `k` visibly move it one line and `Ctrl-u` moves it up without a delay.
 7. Exercise counts plus `w/W/e/E`, `b/B/ge/gE`, `0/^/$/g_`, `f/F/t/T` with `;` / `,`, `gg/G/%/go/H/M/L`, sentence/paragraph/section and delimiter motions, page/scroll/`z` motions, and `[c` / `]c`. Search with `/`, `?`, `n/N`, `*` / `#`, and `g*` / `g#`.
+   - From a commit diff, press `Space v`; confirm the file is read from the selected commit rather than the working tree and opens at the corresponding line. Toggle `Space d`. With a matching trusted LSP profile, use `Space s`, confirm only symbols containing changed new-side lines appear, select one and verify the complete file jumps to it, then use the explicit full-file row without selecting a symbol.
 8. Press `Space m`, move through the complete commit message with character and word motions, and close it separately with `Space m`, `q`, and `Esc`.
 9. Press `Space b` and confirm the rows are the same commit list, commit body, and changed files. Use each standalone `Ctrl-h/k/j/l`, then the retained `Ctrl-w` forms, to move focus. Change the top-row commit and confirm the other rows update, scroll the body, and open a bottom-row file diff. Press `Space b` again to return to standard History.
 10. Press `Space t`, expand and collapse two directory levels, and open a blob diff.
@@ -103,6 +105,7 @@ Confirm typed input echoes normally, the cursor is visible, mouse selection work
 4. Move between tree and code with each standalone `Ctrl-h/k/j/l`, then repeat with the retained `Ctrl-w` forms. In the code pane exercise the complete count-aware motion set, including wanted-column behavior across short lines.
 5. Press `Enter` from both a tree file and the lower pane. Confirm the full Code window opens, `Enter` moves like `+`, searches wrap, and `q` returns to Code immediately; `Esc` first dismisses search highlights when present.
 6. With a language server enabled, move the character cursor onto a symbol. Confirm `K` opens and closes hover, `gd` / `gi` / `gy` / `gD` request the four semantic targets, and `Ctrl-o` / `Ctrl-i` move backward and forward through successful jumps. After going backward, make a new jump and confirm the former forward location is no longer reachable.
+   - From focused Code content and its float, press `Space s`; confirm the document-symbol list includes the explicit full-file row, selecting a symbol opens the complete file at that position, and `Space v` can open the same file directly. Repeat from current content in file history.
 7. Run `Space f` and `Space g` from Code. Open a nested result and confirm Code returns directly, expands the path in the tree, and places the marker on the content-match line. Set lowercase and uppercase marks, jump with apostrophe and backtick, cross files, and traverse the combined history with counted `Ctrl-o` / `Ctrl-i`.
 8. Open a binary, symbolic link, deleted tracked path, and file larger than 8 MiB. Confirm each displays a safe summary or truncation marker and no symbolic-link target is read.
 
@@ -112,8 +115,7 @@ Record the version/revision, OS, terminal, dimensions, query, pane/float and key
 Compare before and after using the same file and operation sequence. If the
 reported environment cannot be reproduced, record that limitation.
 
-1. In both Diff and Code, test the ordinary pane and full float at 140×40 and
-   80×24. Use `/needle`, `Enter`, `n`, `Esc`, then repeat with `?needle` and `N`.
+1. In Diff, Code, and the new-state full-file view, test the applicable pane or float at 140×40 and 80×24. Use `/needle`, `Enter`, `n`, `Esc`, then repeat with `?needle` and `N`.
    Read the surrounding text before and after Esc: only matched strings should
    carry search styling, the current and other matches must be distinguishable,
    and syntax colors, added/removed diff meaning, cursor, focus and scroll must

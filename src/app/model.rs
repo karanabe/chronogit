@@ -1,16 +1,53 @@
 //! The authoritative application model and its bounded view-specific state.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::num::NonZeroUsize;
 
 use crate::app::{Action, AppEffect, Event, GitEffect, SearchState};
 use crate::domain::{
-    ChangedFile, CommitMessage, CommitSummary, DiffDocument, DiffTarget, FileDocument,
-    NavigationTarget, ObjectId, RepoPath, RepositoryRoot, SearchHit, SemanticNavigationKind,
-    SourcePosition, TreeEntry, WorktreeChange,
+    ChangedFile, CommitMessage, CommitPage, CommitSummary, DiffDocument, DiffTarget,
+    DocumentSymbol, FileDocument, FileRevision, NavigationTarget, ObjectId, RepoPath,
+    RepositoryRoot, SearchHit, SemanticNavigationKind, SourcePosition, TreeEntry, WorktreeChange,
 };
 
 const MAX_DIFF_CACHE_ENTRIES: usize = 16;
 const MAX_DIFF_CACHE_BYTES: usize = 16 * 1024 * 1024;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum VerticalEdge {
+    Top,
+    Bottom,
+}
+
+impl VerticalEdge {
+    pub(crate) const fn is_bottom(self) -> bool {
+        matches!(self, Self::Bottom)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum HorizontalDirection {
+    Left,
+    Right,
+}
+
+impl HorizontalDirection {
+    pub(crate) const fn is_right(self) -> bool {
+        matches!(self, Self::Right)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CursorColumnPolicy {
+    Preserve,
+    Reset,
+}
+
+impl CursorColumnPolicy {
+    pub(crate) const fn resets_column(self) -> bool {
+        matches!(self, Self::Reset)
+    }
+}
 
 /// The main screen currently rendered by the TUI.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -29,6 +66,22 @@ pub enum AppView {
     FileHistory,
     /// Expandable working-tree file tree and current source content.
     Code,
+}
+
+/// Whether trusted language-server features are available to the application.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum LspAvailability {
+    /// No language-server profile was explicitly enabled.
+    #[default]
+    Disabled,
+    /// At least one trusted language-server profile is configured.
+    Enabled,
+}
+
+impl LspAvailability {
+    pub(crate) const fn is_enabled(self) -> bool {
+        matches!(self, Self::Enabled)
+    }
 }
 
 /// The pane receiving navigation actions in the current view.
@@ -72,6 +125,10 @@ pub enum Overlay {
     SemanticTargets,
     /// Language-server hover information for the current Code cursor.
     LspHover,
+    /// A complete source file, optionally annotated with changed lines.
+    FullFile,
+    /// Document symbols or changed-symbol context awaiting selection.
+    SymbolContext,
 }
 
 /// Repository-wide search mode.
@@ -94,6 +151,21 @@ impl RepositorySearchKind {
     }
 }
 
+/// Whether a commit page replaces or extends the visible history.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CommitLoadMode {
+    /// Replace the current commit list with a newly selected first page.
+    Replace,
+    /// Append the next page to the existing commit list.
+    Append,
+}
+
+impl CommitLoadMode {
+    pub(crate) const fn is_append(self) -> bool {
+        matches!(self, Self::Append)
+    }
+}
+
 /// A monotonically increasing identifier attached to asynchronous work.
 ///
 /// The value is scoped to one [`AppState`]. Reducers compare it with the current
@@ -104,8 +176,29 @@ pub struct RequestId(u64);
 impl RequestId {
     /// Returns the numeric identifier for executor-side atomic comparison.
     #[must_use]
-    pub fn value(self) -> u64 {
+    pub(crate) const fn value(self) -> u64 {
         self.0
+    }
+
+    const FIRST: Self = Self(1);
+
+    fn advance(&mut self) {
+        self.0 = self.0.saturating_add(1);
+    }
+}
+
+/// The generation of source text synchronized with asynchronous consumers.
+///
+/// Generations are scoped to one [`AppState`] and deliberately cannot be
+/// constructed from arbitrary integers. Effects carry the value selected by
+/// the reducer, and completions must echo that exact value before their data is
+/// accepted.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct DocumentRevision(u64);
+
+impl DocumentRevision {
+    pub(crate) fn advance(&mut self) {
+        self.0 = self.0.saturating_add(1);
     }
 }
 
@@ -222,18 +315,25 @@ pub struct VisibleTreeEntry {
     entry: TreeEntry,
     path: RepoPath,
     depth: usize,
-    expanded: bool,
+    expansion: ExpansionState,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum ExpansionState {
+    #[default]
+    Collapsed,
+    Expanded,
 }
 
 impl VisibleTreeEntry {
     /// Creates a collapsed visible entry at the supplied tree depth.
     #[must_use]
-    pub fn new(entry: TreeEntry, path: RepoPath, depth: usize) -> Self {
+    pub(crate) fn new(entry: TreeEntry, path: RepoPath, depth: usize) -> Self {
         Self {
             entry,
             path,
             depth,
-            expanded: false,
+            expansion: ExpansionState::Collapsed,
         }
     }
 
@@ -258,11 +358,15 @@ impl VisibleTreeEntry {
     /// Reports whether a directory's loaded children are currently visible.
     #[must_use]
     pub fn expanded(&self) -> bool {
-        self.expanded
+        self.expansion == ExpansionState::Expanded
     }
 
-    pub(crate) fn set_expanded(&mut self, expanded: bool) {
-        self.expanded = expanded;
+    pub(crate) fn expand(&mut self) {
+        self.expansion = ExpansionState::Expanded;
+    }
+
+    pub(crate) fn collapse(&mut self) {
+        self.expansion = ExpansionState::Collapsed;
     }
 }
 
@@ -290,8 +394,20 @@ pub(crate) struct MessageState {
 
 #[derive(Clone, Debug)]
 pub(crate) struct HistoryPageState {
-    pub(crate) has_more: bool,
+    pub(crate) continuation: HistoryContinuation,
     pub(crate) loading_more: Option<RequestId>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum HistoryContinuation {
+    Exhausted,
+    Available,
+}
+
+impl HistoryContinuation {
+    pub(crate) const fn has_more(self) -> bool {
+        matches!(self, Self::Available)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -332,13 +448,25 @@ pub(crate) struct FileViewState {
     pub(crate) commits: LoadState<Vec<CommitSummary>>,
     pub(crate) selection: Selection,
     pub(crate) content: LoadState<FileDocument>,
-    pub(crate) showing_history_diff: bool,
+    pub(crate) mode: FileViewMode,
     pub(crate) vertical: usize,
     pub(crate) byte_column: usize,
     pub(crate) desired_display_column: Option<usize>,
     pub(crate) viewport_vertical: usize,
     pub(crate) horizontal: usize,
     pub(crate) return_view: AppView,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FileViewMode {
+    CurrentContent,
+    HistoryDiff,
+}
+
+impl FileViewMode {
+    pub(crate) const fn shows_history_diff(self) -> bool {
+        matches!(self, Self::HistoryDiff)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -353,7 +481,7 @@ pub(crate) struct VisibleCodeEntry {
     name: RepoPath,
     depth: usize,
     kind: CodeEntryKind,
-    expanded: bool,
+    expansion: ExpansionState,
 }
 
 impl VisibleCodeEntry {
@@ -363,7 +491,7 @@ impl VisibleCodeEntry {
             name,
             depth,
             kind,
-            expanded: false,
+            expansion: ExpansionState::Collapsed,
         }
     }
 
@@ -384,11 +512,15 @@ impl VisibleCodeEntry {
     }
 
     pub(crate) fn expanded(&self) -> bool {
-        self.expanded
+        self.expansion == ExpansionState::Expanded
     }
 
-    pub(crate) fn set_expanded(&mut self, expanded: bool) {
-        self.expanded = expanded;
+    pub(crate) fn expand(&mut self) {
+        self.expansion = ExpansionState::Expanded;
+    }
+
+    pub(crate) fn collapse(&mut self) {
+        self.expansion = ExpansionState::Collapsed;
     }
 }
 
@@ -404,7 +536,7 @@ pub(crate) struct CodeViewState {
     pub(crate) viewport_vertical: usize,
     pub(crate) viewport_horizontal: usize,
     pub(crate) pending_reveal: Option<RepoPath>,
-    pub(crate) document_revision: u64,
+    pub(crate) document_revision: DocumentRevision,
 }
 
 impl CodeViewState {
@@ -420,7 +552,7 @@ impl CodeViewState {
             viewport_vertical: 0,
             viewport_horizontal: 0,
             pending_reveal: None,
-            document_revision: 0,
+            document_revision: DocumentRevision::default(),
         }
     }
 }
@@ -440,7 +572,7 @@ pub(crate) struct SemanticNavigationState {
     pub(crate) selection: Selection,
     pub(crate) source_path: Option<RepoPath>,
     pub(crate) source_position: SourcePosition,
-    pub(crate) source_revision: u64,
+    pub(crate) source_revision: DocumentRevision,
     pub(crate) kind: Option<SemanticNavigationKind>,
     pub(crate) status: Option<String>,
     pub(crate) back_stack: VecDeque<NavigationOrigin>,
@@ -452,10 +584,108 @@ pub(crate) struct LspHoverState {
     pub(crate) content: LoadState<Option<String>>,
     pub(crate) source_path: Option<RepoPath>,
     pub(crate) source_position: SourcePosition,
-    pub(crate) source_revision: u64,
+    pub(crate) source_revision: DocumentRevision,
     pub(crate) scroll: usize,
     pub(crate) status: Option<String>,
     pub(crate) return_overlay: Overlay,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FullFileMode {
+    Changes,
+    New,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SourceDiffContext {
+    None,
+    Pending,
+    Ready,
+}
+
+impl SourceDiffContext {
+    pub(crate) const fn has_diff(self) -> bool {
+        matches!(self, Self::Pending | Self::Ready)
+    }
+
+    pub(crate) const fn is_pending(self) -> bool {
+        matches!(self, Self::Pending)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FullFileDeletion {
+    pub(crate) anchor: u32,
+    pub(crate) old_line: Option<u32>,
+    pub(crate) content: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SourceFileIdentity {
+    pub(crate) revision: FileRevision,
+    pub(crate) path: RepoPath,
+}
+
+#[derive(Debug)]
+pub(crate) struct FullFileState {
+    pub(crate) identity: Option<SourceFileIdentity>,
+    pub(crate) content: LoadState<FileDocument>,
+    pub(crate) mode: FullFileMode,
+    pub(crate) cursor: SourcePosition,
+    pub(crate) desired_display_column: Option<usize>,
+    pub(crate) viewport_vertical: usize,
+    pub(crate) viewport_horizontal: usize,
+    pub(crate) changed_lines: BTreeSet<u32>,
+    pub(crate) deleted_lines: Vec<FullFileDeletion>,
+    pub(crate) diff_context: SourceDiffContext,
+    pub(crate) return_overlay: Overlay,
+    pub(crate) document_revision: DocumentRevision,
+}
+
+impl FullFileState {
+    fn new() -> Self {
+        Self {
+            identity: None,
+            content: LoadState::Idle,
+            mode: FullFileMode::New,
+            cursor: SourcePosition::new(0, 0),
+            desired_display_column: None,
+            viewport_vertical: 0,
+            viewport_horizontal: 0,
+            changed_lines: BTreeSet::new(),
+            deleted_lines: Vec::new(),
+            diff_context: SourceDiffContext::None,
+            return_overlay: Overlay::None,
+            document_revision: DocumentRevision::default(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct SymbolContextState {
+    pub(crate) symbols: LoadState<Vec<DocumentSymbol>>,
+    pub(crate) selection: Selection,
+    pub(crate) return_overlay: Overlay,
+    pub(crate) full_file_return_overlay: Overlay,
+    pub(crate) source_path: Option<RepoPath>,
+    pub(crate) source_revision: DocumentRevision,
+    pub(crate) status: Option<String>,
+    pub(crate) pending_source_request: Option<RequestId>,
+}
+
+impl SymbolContextState {
+    fn new() -> Self {
+        Self {
+            symbols: LoadState::Idle,
+            selection: Selection::new(),
+            return_overlay: Overlay::None,
+            full_file_return_overlay: Overlay::None,
+            source_path: None,
+            source_revision: DocumentRevision::default(),
+            status: None,
+            pending_source_request: None,
+        }
+    }
 }
 
 impl LspHoverState {
@@ -464,7 +694,7 @@ impl LspHoverState {
             content: LoadState::Idle,
             source_path: None,
             source_position: SourcePosition::new(0, 0),
-            source_revision: 0,
+            source_revision: DocumentRevision::default(),
             scroll: 0,
             status: None,
             return_overlay: Overlay::None,
@@ -479,7 +709,7 @@ impl SemanticNavigationState {
             selection: Selection::new(),
             source_path: None,
             source_position: SourcePosition::new(0, 0),
-            source_revision: 0,
+            source_revision: DocumentRevision::default(),
             kind: None,
             status: None,
             back_stack: VecDeque::new(),
@@ -495,7 +725,7 @@ impl FileViewState {
             commits: LoadState::Idle,
             selection: Selection::new(),
             content: LoadState::Idle,
-            showing_history_diff: false,
+            mode: FileViewMode::CurrentContent,
             vertical: 0,
             byte_column: 0,
             desired_display_column: None,
@@ -555,7 +785,7 @@ impl DiffCache {
     }
 }
 
-/// The complete mutable state consumed by ChronoGit's reducer and renderer.
+/// The complete mutable state consumed by `ChronoGit`'s reducer and renderer.
 ///
 /// State owns selections, load lifecycles, overlay navigation, stale-request
 /// tracking, and the bounded diff cache. External callers drive it exclusively
@@ -587,12 +817,15 @@ pub struct AppState {
     pub(crate) semantic_navigation: SemanticNavigationState,
     pub(crate) vim_marks: HashMap<char, NavigationOrigin>,
     pub(crate) lsp_hover: LspHoverState,
+    pub(crate) full_file: FullFileState,
+    pub(crate) symbol_context: SymbolContextState,
+    pub(crate) lsp_availability: LspAvailability,
     pub(crate) notice: Option<ErrorNotice>,
     pub(crate) preferred_change: Option<RepoPath>,
     pub(crate) preferred_commit: Option<ObjectId>,
     pub(crate) terminal_width: u16,
     pub(crate) terminal_height: u16,
-    next_request: u64,
+    next_request: RequestId,
     diff_cache: DiffCache,
 }
 
@@ -615,7 +848,7 @@ impl AppState {
             commits: LoadState::Idle,
             commit_selection: Selection::new(),
             history_page: HistoryPageState {
-                has_more: false,
+                continuation: HistoryContinuation::Exhausted,
                 loading_more: None,
             },
             files: LoadState::Idle,
@@ -652,12 +885,15 @@ impl AppState {
             semantic_navigation: SemanticNavigationState::new(),
             vim_marks: HashMap::new(),
             lsp_hover: LspHoverState::new(),
+            full_file: FullFileState::new(),
+            symbol_context: SymbolContextState::new(),
+            lsp_availability: LspAvailability::Disabled,
             notice: None,
             preferred_change: None,
             preferred_commit: None,
             terminal_width: 80,
             terminal_height: 24,
-            next_request: 1,
+            next_request: RequestId::FIRST,
             diff_cache: DiffCache::new(),
         }
     }
@@ -668,6 +904,15 @@ impl AppState {
         self.terminal_height = height;
     }
 
+    /// Records whether at least one trusted language-server profile was enabled.
+    ///
+    /// Semantic-only surfaces use this capability flag to stay unreachable in a
+    /// normal run that did not opt into external language-server processes.
+    /// Sets whether trusted language-server features are available.
+    pub fn set_lsp_availability(&mut self, availability: LspAvailability) {
+        self.lsp_availability = availability;
+    }
+
     /// Starts initial loading for the configured main view.
     ///
     /// Calling this again issues a fresh request; callers should normally invoke
@@ -676,7 +921,7 @@ impl AppState {
         match self.view {
             AppView::Changes => self.request_changes(),
             AppView::History | AppView::CommitDetails | AppView::Graph | AppView::GraphDetails => {
-                self.request_commits(false)
+                self.request_commits(crate::app::CommitLoadMode::Replace)
             }
             AppView::FileHistory => Vec::new(),
             AppView::Code => crate::app::code_view::request_tree(self),
@@ -696,6 +941,8 @@ impl AppState {
     /// Applies input through the complete Git and semantic-navigation reducer.
     pub fn handle_app_action(&mut self, action: Action) -> Vec<AppEffect> {
         if let Some(effects) = crate::app::semantic_navigation::apply_action(self, action) {
+            effects
+        } else if let Some(effects) = crate::app::source_view::apply_action(self, action) {
             effects
         } else {
             self.handle_action(action)
@@ -718,7 +965,11 @@ impl AppState {
         match event {
             Event::SemanticNavigationCompleted { .. }
             | Event::LspHoverCompleted { .. }
+            | Event::DocumentSymbolsCompleted { .. }
             | Event::LspStatus { .. } => crate::app::semantic_navigation::apply_event(self, event),
+            Event::FullFileLoaded { .. } => {
+                crate::app::source_view::apply_event(self, event).unwrap_or_default()
+            }
             event => self
                 .handle_event(event)
                 .into_iter()
@@ -764,8 +1015,8 @@ impl AppState {
     }
 
     pub(crate) fn request_id(&mut self) -> RequestId {
-        let id = RequestId(self.next_request);
-        self.next_request = self.next_request.saturating_add(1);
+        let id = self.next_request;
+        self.next_request.advance();
         id
     }
 
@@ -776,10 +1027,10 @@ impl AppState {
         vec![GitEffect::LoadChanges { request_id }]
     }
 
-    pub(crate) fn request_commits(&mut self, append: bool) -> Vec<GitEffect> {
-        const PAGE_SIZE: usize = 200;
+    pub(crate) fn request_commits(&mut self, mode: CommitLoadMode) -> Vec<GitEffect> {
+        const PAGE_SIZE: NonZeroUsize = NonZeroUsize::new(200).unwrap();
         let request_id = self.request_id();
-        let skip = if append {
+        let skip = if mode.is_append() {
             match &self.commits {
                 LoadState::Ready(commits) => commits.len(),
                 _ => 0,
@@ -789,15 +1040,14 @@ impl AppState {
             self.history_page.loading_more = None;
             0
         };
-        if append {
+        if mode.is_append() {
             self.history_page.loading_more = Some(request_id);
         }
         self.notice = None;
         vec![GitEffect::LoadCommits {
             request_id,
-            skip,
-            limit: PAGE_SIZE,
-            append,
+            page: CommitPage::new(skip, PAGE_SIZE),
+            mode,
         }]
     }
 

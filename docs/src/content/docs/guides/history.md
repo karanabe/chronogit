@@ -23,6 +23,15 @@ History displays commits, changed files/tree, and the diff preview as three full
 4. Use count-aware Vim character, word, line, buffer, structural, search, and viewport motions. `[c` / `]c` jumps between diff change blocks; the cursor remains visible without recoloring syntax-highlighted code. Vertical commands entered while the diff is loading still take effect.
 5. `Enter` moves to the next line's first nonblank. Use `q` or `Esc` to close the diff.
 
+From that focused or floating diff, `Space v` opens the selected commit's
+complete new-state file at the corresponding line. `Space d` switches between
+Changes—which highlights additions and inserts removed lines in red at their
+former positions—and the plain new-state view. If LSP was enabled at
+startup, `Space s` lists document symbols containing changed new-side lines;
+selecting one jumps to that symbol in the complete file. The first list row
+opens the complete file without requiring a symbol selection. These actions
+also work from History's preview diff and from Graph or file-history diffs.
+
 History loads 200 commits at a time. Moving to the end of the loaded page requests the next page when one exists. Changed-file lists and diffs load only for the selected commit.
 
 ## Understand the comparison

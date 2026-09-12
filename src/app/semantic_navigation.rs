@@ -2,14 +2,23 @@
 
 use crate::app::model::NavigationOrigin;
 use crate::app::{
-    Action, AppEffect, AppState, AppView, ErrorNotice, Event, FocusedPane, LoadState, LspEffect,
-    Overlay, VimMotionKind,
+    Action, AppEffect, AppState, AppView, ErrorNotice, Event, FocusedPane, HorizontalDirection,
+    JumpHistory, LoadState, LspEffect, MarkJumpTarget, Overlay, VimMotionKind,
 };
 use crate::domain::{NavigationTarget, RepositoryLocation, SemanticNavigationKind, SourcePosition};
 
 const MAX_JUMP_HISTORY: usize = 64;
 
+#[derive(Clone, Copy)]
+enum JumpListDirection {
+    Backward,
+    Forward,
+}
+
 pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Option<Vec<AppEffect>> {
+    if state.overlay == Overlay::SymbolContext {
+        return Some(symbol_context_action(state, action));
+    }
     if state.overlay == Overlay::SemanticTargets {
         return Some(candidate_action(state, action));
     }
@@ -18,26 +27,27 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Option<Vec<A
     }
     match action {
         Action::MoveCursorLeft if code_content_active(state) => {
-            crate::app::code_view::move_cursor_horizontally(state, false);
+            crate::app::code_view::move_cursor_horizontally(state, HorizontalDirection::Left);
             Some(Vec::new())
         }
         Action::MoveCursorRight if code_content_active(state) => {
-            crate::app::code_view::move_cursor_horizontally(state, true);
+            crate::app::code_view::move_cursor_horizontally(state, HorizontalDirection::Right);
             Some(Vec::new())
         }
         Action::ToggleLspHover => Some(request_hover(state)),
+        Action::OpenSymbolContext => Some(open_symbol_context(state)),
         Action::GoToSemanticTarget(kind) => Some(request(state, kind)),
         Action::GoBackFromSemanticTarget => Some(go_back(state)),
         Action::GoForwardFromSemanticTarget => Some(go_forward(state)),
-        Action::JumpListBack(count) => Some(jump_list(state, false, count)),
-        Action::JumpListForward(count) => Some(jump_list(state, true, count)),
+        Action::JumpListBack(count) => Some(jump_list(state, JumpListDirection::Backward, count)),
+        Action::JumpListForward(count) => Some(jump_list(state, JumpListDirection::Forward, count)),
         _ => None,
     }
 }
 
-fn jump_list(state: &mut AppState, forward: bool, count: usize) -> Vec<AppEffect> {
+fn jump_list(state: &mut AppState, direction: JumpListDirection, count: usize) -> Vec<AppEffect> {
     let mut origin = current_origin(state);
-    let (source, destination) = if forward {
+    let (source, destination) = if matches!(direction, JumpListDirection::Forward) {
         (
             &mut state.semantic_navigation.forward_stack,
             &mut state.semantic_navigation.back_stack,
@@ -75,7 +85,51 @@ pub(crate) fn apply_event(state: &mut AppState, event: Event) -> Vec<AppEffect> 
             state.semantic_navigation.status = Some(message);
         } else if state.lsp_hover.content.loading_request() == Some(request_id) {
             state.lsp_hover.status = Some(message);
+        } else if state.symbol_context.symbols.loading_request() == Some(request_id) {
+            state.symbol_context.status = Some(message);
         }
+        return Vec::new();
+    }
+    if let Event::DocumentSymbolsCompleted {
+        request_id,
+        path,
+        document_revision,
+        result,
+    } = event
+    {
+        if state.symbol_context.symbols.loading_request() != Some(request_id) {
+            return Vec::new();
+        }
+        if state
+            .full_file
+            .identity
+            .as_ref()
+            .map(|identity| &identity.path)
+            != Some(&path)
+            || state.full_file.document_revision != document_revision
+            || state.symbol_context.source_path.as_ref() != Some(&path)
+            || state.symbol_context.source_revision != document_revision
+        {
+            state.symbol_context.symbols = LoadState::Idle;
+            state.symbol_context.status = None;
+            return Vec::new();
+        }
+        state.symbol_context.status = None;
+        state.symbol_context.symbols = match result {
+            Ok(symbols) => {
+                let symbols = changed_symbol_context(state, symbols);
+                state
+                    .symbol_context
+                    .selection
+                    .reset(symbols.len().saturating_add(1));
+                LoadState::Ready(symbols)
+            }
+            Err(error) => {
+                let notice = ErrorNotice::new(error.to_string());
+                state.notice = Some(notice.clone());
+                LoadState::Failed(notice)
+            }
+        };
         return Vec::new();
     }
     if let Event::LspHoverCompleted {
@@ -163,6 +217,12 @@ pub(crate) fn apply_event(state: &mut AppState, event: Event) -> Vec<AppEffect> 
 }
 
 fn request_hover(state: &mut AppState) -> Vec<AppEffect> {
+    if !state.lsp_availability.is_enabled() {
+        state.notice = Some(ErrorNotice::new(
+            "LSP is disabled; restart with --lsp PROFILE before using semantic features.",
+        ));
+        return Vec::new();
+    }
     if !code_content_active(state) {
         state.notice = Some(ErrorNotice::new(
             "LSP hover is available only in the current working-tree Code viewer.",
@@ -250,6 +310,12 @@ fn close_hover(state: &mut AppState) {
 }
 
 fn request(state: &mut AppState, kind: SemanticNavigationKind) -> Vec<AppEffect> {
+    if !state.lsp_availability.is_enabled() {
+        state.notice = Some(ErrorNotice::new(
+            "LSP is disabled; restart with --lsp PROFILE before using semantic features.",
+        ));
+        return Vec::new();
+    }
     if !code_content_active(state) {
         state.notice = Some(ErrorNotice::new(
             "Semantic navigation is available only in the current working-tree Code viewer.",
@@ -288,6 +354,152 @@ fn request(state: &mut AppState, kind: SemanticNavigationKind) -> Vec<AppEffect>
         position,
         document_revision,
     })]
+}
+
+fn open_symbol_context(state: &mut AppState) -> Vec<AppEffect> {
+    if !state.lsp_availability.is_enabled() {
+        state.notice = Some(ErrorNotice::new(
+            "Symbol context requires LSP; restart with --lsp PROFILE for a trusted repository.",
+        ));
+        return Vec::new();
+    }
+    crate::app::source_view::prepare_for_symbols(state)
+}
+
+pub(crate) fn request_document_symbols(state: &mut AppState) -> Vec<AppEffect> {
+    let Some(identity) = state.full_file.identity.clone() else {
+        state.notice = Some(ErrorNotice::new("Select a source file first."));
+        return Vec::new();
+    };
+    let Some(text) = (match &state.full_file.content {
+        LoadState::Ready(document) => document.source(),
+        _ => None,
+    }) else {
+        let notice = ErrorNotice::new("Symbol context requires a complete UTF-8 text document.");
+        state.symbol_context.symbols = LoadState::Failed(notice.clone());
+        state.symbol_context.status = None;
+        state.notice = Some(notice);
+        state.overlay = Overlay::SymbolContext;
+        return Vec::new();
+    };
+    let text = text.to_owned();
+    let request_id = state.request_id();
+    let document_revision = state.full_file.document_revision;
+    state.symbol_context.symbols = LoadState::Loading { request_id };
+    state.symbol_context.selection.reset(1);
+    state.symbol_context.source_path = Some(identity.path.clone());
+    state.symbol_context.source_revision = document_revision;
+    state.symbol_context.status = Some("starting or contacting language server".to_owned());
+    state.symbol_context.pending_source_request = None;
+    state.overlay = Overlay::SymbolContext;
+    state.notice = None;
+    vec![AppEffect::Lsp(LspEffect::DocumentSymbols {
+        request_id,
+        path: identity.path,
+        text,
+        document_revision,
+    })]
+}
+
+fn changed_symbol_context(
+    state: &AppState,
+    symbols: Vec<crate::domain::DocumentSymbol>,
+) -> Vec<crate::domain::DocumentSymbol> {
+    if !state.full_file.diff_context.has_diff() {
+        return symbols;
+    }
+    symbols
+        .into_iter()
+        .filter(|symbol| {
+            let range = symbol.range();
+            let Some(last_line) = (if range.end().byte_column() == 0 {
+                range.end().line().checked_sub(1)
+            } else {
+                Some(range.end().line())
+            }) else {
+                return false;
+            };
+            if range.start().line() > last_line {
+                return false;
+            }
+            state
+                .full_file
+                .changed_lines
+                .range(range.start().line()..=last_line)
+                .next()
+                .is_some()
+        })
+        .collect()
+}
+
+fn symbol_context_action(state: &mut AppState, action: Action) -> Vec<AppEffect> {
+    let len = match &state.symbol_context.symbols {
+        LoadState::Ready(symbols) => symbols.len().saturating_add(1),
+        LoadState::Idle | LoadState::Loading { .. } | LoadState::Failed(_) => 1,
+    };
+    match action {
+        Action::MoveUp => {
+            state.symbol_context.selection.move_by(-1, len);
+        }
+        Action::MoveDown => {
+            state.symbol_context.selection.move_by(1, len);
+        }
+        Action::MoveTop => {
+            state.symbol_context.selection.top(len);
+        }
+        Action::MoveBottom => {
+            state.symbol_context.selection.bottom(len);
+        }
+        Action::VimMotion(motion) => match motion.kind() {
+            VimMotionKind::Up | VimMotionKind::PreviousLineFirstNonBlank => {
+                state
+                    .symbol_context
+                    .selection
+                    .move_by(-(motion.count() as isize), len);
+            }
+            VimMotionKind::Down | VimMotionKind::NextLineFirstNonBlank => {
+                state
+                    .symbol_context
+                    .selection
+                    .move_by(motion.count() as isize, len);
+            }
+            VimMotionKind::BufferTop | VimMotionKind::LineStart => {
+                state.symbol_context.selection.top(len);
+            }
+            VimMotionKind::BufferBottom | VimMotionKind::LineEnd => {
+                state.symbol_context.selection.bottom(len);
+            }
+            _ => {}
+        },
+        Action::Activate | Action::OpenFullFile => {
+            let index = state.symbol_context.selection.index().unwrap_or(0);
+            if index == 0 {
+                return crate::app::source_view::open_full_file(state);
+            }
+            let position = match &state.symbol_context.symbols {
+                LoadState::Ready(symbols) => symbols
+                    .get(index.saturating_sub(1))
+                    .map(|symbol| symbol.selection()),
+                _ => None,
+            };
+            if let Some(position) = position {
+                crate::app::source_view::reveal_symbol(state, position);
+            }
+        }
+        Action::CloseOverlay | Action::DismissSearchOrClose => {
+            state.overlay = state.symbol_context.return_overlay;
+            if state.overlay == Overlay::FullFile {
+                state.full_file.return_overlay = state.symbol_context.full_file_return_overlay;
+            }
+            state.symbol_context.pending_source_request = None;
+            if matches!(state.symbol_context.symbols, LoadState::Loading { .. }) {
+                state.symbol_context.symbols = LoadState::Idle;
+            }
+            state.symbol_context.status = None;
+        }
+        _ => {}
+    }
+    Vec::new()
 }
 
 fn candidate_action(state: &mut AppState, action: Action) -> Vec<AppEffect> {
@@ -381,21 +593,18 @@ fn jump_to_repository(state: &mut AppState, location: RepositoryLocation) -> Vec
     }
     state.semantic_navigation.forward_stack.clear();
     state.notice = None;
-    crate::app::code_view::reveal_location(
-        state,
-        location.path().clone(),
-        location.selection().start(),
-    )
-    .into_iter()
-    .map(AppEffect::from)
-    .collect()
+    let (path, selection) = location.into_parts();
+    crate::app::code_view::reveal_location(state, path, selection.start())
+        .into_iter()
+        .map(AppEffect::from)
+        .collect()
 }
 
 fn go_back(state: &mut AppState) -> Vec<AppEffect> {
-    jump_to_previous(state, false)
+    jump_to_previous(state, MarkJumpTarget::Exact)
 }
 
-pub(crate) fn jump_to_previous(state: &mut AppState, linewise: bool) -> Vec<AppEffect> {
+pub(crate) fn jump_to_previous(state: &mut AppState, target: MarkJumpTarget) -> Vec<AppEffect> {
     let Some(origin) = state.semantic_navigation.back_stack.pop_back() else {
         state.notice = Some(ErrorNotice::new("No earlier jump location."));
         return Vec::new();
@@ -404,7 +613,7 @@ pub(crate) fn jump_to_previous(state: &mut AppState, linewise: bool) -> Vec<AppE
         push_bounded(&mut state.semantic_navigation.forward_stack, current);
     }
     let mut origin = origin;
-    if linewise {
+    if target.is_linewise() {
         origin.cursor = SourcePosition::new(origin.cursor.line(), origin.first_non_blank_column);
         origin.viewport_horizontal = 0;
     }
@@ -469,17 +678,19 @@ pub(crate) fn remember_jump(state: &mut AppState, origin: NavigationOrigin) {
 pub(crate) fn jump_to_mark(
     state: &mut AppState,
     origin: NavigationOrigin,
-    linewise: bool,
-    record_jump: bool,
+    target: MarkJumpTarget,
+    history: JumpHistory,
 ) -> Vec<AppEffect> {
     let current = current_origin(state);
     let mut origin = origin;
-    if linewise {
+    if target.is_linewise() {
         origin.cursor = SourcePosition::new(origin.cursor.line(), origin.first_non_blank_column);
         origin.viewport_horizontal = 0;
     }
     let effects = reveal_origin(state, origin);
-    if record_jump && let Some(current) = current {
+    if history.records_jump()
+        && let Some(current) = current
+    {
         remember_jump(state, current);
     }
     effects
@@ -505,7 +716,8 @@ mod tests {
 
     use super::{apply_action, apply_event};
     use crate::app::{
-        Action, AppState, AppView, Event, LoadState, Overlay, VimMotion, VimMotionKind,
+        Action, AppState, AppView, Event, JumpHistory, LoadState, MarkJumpTarget, Overlay,
+        VimCountSource, VimMotion, VimMotionKind,
     };
     use crate::domain::{
         FileDocument, NavigationTarget, RepoPath, RepositoryLocation, RepositoryRoot,
@@ -518,18 +730,14 @@ mod tests {
                 .unwrap_or_else(|error| panic!("root: {error}")),
             AppView::Code,
         );
+        state.set_lsp_availability(crate::app::LspAvailability::Enabled);
         state.focus = crate::app::FocusedPane::Diff;
         state.overlay = Overlay::CodeContent;
         state.code_view.path = Some(
             RepoPath::from_bytes(b"src/main.rs".to_vec())
                 .unwrap_or_else(|error| panic!("path: {error}")),
         );
-        state.code_view.content = LoadState::Ready(FileDocument::Text {
-            source: "fn main() {}\n".to_owned(),
-            lines: vec!["fn main() {}".to_owned()],
-            valid_utf8: true,
-            truncated: false,
-        });
+        state.code_view.content = LoadState::Ready(FileDocument::exact_text("fn main() {}\n"));
         state
     }
 
@@ -557,20 +765,16 @@ mod tests {
     #[test]
     fn vim_marks_restore_exact_or_first_non_blank_positions_and_join_jump_history() {
         let mut state = state();
-        state.code_view.content = LoadState::Ready(FileDocument::Text {
-            source: "zero\n  marked word\n".to_owned(),
-            lines: vec!["zero".to_owned(), "  marked word".to_owned()],
-            valid_utf8: true,
-            truncated: false,
-        });
+        state.code_view.content =
+            LoadState::Ready(FileDocument::exact_text("zero\n  marked word\n"));
         state.code_view.cursor = SourcePosition::new(1, 9);
         assert!(state.handle_app_action(Action::SetVimMark('a')).is_empty());
 
         state.code_view.cursor = SourcePosition::new(0, 2);
         let effects = state.handle_app_action(Action::JumpToVimMark {
             mark: 'a',
-            linewise: true,
-            record_jump: true,
+            target: MarkJumpTarget::Line,
+            history: JumpHistory::Record,
         });
         assert_eq!(effects.len(), 1);
         assert_eq!(state.code_view.cursor, SourcePosition::new(1, 2));
@@ -588,16 +792,8 @@ mod tests {
     #[test]
     fn mark_scans_are_counted_and_history_free_mark_jumps_do_not_push() {
         let mut state = state();
-        state.code_view.content = LoadState::Ready(FileDocument::Text {
-            source: "zero\n  first\n    second\n".to_owned(),
-            lines: vec![
-                "zero".to_owned(),
-                "  first".to_owned(),
-                "    second".to_owned(),
-            ],
-            valid_utf8: true,
-            truncated: false,
-        });
+        state.code_view.content =
+            LoadState::Ready(FileDocument::exact_text("zero\n  first\n    second\n"));
         state.code_view.cursor = SourcePosition::new(1, 4);
         assert!(state.handle_app_action(Action::SetVimMark('a')).is_empty());
         state.code_view.cursor = SourcePosition::new(2, 7);
@@ -605,15 +801,15 @@ mod tests {
         state.code_view.cursor = SourcePosition::new(0, 0);
 
         let _effects = state.handle_app_action(Action::VimMotion(
-            VimMotion::new(VimMotionKind::NextMarkLine).counted(2, true),
+            VimMotion::new(VimMotionKind::NextMarkLine).counted(2, VimCountSource::Explicit),
         ));
         assert_eq!(state.code_view.cursor, SourcePosition::new(2, 4));
 
         let history_len = state.semantic_navigation.back_stack.len();
         let _effects = state.handle_app_action(Action::JumpToVimMark {
             mark: 'a',
-            linewise: false,
-            record_jump: false,
+            target: MarkJumpTarget::Exact,
+            history: JumpHistory::Preserve,
         });
         assert_eq!(state.code_view.cursor, SourcePosition::new(1, 4));
         assert_eq!(state.semantic_navigation.back_stack.len(), history_len);
@@ -622,12 +818,7 @@ mod tests {
     #[test]
     fn counted_jump_list_navigation_continues_for_same_file_locations() {
         let mut state = state();
-        state.code_view.content = LoadState::Ready(FileDocument::Text {
-            source: "zero\none\ntwo\n".to_owned(),
-            lines: vec!["zero".to_owned(), "one".to_owned(), "two".to_owned()],
-            valid_utf8: true,
-            truncated: false,
-        });
+        state.code_view.content = LoadState::Ready(FileDocument::exact_text("zero\none\ntwo\n"));
         state.code_view.cursor = SourcePosition::new(1, 0);
         assert!(
             state
@@ -866,7 +1057,7 @@ mod tests {
             }) => (request_id, document_revision),
             _ => panic!("expected navigation"),
         };
-        state.code_view.document_revision = state.code_view.document_revision.saturating_add(1);
+        state.code_view.document_revision.advance();
         let none = apply_event(
             &mut state,
             Event::SemanticNavigationCompleted {

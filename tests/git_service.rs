@@ -1,5 +1,6 @@
 use std::ffi::OsString;
 use std::fs;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -7,10 +8,22 @@ use std::process::{Command, Output};
 use std::os::unix::ffi::OsStringExt;
 
 use chronogit::domain::{
-    ChangeKind, CommitBaseline, DiffDocument, DiffTarget, FileDocument, TreeKind,
+    ChangeKind, CommitBaseline, CommitPage, DiffDocument, DiffTarget, FileDocument, FileRevision,
+    RepoPath, TreeKind, WorktreeDiffKind,
 };
 use chronogit::git::{GitService, SystemGitRunner};
 use tempfile::TempDir;
+
+fn commit_page(skip: usize, limit: usize) -> CommitPage {
+    CommitPage::new(
+        skip,
+        NonZeroUsize::new(limit).unwrap_or_else(|| panic!("page size must be non-zero")),
+    )
+}
+
+fn commit_limit(limit: usize) -> NonZeroUsize {
+    NonZeroUsize::new(limit).unwrap_or_else(|| panic!("commit limit must be non-zero"))
+}
 
 struct TestRepository {
     directory: TempDir,
@@ -93,7 +106,7 @@ fn excludes_staged_only_and_shows_only_the_unstaged_part_of_mixed_changes() {
     let diff = service
         .diff(&DiffTarget::Worktree {
             path: changes[0].path().clone(),
-            untracked: false,
+            kind: WorktreeDiffKind::Tracked,
         })
         .unwrap_or_else(|error| panic!("could not read mixed diff: {error}"));
     let text = diff
@@ -130,7 +143,7 @@ fn reports_conflicts_as_unmerged_changes() {
     let diff = service
         .diff(&DiffTarget::Worktree {
             path: changes[0].path().clone(),
-            untracked: false,
+            kind: WorktreeDiffKind::Tracked,
         })
         .unwrap_or_else(|error| panic!("could not read conflict diff: {error}"));
     assert!(matches!(diff, DiffDocument::Text { .. }));
@@ -147,14 +160,14 @@ fn identifies_binary_and_truncates_oversized_diffs() {
         .diff(&DiffTarget::Worktree {
             path: chronogit::domain::RepoPath::from_bytes(b"binary.bin".to_vec())
                 .unwrap_or_else(|error| panic!("invalid path: {error}")),
-            untracked: false,
+            kind: WorktreeDiffKind::Tracked,
         })
         .unwrap_or_else(|error| panic!("could not read binary diff: {error}"));
     assert!(matches!(binary, DiffDocument::Binary { .. }));
 
     repository.commit_all("binary update");
     let commit = service
-        .commits(0, 1)
+        .commits(commit_page(0, 1))
         .unwrap_or_else(|error| panic!("could not read binary commit: {error}"))
         .into_iter()
         .next()
@@ -181,7 +194,7 @@ fn identifies_binary_and_truncates_oversized_diffs() {
         .diff(&DiffTarget::Worktree {
             path: chronogit::domain::RepoPath::from_bytes(b"large.txt".to_vec())
                 .unwrap_or_else(|error| panic!("invalid path: {error}")),
-            untracked: true,
+            kind: WorktreeDiffKind::Untracked,
         })
         .unwrap_or_else(|error| panic!("could not read oversized diff: {error}"));
     assert!(oversized.is_truncated());
@@ -203,7 +216,7 @@ fn all_read_operations_preserve_head_status_and_worktree() {
         .changes()
         .unwrap_or_else(|error| panic!("could not read changes: {error}"));
     let commits = service
-        .commits(0, 10)
+        .commits(commit_page(0, 10))
         .unwrap_or_else(|error| panic!("could not read commits: {error}"));
     let commit = &commits[0];
     let _message = service
@@ -226,15 +239,18 @@ fn all_read_operations_preserve_head_status_and_worktree() {
         .search_content("after")
         .unwrap_or_else(|error| panic!("could not search content: {error}"));
     let _file_history = service
-        .file_history(&tracked_path, 20)
+        .file_history(&tracked_path, commit_limit(20))
         .unwrap_or_else(|error| panic!("could not read file history: {error}"));
     let _file_content = service
         .file_content(&tracked_path)
         .unwrap_or_else(|error| panic!("could not read file content: {error}"));
+    let _revision_file = service
+        .source_file(&FileRevision::Commit(commit.id().clone()), &tracked_path)
+        .unwrap_or_else(|error| panic!("could not read revision file: {error}"));
     let _worktree_diff = service
         .diff(&DiffTarget::Worktree {
             path: changes[0].path().clone(),
-            untracked: false,
+            kind: WorktreeDiffKind::Tracked,
         })
         .unwrap_or_else(|error| panic!("could not read worktree diff: {error}"));
     let _commit_diff = service
@@ -255,6 +271,58 @@ fn all_read_operations_preserve_head_status_and_worktree() {
             .unwrap_or_else(|error| panic!("could not re-read worktree: {error}")),
         before_file
     );
+}
+
+#[test]
+fn reads_full_files_from_worktree_and_commit_without_confusing_the_snapshots() {
+    let repository = TestRepository::new();
+    repository.write("src/value.rs", b"pub const VALUE: u8 = 1;\n");
+    repository.commit_all("first value");
+    repository.write("src/value.rs", b"pub const VALUE: u8 = 2;\n");
+
+    let service = repository.service();
+    let commit = service
+        .commits(commit_page(0, 1))
+        .unwrap_or_else(|error| panic!("could not read commit: {error}"))
+        .remove(0);
+    let path = RepoPath::from_bytes(b"src/value.rs".to_vec())
+        .unwrap_or_else(|error| panic!("path: {error}"));
+    let historical = service
+        .source_file(&FileRevision::Commit(commit.id().clone()), &path)
+        .unwrap_or_else(|error| panic!("could not read historical file: {error}"));
+    let current = service
+        .source_file(&FileRevision::WorkingTree, &path)
+        .unwrap_or_else(|error| panic!("could not read current file: {error}"));
+    assert_eq!(historical.lines(), ["pub const VALUE: u8 = 1;"]);
+    assert_eq!(current.lines(), ["pub const VALUE: u8 = 2;"]);
+
+    let missing = RepoPath::from_bytes(b"missing.rs".to_vec())
+        .unwrap_or_else(|error| panic!("path: {error}"));
+    let unavailable = service
+        .source_file(&FileRevision::Commit(commit.id().clone()), &missing)
+        .unwrap_or_else(|error| panic!("missing historical path should be displayable: {error}"));
+    assert!(matches!(unavailable, FileDocument::Unavailable { .. }));
+}
+
+#[test]
+fn truncates_oversized_historical_full_files_instead_of_failing_the_view() {
+    let repository = TestRepository::new();
+    let content = vec![b'x'; 8 * 1024 * 1024 + 4096];
+    repository.write("large.txt", &content);
+    repository.commit_all("large source");
+
+    let service = repository.service();
+    let commit = service
+        .commits(commit_page(0, 1))
+        .unwrap_or_else(|error| panic!("could not read commit: {error}"))
+        .remove(0);
+    let path =
+        RepoPath::from_bytes(b"large.txt".to_vec()).unwrap_or_else(|error| panic!("path: {error}"));
+    let document = service
+        .source_file(&FileRevision::Commit(commit.id().clone()), &path)
+        .unwrap_or_else(|error| panic!("oversized source should remain displayable: {error}"));
+    assert!(document.is_truncated());
+    assert_eq!(document.lines()[0].len(), 8 * 1024 * 1024);
 }
 
 #[test]
@@ -305,12 +373,16 @@ fn searches_files_and_content_and_reads_file_history_and_current_content() {
         .search_content("searchable needle")
         .unwrap_or_else(|error| panic!("could not grep repository: {error}"));
     assert_eq!(matches.len(), 2);
-    assert!(matches.iter().all(|hit| hit.line() == Some(1)));
+    assert!(
+        matches
+            .iter()
+            .all(|hit| hit.line().map(chronogit::domain::LineNumber::value) == Some(1))
+    );
 
     let path = chronogit::domain::RepoPath::from_bytes(b"src/needle.rs".to_vec())
         .unwrap_or_else(|error| panic!("invalid path: {error}"));
     let history = service
-        .file_history(&path, 20)
+        .file_history(&path, commit_limit(20))
         .unwrap_or_else(|error| panic!("could not read file history: {error}"));
     assert_eq!(history.len(), 2);
     assert_eq!(history[0].subject(), "update searchable file");
@@ -413,14 +485,14 @@ fn handles_leading_dash_rename_delete_and_normal_commit_diffs() {
     let dangerous_diff = service
         .diff(&DiffTarget::Worktree {
             path: dangerous.path().clone(),
-            untracked: true,
+            kind: WorktreeDiffKind::Untracked,
         })
         .unwrap_or_else(|error| panic!("could not diff leading-dash path: {error}"));
     assert!(matches!(dangerous_diff, DiffDocument::Text { .. }));
 
     repository.commit_all("rename and delete");
     let commits = service
-        .commits(0, 10)
+        .commits(commit_page(0, 10))
         .unwrap_or_else(|error| panic!("could not read normal commit: {error}"));
     let commit = &commits[0];
     let files = service
@@ -444,6 +516,10 @@ fn handles_leading_dash_rename_delete_and_normal_commit_diffs() {
         })
         .unwrap_or_else(|error| panic!("could not read rename diff: {error}"));
     assert!(matches!(diff, DiffDocument::Text { .. }));
+    let leading_dash = service
+        .source_file(&FileRevision::Commit(commit.id().clone()), dangerous.path())
+        .unwrap_or_else(|error| panic!("could not read leading-dash revision path: {error}"));
+    assert_eq!(leading_dash.lines(), ["safe path argument"]);
 }
 
 #[test]
@@ -466,7 +542,7 @@ fn detects_copies_from_a_modified_source() {
 
     let service = repository.service();
     let commit = service
-        .commits(0, 1)
+        .commits(commit_page(0, 1))
         .unwrap_or_else(|error| panic!("could not read copy commit: {error}"))
         .remove(0);
     let files = service
@@ -497,7 +573,7 @@ fn reads_multiline_and_empty_commit_messages() {
     ]);
     let service = repository.service();
     let multiline = service
-        .commits(0, 1)
+        .commits(commit_page(0, 1))
         .unwrap_or_else(|error| panic!("could not read multiline commit: {error}"))
         .remove(0);
     let message = service
@@ -509,7 +585,7 @@ fn reads_multiline_and_empty_commit_messages() {
     repository.git(&["add", "--all"]);
     repository.git(&["commit", "--allow-empty-message", "-m", ""]);
     let empty = service
-        .commits(0, 1)
+        .commits(commit_page(0, 1))
         .unwrap_or_else(|error| panic!("could not read empty-message commit: {error}"))
         .remove(0);
     let message = service
@@ -524,7 +600,7 @@ fn reads_empty_deep_unicode_and_large_trees_lazily() {
     empty_repository.git(&["commit", "--allow-empty", "-m", "empty tree"]);
     let empty_service = empty_repository.service();
     let empty_commit = empty_service
-        .commits(0, 1)
+        .commits(commit_page(0, 1))
         .unwrap_or_else(|error| panic!("could not read empty-tree commit: {error}"))
         .remove(0);
     assert!(
@@ -551,7 +627,7 @@ fn reads_empty_deep_unicode_and_large_trees_lazily() {
 
     let service = repository.service();
     let commit = service
-        .commits(0, 1)
+        .commits(commit_page(0, 1))
         .unwrap_or_else(|error| panic!("could not read tree commit: {error}"))
         .remove(0);
     let root = service
@@ -627,7 +703,7 @@ fn identifies_type_changes_symlinks_and_submodules() {
     ]);
     repository.git(&["commit", "-m", "gitlink"]);
     let commits = service
-        .commits(0, 10)
+        .commits(commit_page(0, 10))
         .unwrap_or_else(|error| panic!("could not read gitlink commit: {error}"));
     let tree = service
         .tree_entries(commits[0].id())
@@ -668,13 +744,13 @@ fn reads_worktree_history_message_diff_and_tree() {
     let untracked_diff = service
         .diff(&DiffTarget::Worktree {
             path: untracked.path().clone(),
-            untracked: true,
+            kind: WorktreeDiffKind::Untracked,
         })
         .unwrap_or_else(|error| panic!("could not read untracked diff: {error}"));
     assert!(matches!(untracked_diff, DiffDocument::Text { .. }));
 
     let commits = service
-        .commits(0, 200)
+        .commits(commit_page(0, 200))
         .unwrap_or_else(|error| panic!("could not read commits: {error}"));
     assert_eq!(commits.len(), 1);
     assert_eq!(commits[0].baseline(), CommitBaseline::EmptyTree);
@@ -708,7 +784,12 @@ fn reads_worktree_history_message_diff_and_tree() {
 #[test]
 fn preserves_space_tab_and_unicode_paths() {
     let repository = TestRepository::new();
-    for path in ["space name.txt", "tab\tname.txt", "日本語.txt"] {
+    for path in [
+        "space name.txt",
+        "tab\tname.txt",
+        "colon:name.txt",
+        "日本語.txt",
+    ] {
         repository.write(path, b"path content\n");
     }
     let service = repository.service();
@@ -721,15 +802,27 @@ fn preserves_space_tab_and_unicode_paths() {
         .collect::<Vec<_>>();
     assert!(paths.iter().any(|path| path == "space name.txt"));
     assert!(paths.iter().any(|path| path == "tab\tname.txt"));
+    assert!(paths.iter().any(|path| path == "colon:name.txt"));
     assert!(paths.iter().any(|path| path == "日本語.txt"));
     for change in &changes {
         let diff = service
             .diff(&DiffTarget::Worktree {
                 path: change.path().clone(),
-                untracked: true,
+                kind: WorktreeDiffKind::Untracked,
             })
             .unwrap_or_else(|error| panic!("could not diff unusual path: {error}"));
         assert!(matches!(diff, DiffDocument::Text { .. }));
+    }
+    repository.commit_all("unusual paths");
+    let commit = service
+        .commits(commit_page(0, 1))
+        .unwrap_or_else(|error| panic!("could not read unusual-path commit: {error}"))
+        .remove(0);
+    for change in &changes {
+        let document = service
+            .source_file(&FileRevision::Commit(commit.id().clone()), change.path())
+            .unwrap_or_else(|error| panic!("could not read unusual revision path: {error}"));
+        assert_eq!(document.lines(), ["path content"]);
     }
 }
 
@@ -748,7 +841,7 @@ fn merge_commit_uses_first_parent() {
 
     let service = repository.service();
     let commits = service
-        .commits(0, 10)
+        .commits(commit_page(0, 10))
         .unwrap_or_else(|error| panic!("could not read commits: {error}"));
     let merge = &commits[0];
     assert_eq!(merge.parents().len(), 2);
@@ -773,7 +866,7 @@ fn reads_unborn_repository_and_preserves_semantic_state() {
     let service = repository.service();
     let before_status = repository.git(&["status", "--porcelain=v2", "-z"]).stdout;
     let commits = service
-        .commits(0, 10)
+        .commits(commit_page(0, 10))
         .unwrap_or_else(|error| panic!("could not read unborn history: {error}"));
     assert!(commits.is_empty());
     let changes = service
@@ -797,7 +890,7 @@ fn reads_unborn_repository_and_preserves_semantic_state() {
     let _diff = service
         .diff(&DiffTarget::Worktree {
             path: changes[0].path().clone(),
-            untracked: true,
+            kind: WorktreeDiffKind::Untracked,
         })
         .unwrap_or_else(|error| panic!("could not read diff: {error}"));
     let after_status = repository.git(&["status", "--porcelain=v2", "-z"]).stdout;
@@ -820,7 +913,7 @@ fn reads_detached_head_and_intent_to_add_changes() {
 
     let service = repository.service();
     let commits = service
-        .commits(0, 10)
+        .commits(commit_page(0, 10))
         .unwrap_or_else(|error| panic!("could not read detached history: {error}"));
     assert_eq!(commits.len(), 1);
     let changes = service
@@ -834,7 +927,7 @@ fn reads_detached_head_and_intent_to_add_changes() {
     let diff = service
         .diff(&DiffTarget::Worktree {
             path: intent.path().clone(),
-            untracked: false,
+            kind: WorktreeDiffKind::Tracked,
         })
         .unwrap_or_else(|error| panic!("could not read intent-to-add diff: {error}"));
     assert!(matches!(diff, DiffDocument::Text { .. }));
@@ -855,7 +948,7 @@ fn reports_corrupt_head_and_a_removed_untracked_diff_as_errors() {
         service
             .diff(&DiffTarget::Worktree {
                 path: temporary,
-                untracked: true,
+                kind: WorktreeDiffKind::Untracked,
             })
             .is_err()
     );
@@ -865,7 +958,7 @@ fn reports_corrupt_head_and_a_removed_untracked_diff_as_errors() {
         format!("{}\n", "f".repeat(40)),
     )
     .unwrap_or_else(|error| panic!("could not corrupt HEAD fixture: {error}"));
-    assert!(service.commits(0, 10).is_err());
+    assert!(service.commits(commit_page(0, 10)).is_err());
 }
 
 #[cfg(unix)]
@@ -887,11 +980,18 @@ fn preserves_non_utf8_worktree_paths() {
     );
     repository.commit_all("raw tree path");
     let commit = service
-        .commits(0, 1)
+        .commits(commit_page(0, 1))
         .unwrap_or_else(|error| panic!("could not read raw-path commit: {error}"))
         .remove(0);
     let tree = service
         .tree_entries(commit.id())
         .unwrap_or_else(|error| panic!("could not read raw tree path: {error}"));
     assert_eq!(tree[0].name().as_bytes(), changes[0].path().as_bytes());
+    let document = service
+        .source_file(
+            &FileRevision::Commit(commit.id().clone()),
+            changes[0].path(),
+        )
+        .unwrap_or_else(|error| panic!("could not read raw revision path: {error}"));
+    assert_eq!(document.lines(), ["raw path"]);
 }

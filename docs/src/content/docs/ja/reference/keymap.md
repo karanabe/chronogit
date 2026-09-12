@@ -45,7 +45,7 @@ move_down = j, down, ctrl-j, ctrl-n
 
 修飾キーなしの`1`〜`9`はcount専用で、割り当ての先頭には使えません。`space 3`のようなleader連続キー、または`alt-3`のような修飾キーを使います。カンマ自体を割り当てるには、代替キーの区切りと区別できる`comma`を使います。
 
-組み込みapplication leaderはSpaceです。`1`〜`4`、`f`、`g`、`m`、`b`、`t`の
+組み込みapplication leaderはSpaceです。`1`〜`4`、`f`、`g`、`m`、`b`、`t`、`s`、`v`、`d`の
 prefixとして使い、標準mapには単独Space actionを意図的に置きません。再利用する
 `vim-navigation` crateはVimの行をまたぐSpace motionを引き続き実装しています。
 leaderを崩さず使うには、`cursor_right_wrap`をraw backslashなど競合しないキーへ
@@ -58,7 +58,7 @@ cursor_right_wrap = \
 
 Backslashは予約されていない通常の設定可能文字です。Space prefixの標準actionが1つ
 でも残る状態の`cursor_right_wrap = space`は、完結actionとsequence prefixが同じに
-なるため拒否されます。単独Spaceを復元する場合はSpace prefixの9 actionをすべて
+なるため拒否されます。単独Spaceを復元する場合はSpace prefixの12 actionをすべて
 明示的に置換してください。検索promptではnormal binding解決前に印字可能なSpaceを
 query文字として処理します。
 
@@ -90,13 +90,14 @@ query文字として処理します。
 | `go_to_definition`, `go_to_implementation` | LSPの定義 / 実装（`gd` / `gi`） |
 | `go_to_type_definition`, `go_to_declaration` | LSPの型定義 / 宣言（`gy` / `gD`） |
 | `semantic_back`, `semantic_forward` | 古い / 新しい共有Vim・LSP jump位置へ移動（`Ctrl-o` / `Ctrl-i`。Tabは端末互換alias） |
+| `symbol_context`, `open_full_file`, `toggle_full_file_mode` | document-symbol context、source全文、追加・削除付きChanges/new-state切り替え（`Space s` / `Space v` / `Space d`） |
 | `refresh`, `activate`, `close` | 現在ビューの操作 |
 | `toggle_message`, `toggle_details`, `toggle_tree`, `toggle_help` | 履歴とヘルプ表示 |
 | `file_search`, `content_search` | リポジトリ全体の検索 |
 | `search_forward`, `search_backward`, `next_match`, `previous_match` | アクティブなテキスト内のprompt検索とcount付き反復 |
 | `search_word_forward`, `search_word_backward`, `search_partial_word_forward`, `search_partial_word_backward` | `*`、`#`、`g*`、`g#`のword由来検索 |
 
-未知のaction/キー、読めない明示ファイル、キーの重複、別の割り当てのprefixになる割り当ては拒否し、raw mode開始前にエラーを表示します。標準では`q`が即時close/back、`Esc`がDiff・Codeの検索強調解除後にclose/back、`quit`が大文字の`Q`です。`quit`を置き換えても、安全な緊急終了用の`Ctrl-C`は予約されたままです。文字入力中は`Enter`、`Ctrl-j`、`Ctrl-k`、`Esc`、Backspace、`Ctrl-C`が予約され、normal modeの`Ctrl-h` / `Ctrl-l` bindingは適用されません。リポジトリSearchでは、予約された`Ctrl-j`がResultsを確定し、`Ctrl-k`はSearchを変えません。文書内検索promptでは、予約された`Ctrl-j/k`が入力を取り消して次 / 前のfocusを要求し、単一text overlayは背後のpaneを動かさずそのfocus actionを消費します。印字可能な`q`と大文字`Q`はクエリ文字として入力できます。アプリ内ヘルプはカスタム設定ではなく組み込み標準キーを表示します。
+未知のaction/キー、読めない明示ファイル、キーの重複、別の割り当てのprefixになる割り当ては拒否し、raw mode開始前にエラーを表示します。標準では`q`が即時close/back、`Esc`がDiff・Code・全文表示の検索強調解除後にclose/back、`quit`が大文字の`Q`です。`quit`を置き換えても、安全な緊急終了用の`Ctrl-C`は予約されたままです。文字入力中は`Enter`、`Ctrl-j`、`Ctrl-k`、`Esc`、Backspace、`Ctrl-C`が予約され、normal modeの`Ctrl-h` / `Ctrl-l` bindingは適用されません。リポジトリSearchでは、予約された`Ctrl-j`がResultsを確定し、`Ctrl-k`はSearchを変えません。文書内検索promptでは、予約された`Ctrl-j/k`が入力を取り消して次 / 前のfocusを要求し、単一text overlayは背後のpaneを動かさずそのfocus actionを消費します。印字可能な`q`と大文字`Q`はクエリ文字として入力できます。アプリ内ヘルプはカスタム設定ではなく組み込み標準キーを表示します。
 
 `close`を明示すると、標準の`q`と`Esc`を両方置き換えます。割り当てたキーはすべて即時close/backとなり、`close = q, esc`のEscも強調解除を経ずに閉じます。`close = x`ならEscの標準割り当てを外すので、別のactionへ割り当てられます。標準の2段階Escを使う場合は`close`を指定しないでください。promptと文字待ちのEscキャンセルは設定にかかわらず維持します。
 

@@ -4,8 +4,11 @@
 //! query and results, then transitions into a file view whose lower pane can
 //! switch between current content and a selected historical diff.
 
+use std::num::NonZeroUsize;
+
 use crate::app::{
-    Action, AppState, AppView, FocusedPane, GitEffect, LoadState, Overlay, RepositorySearchKind,
+    Action, AppState, AppView, FALLBACK_HALF_PAGE_LINES, FocusedPane, GitEffect,
+    HORIZONTAL_SCROLL_COLUMNS, LoadState, Overlay, RepositorySearchKind,
 };
 use crate::domain::{DiffTarget, RepoPath};
 
@@ -96,13 +99,19 @@ pub(crate) fn file_content_overlay_action(state: &mut AppState, action: Action) 
         Action::MoveDown => move_file_content_cursor(state, 1),
         Action::MoveTop => state.file_view.vertical = 0,
         Action::MoveBottom => state.file_view.vertical = file_content_last_line(state),
-        Action::HalfPageUp => move_file_content_cursor(state, -10),
-        Action::HalfPageDown => move_file_content_cursor(state, 10),
+        Action::HalfPageUp => move_file_content_cursor(state, -FALLBACK_HALF_PAGE_LINES),
+        Action::HalfPageDown => move_file_content_cursor(state, FALLBACK_HALF_PAGE_LINES),
         Action::ScrollLeft => {
-            state.file_view.horizontal = state.file_view.horizontal.saturating_sub(4);
+            state.file_view.horizontal = state
+                .file_view
+                .horizontal
+                .saturating_sub(HORIZONTAL_SCROLL_COLUMNS);
         }
         Action::ScrollRight => {
-            state.file_view.horizontal = state.file_view.horizontal.saturating_add(4);
+            state.file_view.horizontal = state
+                .file_view
+                .horizontal
+                .saturating_add(HORIZONTAL_SCROLL_COLUMNS);
         }
         _ => {}
     }
@@ -147,7 +156,7 @@ fn open_selected_file(state: &mut AppState) -> Vec<GitEffect> {
         return crate::app::code_view::reveal_and_load(state, hit.path().clone(), hit.line());
     }
     state.file_view.return_view = state.repository_search.return_view;
-    state.file_view.vertical = hit.line().unwrap_or(1).saturating_sub(1) as usize;
+    state.file_view.vertical = hit.line().map_or(0, |line| line.value().saturating_sub(1)) as usize;
     state.file_view.byte_column = 0;
     state.file_view.desired_display_column = None;
     state.file_view.viewport_vertical = state.file_view.vertical;
@@ -158,10 +167,10 @@ fn open_selected_file(state: &mut AppState) -> Vec<GitEffect> {
 }
 
 pub(crate) fn load_file_view(state: &mut AppState, path: RepoPath) -> Vec<GitEffect> {
-    const FILE_HISTORY_LIMIT: usize = 200;
+    const FILE_HISTORY_LIMIT: NonZeroUsize = NonZeroUsize::new(200).unwrap();
     state.file_view.path = Some(path.clone());
     state.file_view.selection.reset(0);
-    state.file_view.showing_history_diff = false;
+    state.file_view.mode = crate::app::model::FileViewMode::CurrentContent;
     state.file_view.byte_column = 0;
     state.file_view.desired_display_column = None;
     state.file_view.viewport_vertical = state.file_view.vertical;
@@ -198,7 +207,7 @@ pub(crate) fn selected_file_history_diff(state: &mut AppState) -> Vec<GitEffect>
     let Some((commit, path)) = commit.zip(state.file_view.path.clone()) else {
         return Vec::new();
     };
-    state.file_view.showing_history_diff = true;
+    state.file_view.mode = crate::app::model::FileViewMode::HistoryDiff;
     state.request_diff(DiffTarget::Commit {
         commit: commit.id().clone(),
         baseline: commit.baseline(),

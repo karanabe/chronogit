@@ -14,16 +14,50 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use unicode_width::UnicodeWidthStr;
 
 use crate::app::{
-    AppState, AppView, CodeEntryKind, FocusedPane, HistoryPanel, LoadState, Overlay,
-    RepositorySearchKind, VisibleCodeEntry, VisibleTreeEntry,
+    AppState, AppView, CodeEntryKind, FocusedPane, FullFileDeletion, FullFileMode, HistoryPanel,
+    LoadState, Overlay, RepositorySearchKind, VisibleCodeEntry, VisibleTreeEntry,
 };
 use crate::domain::{DiffDocument, DiffLine, DiffLineKind, DiffTarget, FileDocument, TreeKind};
+use crate::layout::{
+    CHANGES_DIFF_PERCENT, CHANGES_LIST_PERCENT, CODE_CONTENT_PERCENT, CODE_TREE_PERCENT,
+    COMMIT_DETAILS_BODY_PERCENT, COMMIT_DETAILS_FILES_PERCENT, COMMIT_DETAILS_LIST_PERCENT,
+    DOCUMENT_OVERLAY_INSET, DOCUMENT_OVERLAY_MARGIN, FILE_HISTORY_CONTENT_PERCENT,
+    FILE_HISTORY_LIST_PERCENT, FOOTER_ROWS, FULL_PERCENT, GRAPH_DETAILS_DIFF_PERCENT,
+    GRAPH_DETAILS_FILES_PERCENT, GRAPH_DETAILS_HEIGHT_PERCENT, GRAPH_DETAILS_WIDTH_PERCENT,
+    HELP_HEIGHT_PERCENT, HELP_WIDTH_PERCENT, HISTORY_DIFF_PERCENT, HISTORY_LIST_PERCENT,
+    HISTORY_MIDDLE_PERCENT, HOVER_HEIGHT_PERCENT, HOVER_WIDTH_PERCENT, MESSAGE_HEIGHT_PERCENT,
+    MESSAGE_WIDTH_PERCENT, MIN_CONTENT_ROWS, MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH,
+    PANE_BORDER_CELLS, REPOSITORY_SEARCH_HEIGHT_PERCENT, REPOSITORY_SEARCH_WIDTH_PERCENT,
+    ROOT_DISPLAY_WIDTH, SEARCH_BAR_ROWS, SEARCH_INPUT_ROWS, SOURCE_GUTTER_COLUMNS,
+    SYMBOL_HEIGHT_PERCENT, SYMBOL_WIDTH_PERCENT, WIDE_LAYOUT_WIDTH,
+};
 use crate::tui::graph::graph_prefixes;
 use crate::tui::highlight::{highlight_code, source_is_too_large};
 
-const MIN_WIDTH: u16 = 80;
-const MIN_HEIGHT: u16 = 24;
-const WIDE_WIDTH: u16 = 110;
+const ISO_DATE_PREFIX_BYTES: usize = 10;
+const ADDED_FOREGROUND: Color = Color::Rgb(166, 227, 161);
+const ADDED_BACKGROUND: Color = Color::Rgb(33, 58, 43);
+const CHANGED_LINE_BACKGROUND: Color = Color::Rgb(33, 53, 43);
+const REMOVED_FOREGROUND: Color = Color::Rgb(243, 139, 168);
+const REMOVED_BACKGROUND: Color = Color::Rgb(74, 34, 29);
+const DIFF_ACCENT: Color = Color::Rgb(137, 180, 250);
+const DIFF_HUNK_BACKGROUND: Color = Color::Rgb(49, 50, 68);
+const DIFF_META_FOREGROUND: Color = Color::Rgb(249, 226, 175);
+const GUTTER_FOREGROUND: Color = Color::Rgb(108, 112, 134);
+
+#[derive(Clone, Copy)]
+struct PrefixSpanCount(usize);
+
+impl PrefixSpanCount {
+    const NONE: Self = Self(0);
+    const LINE_NUMBER: Self = Self(1);
+    const NAVIGATION: Self = Self(1);
+    const NAVIGATION_AND_LINE_NUMBER: Self = Self(2);
+
+    const fn value(self) -> usize {
+        self.0
+    }
+}
 
 /// Renders one complete frame from an immutable application-state snapshot.
 ///
@@ -31,13 +65,16 @@ const WIDE_WIDTH: u16 = 110;
 /// cells and replaces unsupported terminal sizes with a resize message.
 pub fn render(frame: &mut Frame<'_>, state: &AppState) {
     let area = frame.area();
-    if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
+    if area.width < MIN_TERMINAL_WIDTH || area.height < MIN_TERMINAL_HEIGHT {
         render_too_small(frame, area);
         return;
     }
     let sections = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .constraints([
+            Constraint::Min(MIN_CONTENT_ROWS),
+            Constraint::Length(FOOTER_ROWS),
+        ])
         .split(area);
     render_main(frame, sections[0], state);
     render_footer(frame, sections[1], state);
@@ -46,14 +83,17 @@ pub fn render(frame: &mut Frame<'_>, state: &AppState) {
 
 fn render_main(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     match state.view {
-        AppView::Changes if area.width < WIDE_WIDTH => match state.focus {
+        AppView::Changes if area.width < WIDE_LAYOUT_WIDTH => match state.focus {
             FocusedPane::Primary | FocusedPane::Secondary => render_changes(frame, area, state),
             FocusedPane::Diff => render_diff(frame, area, state),
         },
         AppView::Changes => {
             let columns = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(32), Constraint::Percentage(68)])
+                .constraints([
+                    Constraint::Percentage(CHANGES_LIST_PERCENT),
+                    Constraint::Percentage(CHANGES_DIFF_PERCENT),
+                ])
                 .split(area);
             render_changes(frame, columns[0], state);
             render_diff(frame, columns[1], state);
@@ -62,9 +102,9 @@ fn render_main(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             let rows = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Percentage(25),
-                    Constraint::Percentage(25),
-                    Constraint::Percentage(50),
+                    Constraint::Percentage(HISTORY_LIST_PERCENT),
+                    Constraint::Percentage(HISTORY_MIDDLE_PERCENT),
+                    Constraint::Percentage(HISTORY_DIFF_PERCENT),
                 ])
                 .split(area);
             render_commits(frame, rows[0], state);
@@ -75,9 +115,9 @@ fn render_main(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             let rows = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Percentage(25),
-                    Constraint::Percentage(45),
-                    Constraint::Percentage(30),
+                    Constraint::Percentage(COMMIT_DETAILS_LIST_PERCENT),
+                    Constraint::Percentage(COMMIT_DETAILS_BODY_PERCENT),
+                    Constraint::Percentage(COMMIT_DETAILS_FILES_PERCENT),
                 ])
                 .split(area);
             render_commits(frame, rows[0], state);
@@ -87,11 +127,18 @@ fn render_main(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         AppView::Graph => render_graph(frame, area, state),
         AppView::GraphDetails => {
             render_graph(frame, area, state);
-            let popup = centered(area, 90, 88);
+            let popup = centered(
+                area,
+                GRAPH_DETAILS_WIDTH_PERCENT,
+                GRAPH_DETAILS_HEIGHT_PERCENT,
+            );
             frame.render_widget(Clear, popup);
             let rows = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
+                .constraints([
+                    Constraint::Percentage(GRAPH_DETAILS_FILES_PERCENT),
+                    Constraint::Percentage(GRAPH_DETAILS_DIFF_PERCENT),
+                ])
                 .split(popup);
             render_file_list(
                 frame,
@@ -105,10 +152,13 @@ fn render_main(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         AppView::FileHistory => {
             let rows = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
+                .constraints([
+                    Constraint::Percentage(FILE_HISTORY_LIST_PERCENT),
+                    Constraint::Percentage(FILE_HISTORY_CONTENT_PERCENT),
+                ])
                 .split(area);
             render_file_history(frame, rows[0], state);
-            if state.file_view.showing_history_diff {
+            if state.file_view.mode.shows_history_diff() {
                 render_diff(frame, rows[1], state);
             } else {
                 render_file_content(frame, rows[1], state, "Current working tree content");
@@ -121,7 +171,10 @@ fn render_main(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
 fn render_code_view(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
+        .constraints([
+            Constraint::Percentage(CODE_TREE_PERCENT),
+            Constraint::Percentage(CODE_CONTENT_PERCENT),
+        ])
         .split(area);
     render_code_tree(frame, rows[0], state);
     render_code_content(frame, rows[1], state);
@@ -184,7 +237,7 @@ fn render_graph(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             .map(|(index, (prefix, commit))| {
                 let date = commit
                     .authored_at()
-                    .get(..10)
+                    .get(..ISO_DATE_PREFIX_BYTES)
                     .unwrap_or(commit.authored_at());
                 selected_line(
                     state.commit_selection.index() == Some(index),
@@ -229,7 +282,7 @@ fn render_file_history(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             .map(|(index, commit)| {
                 let date = commit
                     .authored_at()
-                    .get(..10)
+                    .get(..ISO_DATE_PREFIX_BYTES)
                     .unwrap_or(commit.authored_at());
                 selected_line(
                     state.file_view.selection.index() == Some(index),
@@ -300,7 +353,7 @@ fn render_commits(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             .map(|(index, commit)| {
                 let date = commit
                     .authored_at()
-                    .get(..10)
+                    .get(..ISO_DATE_PREFIX_BYTES)
                     .unwrap_or(commit.authored_at());
                 selected_line(
                     state.commit_selection.index() == Some(index),
@@ -334,7 +387,7 @@ fn render_commit_body(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         LoadState::Ready(message) if message.body().is_empty() => "No commit body.".to_owned(),
         LoadState::Ready(message) => message.body().to_owned(),
     };
-    let visible = usize::from(area.height.saturating_sub(2)).max(1);
+    let visible = usize::from(area.height.saturating_sub(PANE_BORDER_CELLS)).max(1);
     let last = text.lines().count().saturating_sub(1);
     let cursor = state.message.scroll.min(last);
     let vertical = followed_scroll(cursor, state.message.viewport_vertical, visible);
@@ -523,7 +576,7 @@ fn render_file_content(frame: &mut Frame<'_>, area: Rect, state: &AppState, titl
         LoadState::Failed(error) => vec![error_line(error.message())],
         LoadState::Ready(document) => file_document_lines(document, state),
     };
-    let visible = usize::from(area.height.saturating_sub(2)).max(1);
+    let visible = usize::from(area.height.saturating_sub(PANE_BORDER_CELLS)).max(1);
     let cursor = state.file_view.vertical.min(lines.len().saturating_sub(1));
     let vertical = followed_scroll(cursor, state.file_view.viewport_vertical, visible);
     let horizontal = state.file_view.horizontal.min(u16::MAX as usize) as u16;
@@ -624,7 +677,11 @@ fn code_file_line(mut line: Line<'static>, index: usize, state: &AppState) -> Li
             &mut line,
             source,
             index,
-            usize::from(document.message().is_none()),
+            if document.message().is_none() {
+                PrefixSpanCount::LINE_NUMBER
+            } else {
+                PrefixSpanCount::NONE
+            },
             state,
         );
     }
@@ -636,7 +693,12 @@ fn code_file_line(mut line: Line<'static>, index: usize, state: &AppState) -> Li
             LoadState::Idle | LoadState::Loading { .. } | LoadState::Failed(_) => None,
         }
     {
-        highlight_source_cursor(&mut line, source, state.code_view.cursor.byte_column(), 1);
+        highlight_source_cursor(
+            &mut line,
+            source,
+            state.code_view.cursor.byte_column(),
+            PrefixSpanCount::LINE_NUMBER,
+        );
     }
     line.spans.insert(0, navigation_marker(selected));
     line
@@ -652,7 +714,12 @@ fn current_file_line(mut line: Line<'static>, index: usize, state: &AppState) ->
             LoadState::Idle | LoadState::Loading { .. } | LoadState::Failed(_) => None,
         }
     {
-        highlight_source_cursor(&mut line, source, state.file_view.byte_column, 2);
+        highlight_source_cursor(
+            &mut line,
+            source,
+            state.file_view.byte_column,
+            PrefixSpanCount::NAVIGATION_AND_LINE_NUMBER,
+        );
     }
     line
 }
@@ -703,7 +770,11 @@ fn highlight_diff_line(mut line: Line<'static>, index: usize, state: &AppState) 
             &mut line,
             source,
             index,
-            usize::from(document.message().is_none()),
+            if document.message().is_none() {
+                PrefixSpanCount::LINE_NUMBER
+            } else {
+                PrefixSpanCount::NONE
+            },
             state,
         );
     }
@@ -716,7 +787,12 @@ fn highlight_diff_line(mut line: Line<'static>, index: usize, state: &AppState) 
             LoadState::Idle | LoadState::Loading { .. } | LoadState::Failed(_) => None,
         }
     {
-        highlight_source_cursor(&mut line, source, state.diff.byte_column, 2);
+        highlight_source_cursor(
+            &mut line,
+            source,
+            state.diff.byte_column,
+            PrefixSpanCount::NAVIGATION_AND_LINE_NUMBER,
+        );
     }
     line
 }
@@ -737,22 +813,22 @@ fn diff_line(line: &DiffLine, syntax_spans: Option<Vec<Span<'static>>>) -> Line<
             spans.push(Span::styled(
                 marker,
                 Style::default()
-                    .fg(Color::Rgb(166, 227, 161))
+                    .fg(ADDED_FOREGROUND)
                     .add_modifier(Modifier::BOLD),
             ));
             spans.extend(syntax_spans.unwrap_or_else(|| vec![Span::raw(sanitize_inline(code))]));
-            Style::default().bg(Color::Rgb(33, 58, 43))
+            Style::default().bg(ADDED_BACKGROUND)
         }
         DiffLineKind::Removed => {
             let (marker, code) = split_diff_code(line);
             spans.push(Span::styled(
                 marker,
                 Style::default()
-                    .fg(Color::Rgb(243, 139, 168))
+                    .fg(REMOVED_FOREGROUND)
                     .add_modifier(Modifier::BOLD),
             ));
             spans.extend(syntax_spans.unwrap_or_else(|| vec![Span::raw(sanitize_inline(code))]));
-            Style::default().bg(Color::Rgb(74, 34, 29))
+            Style::default().bg(REMOVED_BACKGROUND)
         }
         DiffLineKind::Context => {
             let (marker, code) = split_diff_code(line);
@@ -764,16 +840,16 @@ fn diff_line(line: &DiffLine, syntax_spans: Option<Vec<Span<'static>>>) -> Line<
             spans.push(Span::styled(
                 sanitize_inline(line.text()),
                 Style::default()
-                    .fg(Color::Rgb(137, 180, 250))
+                    .fg(DIFF_ACCENT)
                     .add_modifier(Modifier::BOLD),
             ));
-            Style::default().bg(Color::Rgb(49, 50, 68))
+            Style::default().bg(DIFF_HUNK_BACKGROUND)
         }
         DiffLineKind::Header => {
             spans.push(Span::styled(
                 sanitize_inline(line.text()),
                 Style::default()
-                    .fg(Color::Rgb(137, 180, 250))
+                    .fg(DIFF_ACCENT)
                     .add_modifier(Modifier::BOLD),
             ));
             Style::default()
@@ -781,7 +857,7 @@ fn diff_line(line: &DiffLine, syntax_spans: Option<Vec<Span<'static>>>) -> Line<
         DiffLineKind::Meta => {
             spans.push(Span::styled(
                 sanitize_inline(line.text()),
-                Style::default().fg(Color::Rgb(249, 226, 175)),
+                Style::default().fg(DIFF_META_FOREGROUND),
             ));
             Style::default()
         }
@@ -883,14 +959,14 @@ fn diff_target_path(target: Option<&DiffTarget>) -> Option<&crate::domain::RepoP
 
 fn navigation_marker(selected: bool) -> Span<'static> {
     if selected {
-        Span::styled("▌", Style::default().fg(Color::Rgb(137, 180, 250)))
+        Span::styled("▌", Style::default().fg(DIFF_ACCENT))
     } else {
         Span::raw(" ")
     }
 }
 
 fn gutter_style() -> Style {
-    Style::default().fg(Color::Rgb(108, 112, 134))
+    Style::default().fg(GUTTER_FOREGROUND)
 }
 
 fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
@@ -925,6 +1001,12 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             .as_deref()
             .map(|status| format!(" | LSP: {}: {}", kind.label(), sanitize_inline(status)))
             .unwrap_or_else(|| format!(" | LSP: locating {}…", kind.label())),
+        _ if matches!(state.symbol_context.symbols, LoadState::Loading { .. }) => state
+            .symbol_context
+            .status
+            .as_deref()
+            .map(|status| format!(" | LSP: symbols: {}", sanitize_inline(status)))
+            .unwrap_or_else(|| " | LSP: loading symbols…".to_owned()),
         _ => match &state.lsp_hover.content {
             LoadState::Loading { .. } => state
                 .lsp_hover
@@ -936,7 +1018,7 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         },
     };
     let comparison = selected_baseline(state).unwrap_or_else(|| "comparison pending".to_owned());
-    let controls = match (state.view, area.width >= WIDE_WIDTH) {
+    let controls = match (state.view, area.width >= WIDE_LAYOUT_WIDTH) {
         (AppView::CommitDetails, true) => {
             "q/Esc History  Space m message  ^w h/j pane  j/k move  Enter diff  Q quit"
         }
@@ -958,7 +1040,7 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         }
         (_, false) => "Q quit  Space 1-4 views  Space f/g find",
     };
-    let root = if area.width >= 180 {
+    let root = if area.width >= ROOT_DISPLAY_WIDTH {
         format!(" | {}", sanitize_inline(&state.root.to_string()))
     } else {
         String::new()
@@ -980,7 +1062,7 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     match state.overlay {
         Overlay::None => {}
         Overlay::Help => {
-            let popup = centered(area, 76, 88);
+            let popup = centered(area, HELP_WIDTH_PERCENT, HELP_HEIGHT_PERCENT);
             frame.render_widget(Clear, popup);
             let text = vec![
                 plain("ChronoGit keys"),
@@ -996,9 +1078,10 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                 plain("H M L; zt zz zb       Window motions and cursor placement"),
                 plain("zh/zl zH/zL zs/ze     Horizontal viewport motions"),
                 plain("/ ? n N; * # g* g#    Search and search word at cursor"),
-                plain("Esc: clear Diff/Code search, then close/back; q: close now"),
+                plain("Esc: clear text search, then close/back; q: close now"),
                 plain("m{c} 'c/`c; ['/`[ ]'/`]   Mark jumps and scans"),
                 plain("K; gd/gi/gy/gD   LSP hover and target navigation"),
+                plain("Space s/v/d  Symbols / full file / changes-new toggle"),
                 plain("Ctrl-o/i     Older / newer Vim, search, or LSP jump"),
                 plain("r; Space m/b/t  Refresh; message / layout / commit tree"),
                 plain("Space is the app leader; l/Right moves right"),
@@ -1014,11 +1097,14 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             );
         }
         Overlay::CommitMessage => {
-            let popup = centered(area, 82, 78);
+            let popup = centered(area, MESSAGE_WIDTH_PERCENT, MESSAGE_HEIGHT_PERCENT);
             frame.render_widget(Clear, popup);
             let sections = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Min(1), Constraint::Length(1)])
+                .constraints([
+                    Constraint::Min(MIN_CONTENT_ROWS),
+                    Constraint::Length(SEARCH_BAR_ROWS),
+                ])
                 .split(popup);
             let text = match &state.message.content {
                 LoadState::Idle => "Select a commit.".to_owned(),
@@ -1028,7 +1114,7 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                 }
                 LoadState::Ready(message) => message.as_str().to_owned(),
             };
-            let visible = usize::from(sections[0].height.saturating_sub(2)).max(1);
+            let visible = usize::from(sections[0].height.saturating_sub(PANE_BORDER_CELLS)).max(1);
             let last = text.lines().count().saturating_sub(1);
             let cursor = state.message.scroll.min(last);
             let vertical = followed_scroll(cursor, state.message.viewport_vertical, visible);
@@ -1059,11 +1145,269 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             }
             render_lsp_hover(frame, area, state);
         }
+        Overlay::FullFile => render_full_file_overlay(frame, area, state),
+        Overlay::SymbolContext => {
+            match state.symbol_context.return_overlay {
+                Overlay::Diff => render_diff_overlay(frame, area, state),
+                Overlay::CodeContent => render_code_content_overlay(frame, area, state),
+                Overlay::FileContent => render_file_content_overlay(frame, area, state),
+                Overlay::FullFile => render_full_file_overlay(frame, area, state),
+                _ => {}
+            }
+            render_symbol_context(frame, area, state);
+        }
     }
 }
 
+fn render_full_file_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
+    let popup = document_overlay(area);
+    frame.render_widget(Clear, popup);
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(MIN_CONTENT_ROWS),
+            Constraint::Length(SEARCH_BAR_ROWS),
+        ])
+        .split(popup);
+    let identity = state.full_file.identity.as_ref();
+    let path = identity
+        .map(|identity| sanitize_inline(&identity.path.display()))
+        .unwrap_or_else(|| "file".to_owned());
+    let revision = identity
+        .map(|identity| identity.revision.display())
+        .unwrap_or_else(|| "source".to_owned());
+    let mode = match state.full_file.mode {
+        FullFileMode::Changes => "changes",
+        FullFileMode::New => "new state",
+    };
+    let title =
+        format!("{path} — {revision} — {mode} [Space d: toggle, Space s: symbols, q/Esc: back]");
+    let block = pane_block(&title, true);
+    let content_area = block.inner(sections[0]);
+    let lines = match &state.full_file.content {
+        LoadState::Idle => vec![plain("Select a diff or file first.")],
+        LoadState::Loading { .. } => vec![plain("Loading complete source…")],
+        LoadState::Failed(error) => vec![error_line(error.message())],
+        LoadState::Ready(document) => full_file_document_lines(document, state),
+    };
+    let visible = usize::from(content_area.height).max(1);
+    let source_cursor = usize::try_from(state.full_file.cursor.line())
+        .unwrap_or(usize::MAX)
+        .min(lines.len().saturating_sub(1));
+    let cursor = full_file_display_cursor(state, source_cursor);
+    let requested = full_file_display_viewport(state, state.full_file.viewport_vertical);
+    let vertical = followed_scroll(cursor, requested, visible);
+    if state.full_file.mode == FullFileMode::Changes {
+        render_diff_line_backgrounds(frame, content_area, &lines, vertical);
+    }
+    frame.render_widget(
+        Paragraph::new(lines).block(block).scroll((
+            vertical,
+            state
+                .full_file
+                .viewport_horizontal
+                .min(usize::from(u16::MAX)) as u16,
+        )),
+        sections[0],
+    );
+    render_search_bar(frame, sections[1], state);
+}
+
+fn full_file_document_lines(document: &FileDocument, state: &AppState) -> Vec<Line<'static>> {
+    let path = state
+        .full_file
+        .identity
+        .as_ref()
+        .map(|identity| &identity.path);
+    let mut source_lines = document_lines(document, path, |mut line, index| {
+        let selected = usize::try_from(state.full_file.cursor.line()).ok() == Some(index);
+        line.spans.insert(0, navigation_marker(selected));
+        if let Some(source) = document
+            .lines()
+            .get(index)
+            .map(String::as_str)
+            .or(document.message())
+        {
+            highlight_search_ranges(
+                &mut line,
+                source,
+                index,
+                if document.message().is_none() {
+                    PrefixSpanCount::NAVIGATION_AND_LINE_NUMBER
+                } else {
+                    PrefixSpanCount::NAVIGATION
+                },
+                state,
+            );
+        }
+        if selected && let Some(source) = document.lines().get(index) {
+            highlight_source_cursor(
+                &mut line,
+                source,
+                state.full_file.cursor.byte_column(),
+                PrefixSpanCount::NAVIGATION_AND_LINE_NUMBER,
+            );
+        }
+        if state.full_file.mode == FullFileMode::Changes
+            && state
+                .full_file
+                .changed_lines
+                .contains(&u32::try_from(index).unwrap_or(u32::MAX))
+        {
+            line.style = line
+                .style
+                .patch(Style::default().bg(CHANGED_LINE_BACKGROUND));
+        }
+        line
+    });
+    if state.full_file.mode != FullFileMode::Changes || state.full_file.deleted_lines.is_empty() {
+        return source_lines;
+    }
+
+    let source_len = document.lines().len();
+    let suffix = source_lines.split_off(source_len.min(source_lines.len()));
+    let deleted_content = state
+        .full_file
+        .deleted_lines
+        .iter()
+        .map(|line| line.content.clone())
+        .collect::<Vec<_>>();
+    let highlighted = source_spans(&deleted_content, path);
+    let mut deletions = state.full_file.deleted_lines.iter().enumerate().peekable();
+    let mut source_lines = source_lines.into_iter();
+    let mut lines = Vec::with_capacity(
+        source_len
+            .saturating_add(state.full_file.deleted_lines.len())
+            .saturating_add(suffix.len()),
+    );
+    for anchor in 0..=source_len {
+        while let Some((index, deletion)) = deletions.peek().copied() {
+            let deletion_anchor = usize::try_from(deletion.anchor)
+                .unwrap_or(usize::MAX)
+                .min(source_len);
+            if deletion_anchor != anchor {
+                break;
+            }
+            let syntax_spans = highlighted
+                .as_ref()
+                .and_then(|lines| lines.get(index))
+                .cloned();
+            lines.push(full_file_deleted_line(deletion, syntax_spans));
+            deletions.next();
+        }
+        if let Some(line) = source_lines.next() {
+            lines.push(line);
+        }
+    }
+    lines.extend(suffix);
+    lines
+}
+
+fn full_file_deleted_line(
+    deletion: &FullFileDeletion,
+    syntax_spans: Option<Vec<Span<'static>>>,
+) -> Line<'static> {
+    let old_line = deletion
+        .old_line
+        .map_or_else(String::new, |line| line.to_string());
+    let mut spans = vec![
+        navigation_marker(false),
+        Span::styled(format!("{old_line:>5} "), gutter_style()),
+        Span::styled(
+            "-",
+            Style::default()
+                .fg(REMOVED_FOREGROUND)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ];
+    spans.extend(
+        syntax_spans.unwrap_or_else(|| vec![Span::raw(sanitize_inline(&deletion.content))]),
+    );
+    Line::from(spans).style(Style::default().bg(REMOVED_BACKGROUND))
+}
+
+fn full_file_display_cursor(state: &AppState, source_line: usize) -> usize {
+    if state.full_file.mode != FullFileMode::Changes
+        || !matches!(state.full_file.content, LoadState::Ready(_))
+    {
+        return source_line;
+    }
+    source_line.saturating_add(
+        state
+            .full_file
+            .deleted_lines
+            .iter()
+            .filter(|line| usize::try_from(line.anchor).unwrap_or(usize::MAX) <= source_line)
+            .count(),
+    )
+}
+
+fn full_file_display_viewport(state: &AppState, source_line: usize) -> usize {
+    if state.full_file.mode != FullFileMode::Changes
+        || !matches!(state.full_file.content, LoadState::Ready(_))
+    {
+        return source_line;
+    }
+    source_line.saturating_add(
+        state
+            .full_file
+            .deleted_lines
+            .iter()
+            .filter(|line| usize::try_from(line.anchor).unwrap_or(usize::MAX) < source_line)
+            .count(),
+    )
+}
+
+fn render_symbol_context(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
+    let popup = centered(area, SYMBOL_WIDTH_PERCENT, SYMBOL_HEIGHT_PERCENT);
+    frame.render_widget(Clear, popup);
+    let mut lines = vec![selected_line(
+        state.symbol_context.selection.index() == Some(0),
+        "Open full file without selecting a symbol".to_owned(),
+    )];
+    match &state.symbol_context.symbols {
+        LoadState::Idle => lines.push(plain("No symbol request.")),
+        LoadState::Loading { .. } => lines.push(plain("Loading symbol context…")),
+        LoadState::Failed(error) => lines.push(error_line(error.message())),
+        LoadState::Ready(symbols) if symbols.is_empty() => {
+            lines.push(plain("No symbols in this context."));
+        }
+        LoadState::Ready(symbols) => {
+            lines.extend(symbols.iter().enumerate().map(|(index, symbol)| {
+                let detail = symbol
+                    .detail()
+                    .map(|detail| format!(" — {}", sanitize_inline(detail)))
+                    .unwrap_or_default();
+                selected_line(
+                    state.symbol_context.selection.index() == Some(index.saturating_add(1)),
+                    format!(
+                        "{}{} {}  line {}{detail}",
+                        "  ".repeat(symbol.depth()),
+                        symbol.kind(),
+                        sanitize_inline(symbol.name()),
+                        symbol.selection().line().saturating_add(1),
+                    ),
+                )
+            }))
+        }
+    }
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title(" Symbol/context [j/k: move, Enter: open and jump, q/Esc: back] ")
+                    .borders(Borders::ALL),
+            )
+            .scroll((
+                list_scroll(state.symbol_context.selection.index(), popup),
+                0,
+            )),
+        popup,
+    );
+}
+
 fn render_lsp_hover(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
-    let popup = centered(area, 82, 62);
+    let popup = centered(area, HOVER_WIDTH_PERCENT, HOVER_HEIGHT_PERCENT);
     frame.render_widget(Clear, popup);
     let text = match &state.lsp_hover.content {
         LoadState::Idle => "No hover request.".to_owned(),
@@ -1086,11 +1430,18 @@ fn render_lsp_hover(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
 }
 
 fn render_repository_search_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
-    let popup = centered(area, 86, 82);
+    let popup = centered(
+        area,
+        REPOSITORY_SEARCH_WIDTH_PERCENT,
+        REPOSITORY_SEARCH_HEIGHT_PERCENT,
+    );
     frame.render_widget(Clear, popup);
     let sections = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(1)])
+        .constraints([
+            Constraint::Length(SEARCH_INPUT_ROWS),
+            Constraint::Min(MIN_CONTENT_ROWS),
+        ])
         .split(popup);
     let mode = state.repository_search.kind.label();
     let query = state
@@ -1153,16 +1504,14 @@ fn render_repository_search_overlay(frame: &mut Frame<'_>, area: Rect, state: &A
 }
 
 fn render_file_content_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
-    let popup = Rect {
-        x: area.x.saturating_add(1),
-        y: area.y.saturating_add(1),
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(2),
-    };
+    let popup = document_overlay(area);
     frame.render_widget(Clear, popup);
     let sections = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .constraints([
+            Constraint::Min(MIN_CONTENT_ROWS),
+            Constraint::Length(SEARCH_BAR_ROWS),
+        ])
         .split(popup);
     let path = state
         .file_view
@@ -1180,16 +1529,14 @@ fn render_file_content_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppSta
 }
 
 fn render_code_content_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
-    let popup = Rect {
-        x: area.x.saturating_add(1),
-        y: area.y.saturating_add(1),
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(2),
-    };
+    let popup = document_overlay(area);
     frame.render_widget(Clear, popup);
     let sections = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .constraints([
+            Constraint::Min(MIN_CONTENT_ROWS),
+            Constraint::Length(SEARCH_BAR_ROWS),
+        ])
         .split(popup);
     let path = state
         .code_view
@@ -1229,7 +1576,7 @@ fn render_code_content_with_title(
 }
 
 fn render_semantic_targets(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
-    let popup = centered(area, 82, 72);
+    let popup = centered(area, SYMBOL_WIDTH_PERCENT, SYMBOL_HEIGHT_PERCENT);
     frame.render_widget(Clear, popup);
     let operation = state
         .semantic_navigation
@@ -1268,7 +1615,7 @@ fn render_semantic_targets(frame: &mut Frame<'_>, area: Rect, state: &AppState) 
 }
 
 fn code_scroll(state: &AppState, area: Rect, line_count: usize) -> (u16, u16) {
-    let visible_lines = usize::from(area.height.saturating_sub(2)).max(1);
+    let visible_lines = usize::from(area.height.saturating_sub(PANE_BORDER_CELLS)).max(1);
     let cursor_line = usize::try_from(state.code_view.cursor.line())
         .unwrap_or(usize::MAX)
         .min(line_count.saturating_sub(1));
@@ -1284,9 +1631,10 @@ fn code_scroll(state: &AppState, area: Rect, line_count: usize) -> (u16, u16) {
         LoadState::Idle | LoadState::Loading { .. } | LoadState::Failed(_) => None,
     };
     let cursor_display = source_line.map_or(0, |line| {
-        crate::lsp::display_column(line, state.code_view.cursor.byte_column()).saturating_add(8)
+        crate::lsp::display_column(line, state.code_view.cursor.byte_column())
+            .saturating_add(SOURCE_GUTTER_COLUMNS)
     });
-    let visible_columns = usize::from(area.width.saturating_sub(2)).max(1);
+    let visible_columns = usize::from(area.width.saturating_sub(PANE_BORDER_CELLS)).max(1);
     let mut horizontal = state.code_view.viewport_horizontal;
     if cursor_display < horizontal {
         horizontal = cursor_display;
@@ -1300,16 +1648,14 @@ fn code_scroll(state: &AppState, area: Rect, line_count: usize) -> (u16, u16) {
 }
 
 fn render_diff_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
-    let popup = Rect {
-        x: area.x.saturating_add(1),
-        y: area.y.saturating_add(1),
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(2),
-    };
+    let popup = document_overlay(area);
     frame.render_widget(Clear, popup);
     let sections = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .constraints([
+            Constraint::Min(MIN_CONTENT_ROWS),
+            Constraint::Length(SEARCH_BAR_ROWS),
+        ])
         .split(popup);
     let baseline = selected_baseline(state);
     let hint = document_close_hint(state);
@@ -1368,7 +1714,7 @@ fn render_search_bar(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
 fn selected_baseline(state: &AppState) -> Option<String> {
     match state.view {
         AppView::Changes => return Some("index → working tree".to_owned()),
-        AppView::FileHistory if !state.file_view.showing_history_diff => {
+        AppView::FileHistory if !state.file_view.mode.shows_history_diff() => {
             return Some("current working tree file".to_owned());
         }
         AppView::FileHistory => {
@@ -1392,7 +1738,7 @@ fn selected_baseline(state: &AppState) -> Option<String> {
 
 fn render_too_small(frame: &mut Frame<'_>, area: Rect) {
     let message = format!(
-        "Terminal too small: {}x{}. ChronoGit needs at least {MIN_WIDTH}x{MIN_HEIGHT}. Press Q to quit.",
+        "Terminal too small: {}x{}. ChronoGit needs at least {MIN_TERMINAL_WIDTH}x{MIN_TERMINAL_HEIGHT}. Press Q to quit.",
         area.width, area.height
     );
     frame.render_widget(
@@ -1441,18 +1787,24 @@ fn error_line(value: &str) -> Line<'static> {
 }
 
 fn sanitize_inline(value: &str) -> String {
-    sanitize(value, false)
+    sanitize(value, SanitizationMode::Inline)
 }
 
 fn sanitize_multiline(value: &str) -> String {
-    sanitize(value, true)
+    sanitize(value, SanitizationMode::Multiline)
 }
 
-fn sanitize(value: &str, preserve_newlines: bool) -> String {
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum SanitizationMode {
+    Inline,
+    Multiline,
+}
+
+fn sanitize(value: &str, mode: SanitizationMode) -> String {
     let mut safe = String::with_capacity(value.len());
     for character in value.chars() {
         match character {
-            '\n' if preserve_newlines => safe.push('\n'),
+            '\n' if mode == SanitizationMode::Multiline => safe.push('\n'),
             '\t' => safe.push_str("    "),
             character if character.is_control() => {
                 safe.push_str(&format!("\\u{{{:x}}}", u32::from(character)));
@@ -1470,7 +1822,7 @@ fn highlight_search_ranges(
     line: &mut Line<'static>,
     source: &str,
     index: usize,
-    prefix_spans: usize,
+    prefix_spans: PrefixSpanCount,
     state: &AppState,
 ) {
     let mut ranges: Vec<std::ops::Range<usize>> = Vec::new();
@@ -1524,7 +1876,7 @@ fn highlight_search_ranges(
 // the syntax spans, preserving every style outside the ranges and the gutters.
 fn style_source_ranges(
     line: &mut Line<'static>,
-    prefix_spans: usize,
+    prefix_spans: PrefixSpanCount,
     ranges: impl Iterator<Item = std::ops::Range<usize>>,
     style: Style,
 ) {
@@ -1536,7 +1888,7 @@ fn style_source_ranges(
     let mut spans = Vec::with_capacity(original.len());
     let mut offset = 0;
     for (index, span) in original.into_iter().enumerate() {
-        if index < prefix_spans {
+        if index < prefix_spans.value() {
             spans.push(span);
             continue;
         }
@@ -1571,7 +1923,7 @@ fn highlight_source_cursor(
     line: &mut Line<'static>,
     source: &str,
     requested: usize,
-    prefix_spans: usize,
+    prefix_spans: PrefixSpanCount,
 ) {
     let mut column = requested.min(source.len());
     while !source.is_char_boundary(column) {
@@ -1594,7 +1946,7 @@ fn highlight_source_cursor(
         .bg(Color::LightCyan)
         .add_modifier(Modifier::BOLD);
     let original = std::mem::take(&mut line.spans);
-    let prefix_spans = prefix_spans.min(original.len());
+    let prefix_spans = prefix_spans.value().min(original.len());
     let mut spans = original[..prefix_spans].to_vec();
     let mut offset = 0usize;
     let mut inserted_width_marker = false;
@@ -1638,7 +1990,7 @@ fn message_cursor_lines(text: &str, cursor: usize, byte_column: usize) -> Vec<Li
         .map(|(index, source)| {
             if index == cursor {
                 let mut line = Line::raw(sanitize_inline(source));
-                highlight_source_cursor(&mut line, source, byte_column, 0);
+                highlight_source_cursor(&mut line, source, byte_column, PrefixSpanCount::NONE);
                 line
             } else {
                 Line::raw(sanitize_inline(source))
@@ -1647,7 +1999,7 @@ fn message_cursor_lines(text: &str, cursor: usize, byte_column: usize) -> Vec<Li
         .collect::<Vec<_>>();
     if lines.is_empty() {
         let mut line = Line::raw("");
-        highlight_source_cursor(&mut line, "", 0, 0);
+        highlight_source_cursor(&mut line, "", 0, PrefixSpanCount::NONE);
         lines.push(line);
     }
     lines
@@ -1665,28 +2017,37 @@ fn followed_scroll(cursor: usize, requested: usize, visible: usize) -> u16 {
 }
 
 fn list_scroll(selection: Option<usize>, area: Rect) -> u16 {
-    let visible = usize::from(area.height.saturating_sub(2)).max(1);
+    let visible = usize::from(area.height.saturating_sub(PANE_BORDER_CELLS)).max(1);
     selection
         .unwrap_or(0)
         .saturating_sub(visible.saturating_sub(1))
         .min(usize::from(u16::MAX)) as u16
 }
 
+fn document_overlay(area: Rect) -> Rect {
+    Rect {
+        x: area.x.saturating_add(DOCUMENT_OVERLAY_MARGIN),
+        y: area.y.saturating_add(DOCUMENT_OVERLAY_MARGIN),
+        width: area.width.saturating_sub(DOCUMENT_OVERLAY_INSET),
+        height: area.height.saturating_sub(DOCUMENT_OVERLAY_INSET),
+    }
+}
+
 fn centered(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage((FULL_PERCENT - percent_y) / 2),
             Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage((FULL_PERCENT - percent_y) / 2),
         ])
         .split(area);
     Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage((FULL_PERCENT - percent_x) / 2),
             Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage((FULL_PERCENT - percent_x) / 2),
         ])
         .split(vertical[1])[1]
 }
@@ -1706,13 +2067,14 @@ mod tests {
         sanitize_inline, sanitize_multiline,
     };
     use crate::app::{
-        Action, AppState, AppView, ErrorNotice, Event, FocusedPane, GitEffect, LoadState, Overlay,
-        RepositorySearchKind, SearchDirection,
+        Action, AppEffect, AppState, AppView, ErrorNotice, Event, FocusedPane, GitEffect,
+        LoadState, LspEffect, Overlay, RepositorySearchKind, SearchDirection,
     };
     use crate::domain::{
         ChangeKind, ChangedFile, CommitBaseline, CommitMessage, CommitSummary, DiffDocument,
-        DiffLine, DiffLineKind, DiffTarget, FileDocument, ObjectId, RepoPath, RepositoryRoot,
-        SearchHit, SourcePosition, WorktreeChange,
+        DiffLine, DiffLineKind, DiffTarget, DocumentSymbol, DocumentSymbolKind, FileDocument,
+        FileRevision, LineNumber, ObjectId, RepoPath, RepositoryRoot, SearchHit, SourcePosition,
+        SourceRange, WorktreeChange,
     };
 
     fn state() -> AppState {
@@ -1755,14 +2117,10 @@ mod tests {
                 state.code_view.path = Some(path.clone());
                 state.diff.target = Some(DiffTarget::Worktree {
                     path,
-                    untracked: false,
+                    kind: crate::domain::WorktreeDiffKind::Tracked,
                 });
-                state.code_view.content = LoadState::Ready(FileDocument::Text {
-                    lines: texts.clone(),
-                    source: texts.join("\n"),
-                    valid_utf8: true,
-                    truncated: false,
-                });
+                state.code_view.content =
+                    LoadState::Ready(FileDocument::exact_text(texts.join("\n")));
                 state.diff.content = LoadState::Ready(DiffDocument::Text {
                     lines: texts
                         .iter()
@@ -1774,8 +2132,8 @@ mod tests {
                                 } else {
                                     DiffLineKind::Removed
                                 },
-                                Some(crate::domain::LineNumber::new(1)),
-                                Some(crate::domain::LineNumber::new(1)),
+                                crate::domain::LineNumber::new(1),
+                                crate::domain::LineNumber::new(1),
                                 text.clone(),
                             )
                         })
@@ -1958,16 +2316,150 @@ mod tests {
     }
 
     #[test]
+    fn renders_full_file_modes_and_symbol_context_choices() {
+        let mut state = state();
+        state.focus = FocusedPane::Diff;
+        let path = RepoPath::from_bytes(b"src/example.rs".to_vec())
+            .unwrap_or_else(|error| panic!("path: {error}"));
+        state.diff.target = Some(DiffTarget::Worktree {
+            path: path.clone(),
+            kind: crate::domain::WorktreeDiffKind::Tracked,
+        });
+        state.diff.content = LoadState::Ready(DiffDocument::Text {
+            lines: vec![
+                DiffLine::new(
+                    DiffLineKind::Removed,
+                    LineNumber::new(2),
+                    None,
+                    "-fn removed() {}".to_owned(),
+                ),
+                DiffLine::new(
+                    DiffLineKind::Added,
+                    None,
+                    LineNumber::new(2),
+                    "+fn changed() {}".to_owned(),
+                ),
+            ],
+            bytes: 32,
+        });
+        let effects = state.handle_app_action(Action::OpenFullFile);
+        let request_id = match effects[0] {
+            AppEffect::Git(GitEffect::LoadFullFile { request_id, .. }) => request_id,
+            ref other => panic!("unexpected effect: {other:?}"),
+        };
+        state.handle_app_event(Event::FullFileLoaded {
+            request_id,
+            revision: FileRevision::WorkingTree,
+            path: path.clone(),
+            result: Ok(FileDocument::exact_text("fn first() {}\nfn changed() {}\n")),
+        });
+        let changes = rendered_text(&state, 100, 30);
+        assert!(changes.contains("working tree — changes"));
+        assert!(changes.contains("-fn removed()"));
+        assert!(changes.contains("fn changed()"));
+        assert!(
+            rendered_buffer(&state, 100, 30)
+                .content()
+                .iter()
+                .any(|cell| cell.bg == Color::Rgb(74, 34, 29))
+        );
+
+        state.handle_app_action(Action::ToggleFullFileMode);
+        let new_state = rendered_text(&state, 100, 30);
+        assert!(new_state.contains("new state"));
+        assert!(!new_state.contains("fn removed()"));
+
+        state.set_lsp_availability(crate::app::LspAvailability::Enabled);
+        let effects = state.handle_app_action(Action::OpenSymbolContext);
+        let (request_id, document_revision) = match effects[0] {
+            AppEffect::Lsp(LspEffect::DocumentSymbols {
+                request_id,
+                document_revision,
+                ..
+            }) => (request_id, document_revision),
+            ref other => panic!("unexpected effect: {other:?}"),
+        };
+        state.handle_app_event(Event::DocumentSymbolsCompleted {
+            request_id,
+            path,
+            document_revision,
+            result: Ok(vec![DocumentSymbol::new(
+                "changed".to_owned(),
+                None,
+                DocumentSymbolKind::Function,
+                SourceRange::new(SourcePosition::new(1, 0), SourcePosition::new(1, 15)),
+                SourcePosition::new(1, 3),
+                0,
+            )]),
+        });
+        let symbols = rendered_text(&state, 100, 30);
+        assert!(symbols.contains("Open full file without selecting a symbol"));
+        assert!(symbols.contains("function changed"));
+    }
+
+    #[test]
+    fn changes_mode_renders_removed_rows_when_the_new_file_is_absent() {
+        let mut state = state();
+        state.focus = FocusedPane::Diff;
+        let path = RepoPath::from_bytes(b"src/deleted.rs".to_vec())
+            .unwrap_or_else(|error| panic!("path: {error}"));
+        state.diff.target = Some(DiffTarget::Worktree {
+            path: path.clone(),
+            kind: crate::domain::WorktreeDiffKind::Tracked,
+        });
+        state.diff.content = LoadState::Ready(DiffDocument::Text {
+            lines: vec![
+                DiffLine::new(DiffLineKind::Hunk, None, None, "@@ -1 +0,0 @@".to_owned()),
+                DiffLine::new(
+                    DiffLineKind::Removed,
+                    LineNumber::new(1),
+                    None,
+                    "-fn removed_with_file() {}".to_owned(),
+                ),
+            ],
+            bytes: 32,
+        });
+
+        let effects = state.handle_app_action(Action::OpenFullFile);
+        let request_id = match effects[0] {
+            AppEffect::Git(GitEffect::LoadFullFile { request_id, .. }) => request_id,
+            ref other => panic!("unexpected effect: {other:?}"),
+        };
+        state.handle_app_event(Event::FullFileLoaded {
+            request_id,
+            revision: FileRevision::WorkingTree,
+            path,
+            result: Ok(FileDocument::Unavailable {
+                summary: "File does not exist in the current working tree".to_owned(),
+            }),
+        });
+
+        let changes = rendered_text(&state, 100, 30);
+        assert!(changes.contains("-fn removed_with_file()"));
+        assert!(changes.contains("File does not exist"));
+
+        state.handle_app_action(Action::ToggleFullFileMode);
+        let new_state = rendered_text(&state, 100, 30);
+        assert!(!new_state.contains("fn removed_with_file()"));
+        assert!(new_state.contains("File does not exist"));
+    }
+
+    #[test]
     fn standalone_control_focus_switches_narrow_changes_and_wide_borders() {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         use ratatui::layout::{Constraint, Direction, Layout};
 
         let press = |state: &mut AppState, key: char| {
             let mut mapper = crate::tui::keymap::KeyMapper::new();
+            let context = if state.is_search_input_active() {
+                crate::tui::keymap::KeyInputContext::SearchInput
+            } else {
+                crate::tui::keymap::KeyInputContext::Normal
+            };
             let action = mapper
                 .map(
                     KeyEvent::new(KeyCode::Char(key), KeyModifiers::CONTROL),
-                    state.is_search_input_active(),
+                    context,
                 )
                 .unwrap_or_else(|| panic!("expected Ctrl-{key} focus action"));
             assert!(state.handle_app_action(action).is_empty());
@@ -2074,12 +2566,7 @@ mod tests {
             RepoPath::from_bytes(b"src/main.rs".to_vec())
                 .unwrap_or_else(|error| panic!("path: {error}")),
         );
-        state.code_view.content = LoadState::Ready(FileDocument::Text {
-            source: "struct Action;".to_owned(),
-            lines: vec!["struct Action;".to_owned()],
-            valid_utf8: true,
-            truncated: false,
-        });
+        state.code_view.content = LoadState::Ready(FileDocument::exact_text("struct Action;"));
         state.lsp_hover.return_overlay = Overlay::CodeContent;
         state.lsp_hover.content =
             LoadState::Ready(Some("struct Action\n\nA semantic action.".to_owned()));
@@ -2118,12 +2605,7 @@ mod tests {
         let _none = state.handle_event(Event::CodeFileLoaded {
             request_id: file_request,
             path,
-            result: Ok(FileDocument::Text {
-                lines: vec!["code viewer content".to_owned()],
-                source: "code viewer content".to_owned(),
-                valid_utf8: true,
-                truncated: false,
-            }),
+            result: Ok(FileDocument::exact_text("code viewer content")),
         });
 
         let text = rendered_text(&state, 100, 30);
@@ -2148,6 +2630,7 @@ mod tests {
             (AppView::Changes, Overlay::Diff),
             (AppView::Code, Overlay::CodeContent),
             (AppView::FileHistory, Overlay::FileContent),
+            (AppView::Changes, Overlay::FullFile),
             (AppView::History, Overlay::CommitMessage),
         ] {
             for direction in [SearchDirection::Forward, SearchDirection::Backward] {
@@ -2239,11 +2722,13 @@ mod tests {
                             (KeyCode::Backspace, true),
                             (KeyCode::Backspace, false),
                         ] {
+                            let context = if state.is_search_input_active() {
+                                crate::tui::keymap::KeyInputContext::SearchInput
+                            } else {
+                                crate::tui::keymap::KeyInputContext::Normal
+                            };
                             let action = mapper
-                                .map(
-                                    KeyEvent::new(key, KeyModifiers::NONE),
-                                    state.is_search_input_active(),
-                                )
+                                .map(KeyEvent::new(key, KeyModifiers::NONE), context)
                                 .unwrap_or_else(|| panic!("expected search key"));
                             assert!(state.handle_app_action(action).is_empty());
                             terminal
@@ -2287,10 +2772,10 @@ mod tests {
         assert!(text.contains("r; Space m/b/t"));
         assert!(text.contains("Space is the app leader; l/Right moves right"));
         assert!(text.contains("F1 help; q close/back immediately; Q/Ctrl-C quit"));
-        assert!(text.contains("Esc: clear Diff/Code search, then close/back; q: close now"));
+        assert!(text.contains("Esc: clear text search, then close/back; q: close now"));
         let compact = rendered_text(&state, 80, 24);
         assert!(compact.contains("Ctrl-h/k/j/l Focus previous / next pane"));
-        assert!(compact.contains("Esc: clear Diff/Code search, then close/back; q: close now"));
+        assert!(compact.contains("Esc: clear text search, then close/back; q: close now"));
 
         state.overlay = Overlay::None;
         let footer = rendered_text(&state, 180, 30);
@@ -2590,7 +3075,7 @@ mod tests {
         state.diff.target = Some(DiffTarget::Worktree {
             path: RepoPath::from_bytes(b"src/example.rs".to_vec())
                 .unwrap_or_else(|error| panic!("{error}")),
-            untracked: false,
+            kind: crate::domain::WorktreeDiffKind::Tracked,
         });
         let source = "+pub fn needle() { let other = \"needle\"; }";
         let document = DiffDocument::Text {
@@ -2646,7 +3131,7 @@ mod tests {
         state.diff.target = Some(DiffTarget::Worktree {
             path: RepoPath::from_bytes(b"src/example.rs".to_vec())
                 .unwrap_or_else(|error| panic!("{error}")),
-            untracked: false,
+            kind: crate::domain::WorktreeDiffKind::Tracked,
         });
         let document = DiffDocument::Text {
             lines: vec![
@@ -2720,15 +3205,7 @@ mod tests {
             RepoPath::from_bytes(b"src/example.rs".to_vec())
                 .unwrap_or_else(|error| panic!("{error}")),
         );
-        let document = FileDocument::Text {
-            lines: vec![
-                "pub fn first() {}".to_owned(),
-                "pub fn second() {}".to_owned(),
-            ],
-            source: "pub fn first() {}\npub fn second() {}".to_owned(),
-            valid_utf8: true,
-            truncated: false,
-        };
+        let document = FileDocument::exact_text("pub fn first() {}\npub fn second() {}");
 
         let first = file_document_lines(&document, &state);
         assert_eq!(first[0].spans[0].content, "▌");
@@ -2751,12 +3228,7 @@ mod tests {
             RepoPath::from_bytes(b"src/example.rs".to_vec())
                 .unwrap_or_else(|error| panic!("path: {error}")),
         );
-        state.code_view.content = LoadState::Ready(FileDocument::Text {
-            source: "a界e\u{301}".to_owned(),
-            lines: vec!["a界e\u{301}".to_owned()],
-            valid_utf8: true,
-            truncated: false,
-        });
+        state.code_view.content = LoadState::Ready(FileDocument::exact_text("a界e\u{301}"));
         state.code_view.cursor = SourcePosition::new(0, 1);
         let wide = code_document_lines(
             match &state.code_view.content {
@@ -2816,7 +3288,7 @@ mod tests {
         state.diff.target = Some(DiffTarget::Worktree {
             path: RepoPath::from_bytes(b"long.txt".to_vec())
                 .unwrap_or_else(|error| panic!("{error}")),
-            untracked: false,
+            kind: crate::domain::WorktreeDiffKind::Tracked,
         });
         state.diff.content = LoadState::Ready(DiffDocument::Text {
             lines: (0..60)
@@ -2897,12 +3369,7 @@ mod tests {
         );
         graph.file_view.commits = LoadState::Ready(vec![first]);
         graph.file_view.selection.reset(1);
-        graph.file_view.content = LoadState::Ready(FileDocument::Text {
-            lines: vec!["current source line".to_owned()],
-            source: "current source line".to_owned(),
-            valid_utf8: true,
-            truncated: false,
-        });
+        graph.file_view.content = LoadState::Ready(FileDocument::exact_text("current source line"));
         let file_text = rendered_text(&graph, 100, 30);
         assert!(file_text.contains("History"));
         assert!(file_text.contains("Current working tree content"));
@@ -2918,7 +3385,7 @@ mod tests {
         state.repository_search.query = "needle".to_owned();
         state.repository_search.results = LoadState::Ready(vec![SearchHit::content(
             RepoPath::from_bytes(b"src/lib.rs".to_vec()).unwrap_or_else(|error| panic!("{error}")),
-            42,
+            LineNumber::new(42).unwrap_or_else(|| panic!("fixture line must be nonzero")),
             "let needle = true;".to_owned(),
         )]);
         state.repository_search.selection.reset(1);

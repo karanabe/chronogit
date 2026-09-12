@@ -38,7 +38,8 @@ do not need the workspace's directory layout.
 ## Major concepts
 
 - `motion` owns zero-based `Cursor` coordinates, `Viewport` display geometry,
-  the `MotionKind` vocabulary, and pure motion over borrowed logical lines.
+  the `MotionKind` vocabulary, explicit/implicit `CountSource`, and pure motion
+  over borrowed logical lines.
 - `command` owns a saturating count, an incomplete find/till command, its
   character argument, and `;`/`,` repetition through `MotionState`.
 - `editor` owns the separate mutable `EditableBuffer`, its Normal/Insert mode,
@@ -101,6 +102,17 @@ assert_eq!(motion.target(), Some('a'));
 Counts saturate at `usize::MAX`; a leading zero remains available for the Vim
 `0` motion. Callers own terminal event parsing and should reset an incomplete
 command when mode or focus changes.
+
+When a caller constructs an already-resolved counted motion directly, the
+count origin remains explicit in the type instead of a positional boolean:
+
+```rust
+use vim_navigation::{CountSource, Motion, MotionKind};
+
+let motion = Motion::new(MotionKind::WordForward).counted(3, CountSource::Explicit);
+assert_eq!(motion.count(), 3);
+assert!(motion.has_explicit_count());
+```
 
 ## Opt-in editing
 

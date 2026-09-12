@@ -13,11 +13,16 @@ mod source;
 mod tree;
 
 pub use change::{ChangeKind, ChangedFile, WorktreeChange};
-pub use commit::{CommitBaseline, CommitMessage, CommitSummary, ObjectId};
-pub use diff::{DiffDocument, DiffLine, DiffLineKind, DiffTarget, LineNumber};
-pub use path::{RepoPath, RepositoryRoot};
-pub use search::{FileDocument, SearchHit};
-pub use source::{
-    NavigationTarget, RepositoryLocation, SemanticNavigationKind, SourcePosition, SourceRange,
+pub use commit::{
+    CommitBaseline, CommitMessage, CommitPage, CommitSummary, ObjectId, ObjectIdError,
 };
-pub use tree::{TreeEntry, TreeKind};
+pub use diff::{
+    DiffDocument, DiffLine, DiffLineKind, DiffTarget, LineNumber, LineNumberError, WorktreeDiffKind,
+};
+pub use path::{RepoPath, RepoPathError, RepositoryRoot, RepositoryRootError};
+pub use search::{FileDocument, SearchHit, TextFileDocument};
+pub use source::{
+    DocumentSymbol, DocumentSymbolKind, FileRevision, NavigationTarget, RepositoryLocation,
+    SemanticNavigationKind, SourcePosition, SourceRange,
+};
+pub use tree::{GitTreeMode, GitTreeModeError, TreeEntry, TreeKind};

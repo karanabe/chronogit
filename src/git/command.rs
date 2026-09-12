@@ -1,8 +1,9 @@
-//! Closed descriptions of the Git reads ChronoGit is allowed to execute.
+//! Closed descriptions of the Git reads `ChronoGit` is allowed to execute.
 
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
-use crate::domain::{CommitBaseline, ObjectId, RepoPath};
+use crate::domain::{CommitBaseline, CommitPage, ObjectId, RepoPath};
 
 /// A typed, read-only Git invocation.
 ///
@@ -34,10 +35,8 @@ pub enum GitCommand {
     },
     /// Read one page of machine-formatted commit summaries.
     Commits {
-        /// Number of leading commits to skip.
-        skip: usize,
-        /// Maximum number of summaries to return.
-        limit: usize,
+        /// Validated offset and non-zero maximum result count.
+        page: CommitPage,
     },
     /// Enumerate tracked and untracked repository paths.
     RepositoryFiles,
@@ -51,7 +50,14 @@ pub enum GitCommand {
         /// Repository-relative pathspec.
         path: RepoPath,
         /// Maximum number of summaries to return.
-        limit: usize,
+        limit: NonZeroUsize,
+    },
+    /// Read one path exactly as stored by an immutable commit.
+    RevisionFile {
+        /// Commit containing the newer file state.
+        revision: ObjectId,
+        /// Repository-relative path within the commit tree.
+        path: RepoPath,
     },
     /// Read a commit's complete message.
     CommitMessage {
@@ -96,6 +102,7 @@ impl GitCommand {
             Self::RepositoryFiles => "list repository files",
             Self::Grep { .. } => "search repository content",
             Self::FileHistory { .. } => "read file history",
+            Self::RevisionFile { .. } => "read revision file",
             Self::CommitMessage { .. } => "read commit message",
             Self::ChangedFiles { .. } => "read changed files",
             Self::CommitDiff { .. } => "read commit diff",

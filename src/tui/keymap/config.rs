@@ -8,7 +8,10 @@ use std::path::{Path, PathBuf};
 use crossterm::event::{KeyCode, KeyModifiers};
 
 use super::{Binding, KeyStroke, action_for_name};
-use crate::app::{Action, SearchDirection, SemanticNavigationKind, VimMotion, VimMotionKind};
+use crate::app::{
+    Action, JumpHistory, MarkJumpTarget, SearchDirection, SemanticNavigationKind, VimMotion,
+    VimMotionKind,
+};
 
 /// A path-qualified keymap read or validation failure.
 #[derive(Debug)]
@@ -113,18 +116,20 @@ pub(super) fn parse_stroke(value: &str) -> Result<KeyStroke, String> {
     let mut raw_key = value;
     loop {
         let folded = raw_key.to_ascii_lowercase();
-        if folded.starts_with("ctrl-") {
-            modifiers.insert(KeyModifiers::CONTROL);
-            raw_key = &raw_key[5..];
+        let modifier = if folded.starts_with("ctrl-") {
+            Some(("ctrl-", KeyModifiers::CONTROL))
         } else if folded.starts_with("alt-") {
-            modifiers.insert(KeyModifiers::ALT);
-            raw_key = &raw_key[4..];
+            Some(("alt-", KeyModifiers::ALT))
         } else if folded.starts_with("shift-") {
-            modifiers.insert(KeyModifiers::SHIFT);
-            raw_key = &raw_key[6..];
+            Some(("shift-", KeyModifiers::SHIFT))
         } else {
+            None
+        };
+        let Some((prefix, modifier)) = modifier else {
             break;
-        }
+        };
+        modifiers.insert(modifier);
+        raw_key = raw_key.get(prefix.len()..).unwrap_or_default();
     }
     let folded = raw_key.to_ascii_lowercase();
     let key = folded.as_str();
@@ -454,32 +459,32 @@ pub(super) fn default_bindings() -> Vec<Binding> {
             character('\''),
             Action::JumpToVimMark {
                 mark: '\0',
-                linewise: true,
-                record_jump: true,
+                target: MarkJumpTarget::Line,
+                history: JumpHistory::Record,
             },
         ),
         single(
             character('`'),
             Action::JumpToVimMark {
                 mark: '\0',
-                linewise: false,
-                record_jump: true,
+                target: MarkJumpTarget::Exact,
+                history: JumpHistory::Record,
             },
         ),
         Binding::new(
             vec![character('g'), character('\'')],
             Action::JumpToVimMark {
                 mark: '\0',
-                linewise: true,
-                record_jump: false,
+                target: MarkJumpTarget::Line,
+                history: JumpHistory::Preserve,
             },
         ),
         Binding::new(
             vec![character('g'), character('`')],
             Action::JumpToVimMark {
                 mark: '\0',
-                linewise: false,
-                record_jump: false,
+                target: MarkJumpTarget::Exact,
+                history: JumpHistory::Preserve,
             },
         ),
         Binding::new(
@@ -697,6 +702,15 @@ pub(super) fn default_bindings() -> Vec<Binding> {
         Binding::new(vec![character(' '), character('m')], Action::ToggleMessage),
         Binding::new(vec![character(' '), character('b')], Action::ToggleDetails),
         Binding::new(vec![character(' '), character('t')], Action::ToggleTree),
+        Binding::new(
+            vec![character(' '), character('s')],
+            Action::OpenSymbolContext,
+        ),
+        Binding::new(vec![character(' '), character('v')], Action::OpenFullFile),
+        Binding::new(
+            vec![character(' '), character('d')],
+            Action::ToggleFullFileMode,
+        ),
         Binding::new(
             vec![character('g'), character('d')],
             Action::GoToSemanticTarget(SemanticNavigationKind::Definition),

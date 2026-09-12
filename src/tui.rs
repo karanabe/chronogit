@@ -13,6 +13,7 @@ pub mod render;
 pub mod terminal;
 
 use std::io;
+use std::time::Duration;
 
 use crossterm::event::{Event as TerminalEvent, EventStream, KeyEventKind};
 use futures_util::StreamExt;
@@ -21,8 +22,11 @@ use tokio::sync::mpsc;
 use crate::app::{AppEffect, AppState, EffectExecutor};
 use crate::error::AppError;
 use crate::git::GitRunner;
-use crate::tui::keymap::KeyMapper;
+use crate::tui::keymap::{KeyInputContext, KeyMapper};
 use crate::tui::terminal::TerminalSession;
+
+const EVENT_QUEUE_CAPACITY: usize = 64;
+const UI_TICK_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Runs the interactive terminal loop until the state requests shutdown.
 ///
@@ -45,9 +49,9 @@ pub async fn run<R: GitRunner>(
         state.set_terminal_size(width, height);
     }
     let mut events = EventStream::new();
-    let (sender, mut receiver) = mpsc::channel(64);
+    let (sender, mut receiver) = mpsc::channel(EVENT_QUEUE_CAPACITY);
     dispatch_all(&executor, &sender, state.start_effects());
-    let mut tick = tokio::time::interval(std::time::Duration::from_millis(100));
+    let mut tick = tokio::time::interval(UI_TICK_INTERVAL);
 
     while !state.should_quit() {
         terminal.draw(|frame| render::render(frame, &state))?;
@@ -57,7 +61,12 @@ pub async fn run<R: GitRunner>(
                     Some(Ok(TerminalEvent::Key(key)))
                         if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) =>
                     {
-                        if let Some(action) = keymap.map(key, state.is_search_input_active()) {
+                        let context = if state.is_search_input_active() {
+                            KeyInputContext::SearchInput
+                        } else {
+                            KeyInputContext::Normal
+                        };
+                        if let Some(action) = keymap.map(key, context) {
                             let effects = state.handle_app_action(action);
                             dispatch_all(&executor, &sender, effects);
                         }

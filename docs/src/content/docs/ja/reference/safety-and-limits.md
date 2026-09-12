@@ -16,11 +16,12 @@ ChronoGitはリポジトリの内容と設定を信頼できない入力とし�
 アプリが要求できるのは、リポジトリ検出、bare/`HEAD`確認、ワークツリー状態、履歴、メッセージ、変更ファイル、差分、ツリー項目、リポジトリファイル一覧、固定文字列grepの型付き操作だけです。任意のGit引数を実行する経路はありません。
 
 - シェルを介さずGitを直接起動します。
-- リポジトリパスとpathspecは別々のプロセス引数とし、該当するコマンドでは`--`の後ろに渡します。
+- リポジトリパスとpathspecは別々のプロセス引数とし、該当するコマンドでは`--`の後ろに渡します。履歴ファイル全文は、検証済み16進object IDと検証済み相対リポジトリパスからだけ組み立てた1つの`object:path`引数で読みます。
 - 任意のGitロックとターミナルプロンプトを無効にします。
 - pager、色付け、外部diff driver、textconv、fsmonitorの実行を無効にします。
 - revisionとして再利用するobject IDは、16進数として検証済みの値だけです。
 - 現在ファイルの読み取りは、検出済みワークツリーディレクトリから各パス要素を相対的に開き、シンボリックリンクをたどらず、8 MiBで停止します。
+- 履歴ファイル全文はGit object databaseから読み、revisionをcheckoutせず、同じ8 MiB上限を適用します。
 - キーマップファイルは文書化されたaction名とキー名だけを受け付け、コマンドを実行できません。
 
 ChronoGitはステージ、復元、コミット、リセット、チェックアウト、ブランチ作成、参照更新を行いません。
@@ -29,7 +30,7 @@ ChronoGitはステージ、復元、コミット、リセット、チェック�
 
 language server対応によってChronoGitのGit保証は変わりませんが、外部serverは独自に動作する別processです。`--lsp PROFILE`を指定しない限りLSPは無効です。信頼できるrepositoryだけで有効化してください。rust-analyzerはbuild scriptやprocedural macroを評価する場合があり、Java/Python serverはproject toolingの起動、environment参照、そのtoolingを介したdependency取得、cache/build artifactの書き込みを行う場合があります。
 
-ChronoGitはserverを同梱・downloadしません。検証済みのtrusted user-level引数配列を直接起動し、repository設定からserver commandを読み込まず、暗黙のshell展開もしません。JDT workspace dataと書き込み可能なOSGi configurationはprocessごとにrepository外の固有temporary treeへ置きます。同期するのは完全なUTF-8 current fileだけです。返されたlocationは`file:` pathがrepository内に残り、既存no-follow readerを通る場合だけ開きます。外部URIとvirtual URIはnoticeとして表示するだけです。
+ChronoGitはserverを同梱・downloadしません。検証済みのtrusted user-level引数配列を直接起動し、repository設定からserver commandを読み込まず、暗黙のshell展開もしません。JDT workspace dataと書き込み可能なOSGi configurationはprocessごとにrepository外の固有temporary treeへ置きます。同期するのは表示中の完全なUTF-8 fileだけです。位置を使う要求ではcurrent working-tree text、document-symbol contextでは選択コミットのnew-state textも対象になります。返されたlocationは`file:` pathがrepository内に残り、既存no-follow readerを通る場合だけ開きます。外部URIとvirtual URIはnoticeとして表示するだけです。
 
 :::note[外部からの同時変更]
 読み取り専用とは、ChronoGitがリポジトリを変更しないという意味です。エディター、別の場所で開始したhook、他のGitプロセスはTUIの起動中にも変更できます。変更後は`r`で更新してください。
@@ -48,13 +49,13 @@ ChronoGitはserverを同梱・downloadしません。検証済みのtrusted user
 | 差分キャッシュ | 16項目、合計16 MiB |
 | 履歴ページ | 200コミット |
 | ファイル履歴 | 200コミット |
-| 現在ファイル内容 | 8 MiB |
+| 現在または履歴のファイル全文 | 8 MiB |
 | LSP message body | 受信・送信とも8 MiB |
 | LSP response header | 16 KiB |
 | LSP writer queue | sessionごとに64 message |
 | 常駐LSP session | profile/workspaceの組を最大4、LRUで終了 |
 | 同期document | sessionごとに完全な1 file、最大8 MiB |
-| LSP navigation / hover要求 | 15秒 |
+| LSP navigation / hover / document-symbol要求 | 15秒 |
 | 正規化後hover text | 262,144文字 |
 | LSP initialize要求 | 30秒 |
 | LSP shutdown猶予 | child終了まで2秒 |

@@ -36,6 +36,8 @@ ChronoGitは、従来のGitレビュー画面とワークツリーのCode viewer
 
 認識できるソース種別には組み込みのsyntax定義を使います。読み取りは8 MiBが上限で、それを超えるtextは無制限に保持せずtruncated表示になります。
 
+`Space v`を押すと、差分workflowと共通の全文表示で選択sourceを開きます。LSPが有効なら、フォーカス中のCode pane、そのcontent float、またはfile historyから開いた現在内容paneで`Space s`を押してdocument-symbol listを開けます。symbolを選ぶと、全文内のselection rangeへjumpします。先頭行にはsymbolを選ばず全文を開く操作を明示しています。source viewにはdiffの行集合がないため、全文は通常の**new state** modeで始まります。
+
 ## コード閲覧中に検索する
 
 Code viewerでもGit画面と同じく、`Space f`でファイルパス、`Space g`で固定文字列を検索できます。結果を開くとCodeへ直接戻り、選択ファイルが見えるまで親ディレクトリを展開して、現在内容を読み込みます。内容検索では現在行マーカーを一致行へ配置します。
@@ -55,6 +57,7 @@ ChronoGitは実行ファイルをinstallしません。[rust-analyzer](https://r
 
 `h` / `l`または左右矢印でsymbol上へcursorを置き、次を使います。
 
+- `Space s`: 表示中ファイルのdocument symbol一覧
 - `K`: hover解説を開く / 閉じる
 - `gd`: 定義
 - `gi`: 実装
@@ -65,7 +68,7 @@ ChronoGitは実行ファイルをinstallしません。[rust-analyzer](https://r
 
 hoverはフロートウィンドウに表示します。`j` / `k`で説明文をスクロールし、`K`、`q`、`Esc`のいずれかで閉じます。hoverと各navigationが利用できるかはinitialize後のserver capabilityで決めます。serverがindex中は一時的に情報なしを返す場合があるため、フロートを閉じ、index完了後に同じ操作を再実行します。navigation結果が1件なら直接開き、複数なら`j` / `k`で選ぶlistを開きます。`Enter`で開き、`q` / `Esc`でlistを閉じます。LSP target、長距離Vim motion、mark jump、検索は1つのjump listを共有し、`Ctrl-o`後の新しいjumpは新しい側の分岐を破棄します。端末が`Ctrl-i`とTabを区別できない場合、Tabも同じ「進む」操作になります。0件、未対応capability、起動失敗、timeout、crashは終了せずnoticeになります。
 
-対象は完全なUTF-8のcurrent working-tree fileだけです。repository内の`file:`結果だけをrooted no-follow readerで開きます。repository外のstandard library/dependencyと`jdt:`などのvirtual URIはunsupportedとして表示し、repository pathとして解釈しません。
+位置を使うhover/navigationには完全なUTF-8のcurrent working-tree fileが必要です。document-symbol contextでは、選択コミットから読んだ完全なnew-state fileも利用できます。navigation結果はrepository内の`file:`だけをrooted no-follow readerで開きます。repository外のstandard library/dependencyと`jdt:`などのvirtual URIはunsupportedとして表示し、repository pathとして解釈しません。
 
 profileごとのroot markerを最も近い親から探し、なければrepository rootを使います。sessionはprofileとworkspace rootの組でlazy startし、最大4 processです。5つ目は最終利用が最も古いsessionを終了します。Rust、Java、Python、user定義languageはすべて同じ標準request経路を使います。
 
@@ -76,7 +79,7 @@ language server実行ファイルとChronoGitのprofile fileは別物です。
 1. serverはChronoGitの外へinstallします。profileに書かれた実行ファイルを`PATH`へ置くか、trusted user-levelの`lsp.toml`で絶対pathへ上書きします。
 2. 組み込みprofile IDをそのまま使うか、`$XDG_CONFIG_HOME/chronogit/lsp.toml`（通常は`~/.config/chronogit/lsp.toml`）へcustom/上書きprofileを置きます。repository-localなserver commandは読みません。
 3. 1つ以上の`--lsp PROFILE`を付けてChronoGitを起動します。この時点では組み込み値とuser設定を検証し、明示したprofileだけを保持しますが、server processはまだ起動しません。
-4. 対応するsource fileへフォーカスしてhoverまたはnavigationを実行すると、extensionから有効profileを1つ選び、最寄りのroot markerを探します。そのworkspaceをcurrent directoryとしてprocessを起動し、LSP `initialize`、表示中fileの`didOpen`/`didChange`、capability確認、request送信の順に進みます。
+4. 対応するsource fileへフォーカスしてhover、navigation、またはdocument symbolを実行すると、extensionから有効profileを1つ選び、最寄りのroot markerを探します。そのworkspaceをcurrent directoryとしてprocessを起動し、LSP `initialize`、表示中fileの`didOpen`/`didChange`、capability確認、request送信の順に進みます。
 5. 同じ`(profile, workspace root)`への次回requestはsessionを再利用します。終了時には常駐sessionをshutdownします。JDT LSが必要とする書き込み可能なworkspace dataはrepository外の一時directoryへ隔離します。
 
 例えば`rust-analyzer`が`PATH`にあれば`lsp.toml`は不要で、`--lsp rust-analyzer`が組み込みcommandを選びます。別の場所にある場合は同梱の`config/lsp.toml`から該当tableをXDG fileへコピーし、`command`の先頭を絶対pathへ置き換えます。Javaの`jdtls`、Pythonの`pyright-langserver`、`basedpyright-langserver`、`pylsp`も同じworkflowです。

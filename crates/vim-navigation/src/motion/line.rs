@@ -7,7 +7,9 @@
 
 use unicode_width::UnicodeWidthChar;
 
-use super::{MotionKind, Viewport};
+use super::{MotionKind, Repetition, Viewport};
+
+const TAB_STOP_WIDTH: usize = 4;
 
 pub(super) fn previous_column(line: &str, column: usize) -> usize {
     let end = clamp_boundary(line, column);
@@ -94,7 +96,7 @@ pub(super) fn display_column(line: &str, byte_column: usize) -> usize {
 }
 
 pub(super) const fn next_tabstop(column: usize) -> usize {
-    4usize.saturating_sub(column % 4)
+    TAB_STOP_WIDTH.saturating_sub(column % TAB_STOP_WIDTH)
 }
 
 pub(super) fn screen_end_column(line: &str, viewport: Viewport) -> usize {
@@ -133,7 +135,7 @@ pub(super) fn find_character(
     target: char,
     kind: MotionKind,
     count: usize,
-    repeated: bool,
+    repetition: Repetition,
 ) -> usize {
     let forward = matches!(kind, MotionKind::FindForward | MotionKind::TillForward);
     let till = matches!(kind, MotionKind::TillForward | MotionKind::TillBackward);
@@ -144,7 +146,7 @@ pub(super) fn find_character(
     };
     // Vim's `;`/`,` repetition for `t`/`T` skips the adjacent occurrence that
     // would otherwise leave the cursor in place and repeats the useful search.
-    let skip_adjacent = repeated && till;
+    let skip_adjacent = repetition == Repetition::Repeated && till;
     let found = if forward {
         line.char_indices()
             .filter(|(byte, character)| *byte > column && *character == target)

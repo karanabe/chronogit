@@ -6,6 +6,11 @@ All notable changes to ChronoGit are documented here.
 
 ### Added
 
+- Added a diff-to-source review flow for worktree and historical commit files:
+  open the complete new-state file directly, toggle an annotated view with
+  highlighted additions and inline removals, or
+  ask an enabled language server for document symbols and jump from the
+  changed-symbol context into the complete file.
 - Converted the repository to a Cargo workspace and added the generic
   `vim-navigation` crate for Vim-compatible cursor/viewport motion, command
   state, and explicit Normal/Insert text input. ChronoGit is its first
@@ -16,6 +21,21 @@ All notable changes to ChronoGit are documented here.
 
 ### Changed
 
+- Replaced interchangeable primitive flags and counters across the public and
+  internal boundaries with validated values: non-zero `CommitPage` pagination,
+  one-based `LineNumber`, typed Git tree modes and LSP symbol kinds, distinct
+  request/document generations, consistent exact/display-only/truncated file
+  documents, typed command/stream outcomes, and explicit mark-jump, search,
+  key-input, LSP-availability, source-context, expansion,
+  history-continuation, and load modes.
+  `ObjectId`, `RepoPath`, and `RepositoryRoot` also expose standard conversion
+  traits, and manually counted `vim-navigation` motions now take
+  `CountSource::{Explicit, Implicit}`.
+- Centralized terminal layout measurements shared by rendering and viewport
+  motion, and named Git/LSP buffer, retry, protocol, and display limits.
+- File-history and Code content can open the same complete-file and document-
+  symbol views; symbol requests remain unavailable until at least one trusted
+  `--lsp` profile is explicitly enabled.
 - ChronoGit uses `vim-navigation` through a versioned path dependency. Registry
   packaging requires publishing the dependency first; workspace builds and
   source installs use the local crate.

@@ -9,10 +9,23 @@ use crate::app::repository_search::{
     overlay_action as repository_search_overlay_action, selected_file_history_diff,
 };
 use crate::app::{
-    Action, AppState, AppView, ErrorNotice, Event, FocusedPane, GitEffect, HistoryPanel, LoadState,
-    Overlay, RepositorySearchKind, VimMotion, VimMotionKind, VisibleTreeEntry,
+    Action, AppState, AppView, ErrorNotice, Event, FALLBACK_HALF_PAGE_LINES, FocusedPane,
+    GitEffect, HORIZONTAL_SCROLL_COLUMNS, HistoryContinuation, HistoryPanel, JumpHistory,
+    LoadState, MarkJumpTarget, Overlay, PAGE_OVERLAP_LINES, RepositorySearchKind, SearchScope,
+    VerticalEdge, VimMotion, VimMotionKind, VisibleTreeEntry,
 };
-use crate::domain::{CommitSummary, DiffTarget, RepoPath, SourcePosition, TreeKind};
+use crate::domain::{CommitSummary, DiffTarget, SourcePosition, TreeKind};
+use crate::layout::{
+    CHANGES_DIFF_PERCENT, CODE_CONTENT_PERCENT, CODE_TREE_PERCENT, COMMIT_DETAILS_BODY_PERCENT,
+    COMMIT_DETAILS_FILES_PERCENT, COMMIT_DETAILS_LIST_PERCENT, DIFF_GUTTER_COLUMNS,
+    DOCUMENT_OVERLAY_INSET, DOCUMENT_OVERLAY_RESERVED_ROWS, FILE_HISTORY_CONTENT_PERCENT,
+    FILE_HISTORY_LIST_PERCENT, FOOTER_ROWS, FULL_PERCENT, GRAPH_DETAILS_DIFF_PERCENT,
+    GRAPH_DETAILS_FILES_PERCENT, GRAPH_DETAILS_HEIGHT_PERCENT, GRAPH_DETAILS_WIDTH_PERCENT,
+    HISTORY_DIFF_PERCENT, HISTORY_LIST_PERCENT, HISTORY_MIDDLE_PERCENT, MESSAGE_HEIGHT_PERCENT,
+    MESSAGE_WIDTH_PERCENT, PANE_BORDER_CELLS, REPOSITORY_SEARCH_HEIGHT_PERCENT,
+    REPOSITORY_SEARCH_WIDTH_PERCENT, SEARCH_BAR_ROWS, SEARCH_INPUT_ROWS, SOURCE_GUTTER_COLUMNS,
+    WIDE_LAYOUT_WIDTH,
+};
 
 pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffect> {
     let action = if action == Action::DismissSearchOrClose {
@@ -72,12 +85,12 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
     }
     if let Action::JumpToVimMark {
         mark,
-        linewise,
-        record_jump,
+        target,
+        history,
     } = action
     {
         if matches!(mark, '\'' | '`') {
-            return crate::app::semantic_navigation::jump_to_previous(state, linewise)
+            return crate::app::semantic_navigation::jump_to_previous(state, target)
                 .into_iter()
                 .filter_map(|effect| match effect {
                     crate::app::AppEffect::Git(effect) => Some(effect),
@@ -89,7 +102,7 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
             state.notice = Some(ErrorNotice::new(format!("Mark {mark:?} is not set.")));
             return Vec::new();
         };
-        return crate::app::semantic_navigation::jump_to_mark(state, origin, linewise, record_jump)
+        return crate::app::semantic_navigation::jump_to_mark(state, origin, target, history)
             .into_iter()
             .filter_map(|effect| match effect {
                 crate::app::AppEffect::Git(effect) => Some(effect),
@@ -103,7 +116,11 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
     if action == Action::Activate
         && matches!(
             state.overlay,
-            Overlay::CodeContent | Overlay::Diff | Overlay::FileContent | Overlay::CommitMessage
+            Overlay::CodeContent
+                | Overlay::Diff
+                | Overlay::FileContent
+                | Overlay::FullFile
+                | Overlay::CommitMessage
         )
     {
         return apply_vim_motion(state, VimMotion::new(VimMotionKind::NextLineFirstNonBlank));
@@ -134,29 +151,49 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
         }
         Action::MoveUp => move_selection(state, -1),
         Action::MoveDown => move_selection(state, 1),
-        Action::MoveTop => move_to_edge(state, false),
-        Action::MoveBottom => move_to_edge(state, true),
-        Action::HalfPageUp => move_half_page(state, -10),
-        Action::HalfPageDown => move_half_page(state, 10),
+        Action::MoveTop => move_to_edge(state, VerticalEdge::Top),
+        Action::MoveBottom => move_to_edge(state, VerticalEdge::Bottom),
+        Action::HalfPageUp => move_half_page(state, -FALLBACK_HALF_PAGE_LINES),
+        Action::HalfPageDown => move_half_page(state, FALLBACK_HALF_PAGE_LINES),
         Action::ScrollLeft => {
             if state.view == AppView::Code {
-                state.code_view.viewport_horizontal =
-                    state.code_view.viewport_horizontal.saturating_sub(4);
-            } else if state.view == AppView::FileHistory && !state.file_view.showing_history_diff {
-                state.file_view.horizontal = state.file_view.horizontal.saturating_sub(4);
+                state.code_view.viewport_horizontal = state
+                    .code_view
+                    .viewport_horizontal
+                    .saturating_sub(HORIZONTAL_SCROLL_COLUMNS);
+            } else if state.view == AppView::FileHistory
+                && !state.file_view.mode.shows_history_diff()
+            {
+                state.file_view.horizontal = state
+                    .file_view
+                    .horizontal
+                    .saturating_sub(HORIZONTAL_SCROLL_COLUMNS);
             } else {
-                state.diff.horizontal = state.diff.horizontal.saturating_sub(4);
+                state.diff.horizontal = state
+                    .diff
+                    .horizontal
+                    .saturating_sub(HORIZONTAL_SCROLL_COLUMNS);
             }
             Vec::new()
         }
         Action::ScrollRight => {
             if state.view == AppView::Code {
-                state.code_view.viewport_horizontal =
-                    state.code_view.viewport_horizontal.saturating_add(4);
-            } else if state.view == AppView::FileHistory && !state.file_view.showing_history_diff {
-                state.file_view.horizontal = state.file_view.horizontal.saturating_add(4);
+                state.code_view.viewport_horizontal = state
+                    .code_view
+                    .viewport_horizontal
+                    .saturating_add(HORIZONTAL_SCROLL_COLUMNS);
+            } else if state.view == AppView::FileHistory
+                && !state.file_view.mode.shows_history_diff()
+            {
+                state.file_view.horizontal = state
+                    .file_view
+                    .horizontal
+                    .saturating_add(HORIZONTAL_SCROLL_COLUMNS);
             } else {
-                state.diff.horizontal = state.diff.horizontal.saturating_add(4);
+                state.diff.horizontal = state
+                    .diff
+                    .horizontal
+                    .saturating_add(HORIZONTAL_SCROLL_COLUMNS);
             }
             Vec::new()
         }
@@ -198,6 +235,9 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
         | Action::OpenFileSearch
         | Action::OpenContentSearch
         | Action::ToggleLspHover
+        | Action::OpenSymbolContext
+        | Action::OpenFullFile
+        | Action::ToggleFullFileMode
         | Action::GoToSemanticTarget(_)
         | Action::GoBackFromSemanticTarget
         | Action::GoForwardFromSemanticTarget
@@ -232,17 +272,23 @@ pub(crate) fn apply_event(state: &mut AppState, event: Event) -> Vec<GitEffect> 
         }
         Event::CommitsLoaded {
             request_id,
-            append,
-            limit,
+            mode,
+            page,
             result,
-        } if (!append && state.commits.loading_request() == Some(request_id))
-            || (append && state.history_page.loading_more == Some(request_id)) =>
+        } if (mode == crate::app::CommitLoadMode::Replace
+            && state.commits.loading_request() == Some(request_id))
+            || (mode == crate::app::CommitLoadMode::Append
+                && state.history_page.loading_more == Some(request_id)) =>
         {
             state.history_page.loading_more = None;
             match result {
                 Ok(mut loaded) => {
-                    state.history_page.has_more = loaded.len() == limit;
-                    if append {
+                    state.history_page.continuation = if loaded.len() == page.limit().get() {
+                        HistoryContinuation::Available
+                    } else {
+                        HistoryContinuation::Exhausted
+                    };
+                    if mode.is_append() {
                         if let LoadState::Ready(existing) = &mut state.commits {
                             existing.append(&mut loaded);
                             state.commit_selection.clamp(existing.len());
@@ -259,7 +305,7 @@ pub(crate) fn apply_event(state: &mut AppState, event: Event) -> Vec<GitEffect> 
                     }
                 }
                 Err(error) => {
-                    if append {
+                    if mode.is_append() {
                         state.notice = Some(ErrorNotice::new(error.to_string()));
                     } else {
                         state.commits = LoadState::Failed(ErrorNotice::new(error.to_string()));
@@ -409,6 +455,8 @@ fn overlay_action(state: &mut AppState, action: Action) -> Vec<GitEffect> {
         Overlay::CodeContent => crate::app::code_view::content_action(state, action),
         Overlay::SemanticTargets => Vec::new(),
         Overlay::LspHover => Vec::new(),
+        Overlay::FullFile => crate::app::source_view::overlay_action(state, action),
+        Overlay::SymbolContext => Vec::new(),
         Overlay::Help => {
             if matches!(action, Action::CloseOverlay | Action::ToggleHelp) {
                 state.overlay = Overlay::None;
@@ -426,8 +474,8 @@ fn message_overlay_action(state: &mut AppState, action: Action) -> Vec<GitEffect
         Action::MoveDown => move_full_message_cursor(state, 1),
         Action::MoveTop => state.message.scroll = 0,
         Action::MoveBottom => state.message.scroll = full_message_last_line(state),
-        Action::HalfPageUp => move_full_message_cursor(state, -10),
-        Action::HalfPageDown => move_full_message_cursor(state, 10),
+        Action::HalfPageUp => move_full_message_cursor(state, -FALLBACK_HALF_PAGE_LINES),
+        Action::HalfPageDown => move_full_message_cursor(state, FALLBACK_HALF_PAGE_LINES),
         _ => {}
     }
     Vec::new()
@@ -449,16 +497,22 @@ fn diff_overlay_action(state: &mut AppState, action: Action) -> Vec<GitEffect> {
             state.diff.vertical = diff_last_line(state);
         }
         Action::HalfPageUp => {
-            move_diff_cursor(state, -10);
+            move_diff_cursor(state, -FALLBACK_HALF_PAGE_LINES);
         }
         Action::HalfPageDown => {
-            move_diff_cursor(state, 10);
+            move_diff_cursor(state, FALLBACK_HALF_PAGE_LINES);
         }
         Action::ScrollLeft => {
-            state.diff.horizontal = state.diff.horizontal.saturating_sub(4);
+            state.diff.horizontal = state
+                .diff
+                .horizontal
+                .saturating_sub(HORIZONTAL_SCROLL_COLUMNS);
         }
         Action::ScrollRight => {
-            state.diff.horizontal = state.diff.horizontal.saturating_add(4);
+            state.diff.horizontal = state
+                .diff
+                .horizontal
+                .saturating_add(HORIZONTAL_SCROLL_COLUMNS);
         }
         Action::StartSearch(direction) => state.search.begin(direction),
         Action::InsertSearch(character) => state.search.push(character),
@@ -606,7 +660,7 @@ fn switch_view(state: &mut AppState, view: AppView) -> Vec<GitEffect> {
         AppView::History | AppView::CommitDetails | AppView::Graph | AppView::GraphDetails
             if matches!(state.commits, LoadState::Idle) =>
         {
-            state.request_commits(false)
+            state.request_commits(crate::app::CommitLoadMode::Replace)
         }
         AppView::Code if matches!(state.code_view.visible, LoadState::Idle) => {
             crate::app::code_view::request_tree(state)
@@ -645,8 +699,12 @@ fn apply_vim_motion(state: &mut AppState, motion: VimMotion) -> Vec<GitEffect> {
             apply_file_vim_motion(state, motion, height, width);
             return Vec::new();
         }
+        Overlay::FullFile => {
+            crate::app::source_view::apply_vim_motion(state, motion, height, width);
+            return Vec::new();
+        }
         Overlay::CommitMessage => {
-            apply_message_vim_motion(state, motion, height, width, true);
+            apply_message_vim_motion(state, motion, height, width, MessageExtent::Complete);
             return Vec::new();
         }
         Overlay::RepositorySearch if state.repository_search.prompt.is_none() => {
@@ -656,7 +714,8 @@ fn apply_vim_motion(state: &mut AppState, motion: VimMotion) -> Vec<GitEffect> {
         Overlay::Help
         | Overlay::RepositorySearch
         | Overlay::SemanticTargets
-        | Overlay::LspHover => return Vec::new(),
+        | Overlay::LspHover
+        | Overlay::SymbolContext => return Vec::new(),
     }
 
     if state.view == AppView::Code && state.focus == FocusedPane::Diff {
@@ -664,7 +723,7 @@ fn apply_vim_motion(state: &mut AppState, motion: VimMotion) -> Vec<GitEffect> {
         return Vec::new();
     }
     if state.view == AppView::FileHistory && state.focus == FocusedPane::Diff {
-        if state.file_view.showing_history_diff {
+        if state.file_view.mode.shows_history_diff() {
             apply_diff_vim_motion(state, motion, height, width);
         } else {
             apply_file_vim_motion(state, motion, height, width);
@@ -672,7 +731,7 @@ fn apply_vim_motion(state: &mut AppState, motion: VimMotion) -> Vec<GitEffect> {
         return Vec::new();
     }
     if state.view == AppView::CommitDetails && state.focus == FocusedPane::Secondary {
-        apply_message_vim_motion(state, motion, height, width, false);
+        apply_message_vim_motion(state, motion, height, width, MessageExtent::Body);
         return Vec::new();
     }
     if state.focus == FocusedPane::Diff
@@ -699,10 +758,14 @@ fn apply_mark_motion(state: &mut AppState, motion: VimMotion) -> Vec<GitEffect> 
         ));
         return Vec::new();
     };
-    let linewise = matches!(
+    let target = if matches!(
         motion.kind(),
         VimMotionKind::PreviousMarkLine | VimMotionKind::NextMarkLine
-    );
+    ) {
+        MarkJumpTarget::Line
+    } else {
+        MarkJumpTarget::Exact
+    };
     let forward = matches!(
         motion.kind(),
         VimMotionKind::NextMarkLine | VimMotionKind::NextMarkExact
@@ -713,7 +776,7 @@ fn apply_mark_motion(state: &mut AppState, motion: VimMotion) -> Vec<GitEffect> 
         .filter(|(mark, origin)| mark.is_ascii_lowercase() && origin.path == current.path)
         .map(|(_, origin)| origin.clone())
         .filter(|origin| {
-            let ordering = if linewise {
+            let ordering = if target.is_linewise() {
                 origin.cursor.line().cmp(&current.cursor.line())
             } else {
                 (origin.cursor.line(), origin.cursor.byte_column())
@@ -734,7 +797,7 @@ fn apply_mark_motion(state: &mut AppState, motion: VimMotion) -> Vec<GitEffect> 
         state.notice = Some(ErrorNotice::new("No Vim mark in that direction."));
         return Vec::new();
     };
-    crate::app::semantic_navigation::jump_to_mark(state, origin, linewise, true)
+    crate::app::semantic_navigation::jump_to_mark(state, origin, target, JumpHistory::Record)
         .into_iter()
         .filter_map(|effect| match effect {
             crate::app::AppEffect::Git(effect) => Some(effect),
@@ -748,13 +811,20 @@ enum TextDocument {
     Code,
     Diff,
     File,
-    Message { complete: bool },
+    FullFile,
+    Message(MessageExtent),
+}
+
+#[derive(Clone, Copy)]
+enum MessageExtent {
+    Body,
+    Complete,
 }
 
 pub(super) fn has_active_search_highlights(state: &AppState) -> bool {
     matches!(
         active_text_document(state),
-        Some(TextDocument::Code | TextDocument::Diff)
+        Some(TextDocument::Code | TextDocument::Diff | TextDocument::FullFile)
     ) && state.search.has_highlights()
 }
 
@@ -763,21 +833,23 @@ fn active_text_document(state: &AppState) -> Option<TextDocument> {
         Overlay::CodeContent => return Some(TextDocument::Code),
         Overlay::Diff => return Some(TextDocument::Diff),
         Overlay::FileContent => return Some(TextDocument::File),
-        Overlay::CommitMessage => return Some(TextDocument::Message { complete: true }),
+        Overlay::FullFile => return Some(TextDocument::FullFile),
+        Overlay::CommitMessage => return Some(TextDocument::Message(MessageExtent::Complete)),
         Overlay::None => {}
         Overlay::Help
         | Overlay::RepositorySearch
         | Overlay::SemanticTargets
-        | Overlay::LspHover => return None,
+        | Overlay::LspHover
+        | Overlay::SymbolContext => return None,
     }
     match (state.view, state.focus) {
         (AppView::Code, FocusedPane::Diff) => Some(TextDocument::Code),
-        (AppView::FileHistory, FocusedPane::Diff) if state.file_view.showing_history_diff => {
+        (AppView::FileHistory, FocusedPane::Diff) if state.file_view.mode.shows_history_diff() => {
             Some(TextDocument::Diff)
         }
         (AppView::FileHistory, FocusedPane::Diff) => Some(TextDocument::File),
         (AppView::CommitDetails, FocusedPane::Secondary) => {
-            Some(TextDocument::Message { complete: false })
+            Some(TextDocument::Message(MessageExtent::Body))
         }
         (AppView::Changes | AppView::History | AppView::GraphDetails, FocusedPane::Diff) => {
             Some(TextDocument::Diff)
@@ -813,11 +885,18 @@ fn document_lines(state: &AppState, document: TextDocument) -> Vec<String> {
             LoadState::Ready(content) => content.lines().to_vec(),
             _ => Vec::new(),
         },
-        TextDocument::Message { complete } => match &state.message.content {
-            LoadState::Ready(message) if complete => {
-                message.as_str().lines().map(str::to_owned).collect()
+        TextDocument::FullFile => match &state.full_file.content {
+            LoadState::Ready(content) if content.message().is_some() => {
+                content.message().into_iter().map(str::to_owned).collect()
             }
-            LoadState::Ready(message) => message.body().lines().map(str::to_owned).collect(),
+            LoadState::Ready(content) => content.lines().to_vec(),
+            _ => Vec::new(),
+        },
+        TextDocument::Message(extent) => match &state.message.content {
+            LoadState::Ready(message) => match extent {
+                MessageExtent::Body => message.body().lines().map(str::to_owned).collect(),
+                MessageExtent::Complete => message.as_str().lines().map(str::to_owned).collect(),
+            },
             _ => Vec::new(),
         },
     }
@@ -834,7 +913,8 @@ fn document_position(state: &AppState, document: TextDocument) -> SourcePosition
             u32::try_from(state.file_view.vertical).unwrap_or(u32::MAX),
             state.file_view.byte_column,
         ),
-        TextDocument::Message { .. } => SourcePosition::new(
+        TextDocument::FullFile => state.full_file.cursor,
+        TextDocument::Message(_) => SourcePosition::new(
             u32::try_from(state.message.scroll).unwrap_or(u32::MAX),
             state.message.byte_column,
         ),
@@ -853,23 +933,31 @@ fn set_document_position(
         TextDocument::Code => (
             state.code_view.viewport_vertical,
             state.code_view.viewport_horizontal,
-            8,
+            SOURCE_GUTTER_COLUMNS,
         ),
-        TextDocument::Diff => (state.diff.viewport_vertical, state.diff.horizontal, 14),
+        TextDocument::Diff => (
+            state.diff.viewport_vertical,
+            state.diff.horizontal,
+            DIFF_GUTTER_COLUMNS,
+        ),
         TextDocument::File => (
             state.file_view.viewport_vertical,
             state.file_view.horizontal,
-            8,
+            SOURCE_GUTTER_COLUMNS,
         ),
-        TextDocument::Message { .. } => {
-            (state.message.viewport_vertical, state.message.horizontal, 0)
-        }
+        TextDocument::FullFile => (
+            state.full_file.viewport_vertical,
+            state.full_file.viewport_horizontal,
+            SOURCE_GUTTER_COLUMNS,
+        ),
+        TextDocument::Message(_) => (state.message.viewport_vertical, state.message.horizontal, 0),
     };
     let desired = match document {
         TextDocument::Code => state.code_view.desired_display_column,
         TextDocument::Diff => state.diff.desired_display_column,
         TextDocument::File => state.file_view.desired_display_column,
-        TextDocument::Message { .. } => state.message.desired_display_column,
+        TextDocument::FullFile => state.full_file.desired_display_column,
+        TextDocument::Message(_) => state.message.desired_display_column,
     };
     let mut viewport = crate::app::vim::Viewport::new(top, left, height, width, gutter)
         .with_desired_column(desired);
@@ -898,7 +986,13 @@ fn set_document_position(
             state.file_view.viewport_vertical = viewport.top;
             state.file_view.horizontal = viewport.left;
         }
-        TextDocument::Message { .. } => {
+        TextDocument::FullFile => {
+            state.full_file.cursor = position;
+            state.full_file.desired_display_column = desired;
+            state.full_file.viewport_vertical = viewport.top;
+            state.full_file.viewport_horizontal = viewport.left;
+        }
+        TextDocument::Message(_) => {
             state.message.scroll = usize::try_from(position.line()).unwrap_or(usize::MAX);
             state.message.byte_column = position.byte_column();
             state.message.desired_display_column = desired;
@@ -1003,14 +1097,18 @@ fn apply_document_search_motion(
             } else {
                 crate::app::SearchDirection::Forward
             };
-            let whole_word = matches!(
+            let scope = if matches!(
                 motion.kind(),
                 VimMotionKind::SearchWordForward | VimMotionKind::SearchWordBackward
-            );
+            ) {
+                SearchScope::WholeWord
+            } else {
+                SearchScope::Substring
+            };
             state.search.search_word(
                 lines.iter().copied(),
                 &word,
-                whole_word,
+                scope,
                 SourcePosition::new(anchor.line(), column),
                 direction,
                 motion.count(),
@@ -1140,7 +1238,7 @@ fn apply_diff_vim_motion(state: &mut AppState, motion: VimMotion, height: usize,
             state.diff.horizontal,
             height,
             width,
-            14,
+            DIFF_GUTTER_COLUMNS,
         )
         .with_desired_column(state.diff.desired_display_column);
         let position = crate::app::vim::apply(
@@ -1190,7 +1288,7 @@ fn apply_file_vim_motion(state: &mut AppState, motion: VimMotion, height: usize,
             state.file_view.horizontal,
             height,
             width,
-            8,
+            SOURCE_GUTTER_COLUMNS,
         )
         .with_desired_column(state.file_view.desired_display_column);
         let position = crate::app::vim::apply(
@@ -1216,7 +1314,7 @@ fn apply_message_vim_motion(
     motion: VimMotion,
     height: usize,
     width: usize,
-    complete: bool,
+    extent: MessageExtent,
 ) {
     if matches!(state.message.content, LoadState::Loading { .. })
         && let Some(delta) = loading_vertical_delta(motion, height)
@@ -1227,8 +1325,10 @@ fn apply_message_vim_motion(
     }
     let (position, viewport) = {
         let lines = match &state.message.content {
-            LoadState::Ready(message) if complete => message.as_str().lines().collect::<Vec<_>>(),
-            LoadState::Ready(message) => message.body().lines().collect::<Vec<_>>(),
+            LoadState::Ready(message) => match extent {
+                MessageExtent::Body => message.body().lines().collect::<Vec<_>>(),
+                MessageExtent::Complete => message.as_str().lines().collect::<Vec<_>>(),
+            },
             LoadState::Idle | LoadState::Loading { .. } | LoadState::Failed(_) => Vec::new(),
         };
         let mut viewport = crate::app::vim::Viewport::new(
@@ -1310,14 +1410,14 @@ fn apply_list_vim_motion(
         VimMotionKind::PageUp => Some(
             -(count_as_isize(
                 viewport_height
-                    .saturating_sub(2)
+                    .saturating_sub(PAGE_OVERLAP_LINES)
                     .max(1)
                     .saturating_mul(count),
             )),
         ),
         VimMotionKind::PageDown => Some(count_as_isize(
             viewport_height
-                .saturating_sub(2)
+                .saturating_sub(PAGE_OVERLAP_LINES)
                 .max(1)
                 .saturating_mul(count),
         )),
@@ -1332,6 +1432,7 @@ fn apply_list_vim_motion(
     };
     let last = len.saturating_sub(1);
     let top = current.saturating_sub(viewport_height.saturating_sub(1));
+    let percentage_base = usize::from(FULL_PERCENT);
     let target = match motion.kind() {
         VimMotionKind::LineStart | VimMotionKind::FirstNonBlank => 0,
         VimMotionKind::LineEnd | VimMotionKind::LastNonBlank => last,
@@ -1344,10 +1445,10 @@ fn apply_list_vim_motion(
         }
         VimMotionKind::BufferBottom | VimMotionKind::BufferBottomEnd => last,
         VimMotionKind::BufferPercentage => count
-            .min(100)
+            .min(percentage_base)
             .saturating_mul(len)
-            .saturating_add(99)
-            .saturating_div(100)
+            .saturating_add(percentage_base.saturating_sub(1))
+            .saturating_div(percentage_base)
             .saturating_sub(1)
             .min(last),
         VimMotionKind::WindowTop => top.saturating_add(count.saturating_sub(1)).min(last),
@@ -1431,80 +1532,101 @@ fn active_list_position(state: &AppState) -> Option<(usize, usize)> {
 fn focused_viewport_dimensions(state: &AppState) -> (usize, usize) {
     let terminal_height = usize::from(state.terminal_height);
     let terminal_width = usize::from(state.terminal_width);
-    let main_height = terminal_height.saturating_sub(1);
+    let main_height = terminal_height.saturating_sub(usize::from(FOOTER_ROWS));
     let content = |height: usize, width: usize| {
         (
-            height.saturating_sub(2).max(1),
-            width.saturating_sub(2).max(1),
+            height.saturating_sub(usize::from(PANE_BORDER_CELLS)).max(1),
+            width.saturating_sub(usize::from(PANE_BORDER_CELLS)).max(1),
         )
     };
     match state.overlay {
-        Overlay::CodeContent | Overlay::Diff | Overlay::FileContent => {
+        Overlay::CodeContent | Overlay::Diff | Overlay::FileContent | Overlay::FullFile => {
             return content(
-                terminal_height.saturating_sub(3),
-                terminal_width.saturating_sub(2),
+                terminal_height.saturating_sub(usize::from(DOCUMENT_OVERLAY_RESERVED_ROWS)),
+                terminal_width.saturating_sub(usize::from(DOCUMENT_OVERLAY_INSET)),
             );
         }
         Overlay::CommitMessage => {
             return content(
-                percent(terminal_height, 78).saturating_sub(1),
-                percent(terminal_width, 82),
+                percent(terminal_height, MESSAGE_HEIGHT_PERCENT)
+                    .saturating_sub(usize::from(SEARCH_BAR_ROWS)),
+                percent(terminal_width, MESSAGE_WIDTH_PERCENT),
             );
         }
         Overlay::RepositorySearch if state.repository_search.prompt.is_none() => {
             return content(
-                percent(terminal_height, 82).saturating_sub(3),
-                percent(terminal_width, 86),
+                percent(terminal_height, REPOSITORY_SEARCH_HEIGHT_PERCENT)
+                    .saturating_sub(usize::from(SEARCH_INPUT_ROWS)),
+                percent(terminal_width, REPOSITORY_SEARCH_WIDTH_PERCENT),
             );
         }
         _ => {}
     }
     match (state.view, state.focus) {
-        (AppView::Changes, FocusedPane::Diff) if terminal_width >= 110 => {
-            content(main_height, percent(terminal_width, 68))
+        (AppView::Changes, FocusedPane::Diff)
+            if terminal_width >= usize::from(WIDE_LAYOUT_WIDTH) =>
+        {
+            content(main_height, percent(terminal_width, CHANGES_DIFF_PERCENT))
         }
         (AppView::Changes, _) => content(main_height, terminal_width),
         (AppView::History, FocusedPane::Primary) => {
-            content(percent(main_height, 25), terminal_width)
+            content(percent(main_height, HISTORY_LIST_PERCENT), terminal_width)
         }
         (AppView::History, FocusedPane::Secondary) => {
-            content(percent(main_height, 25), terminal_width)
+            content(percent(main_height, HISTORY_MIDDLE_PERCENT), terminal_width)
         }
-        (AppView::History, FocusedPane::Diff) => content(percent(main_height, 50), terminal_width),
-        (AppView::CommitDetails, FocusedPane::Primary) => {
-            content(percent(main_height, 25), terminal_width)
+        (AppView::History, FocusedPane::Diff) => {
+            content(percent(main_height, HISTORY_DIFF_PERCENT), terminal_width)
         }
-        (AppView::CommitDetails, FocusedPane::Secondary) => {
-            content(percent(main_height, 45), terminal_width)
-        }
-        (AppView::CommitDetails, FocusedPane::Diff) => {
-            content(percent(main_height, 30), terminal_width)
-        }
+        (AppView::CommitDetails, FocusedPane::Primary) => content(
+            percent(main_height, COMMIT_DETAILS_LIST_PERCENT),
+            terminal_width,
+        ),
+        (AppView::CommitDetails, FocusedPane::Secondary) => content(
+            percent(main_height, COMMIT_DETAILS_BODY_PERCENT),
+            terminal_width,
+        ),
+        (AppView::CommitDetails, FocusedPane::Diff) => content(
+            percent(main_height, COMMIT_DETAILS_FILES_PERCENT),
+            terminal_width,
+        ),
         (AppView::Graph, _) => content(main_height, terminal_width),
         (AppView::GraphDetails, FocusedPane::Secondary) => content(
-            percent(percent(main_height, 88), 38),
-            percent(terminal_width, 90),
+            percent(
+                percent(main_height, GRAPH_DETAILS_HEIGHT_PERCENT),
+                GRAPH_DETAILS_FILES_PERCENT,
+            ),
+            percent(terminal_width, GRAPH_DETAILS_WIDTH_PERCENT),
         ),
         (AppView::GraphDetails, FocusedPane::Diff) => content(
-            percent(percent(main_height, 88), 62),
-            percent(terminal_width, 90),
+            percent(
+                percent(main_height, GRAPH_DETAILS_HEIGHT_PERCENT),
+                GRAPH_DETAILS_DIFF_PERCENT,
+            ),
+            percent(terminal_width, GRAPH_DETAILS_WIDTH_PERCENT),
         ),
-        (AppView::FileHistory, FocusedPane::Primary) => {
-            content(percent(main_height, 38), terminal_width)
-        }
-        (AppView::FileHistory, FocusedPane::Diff) => {
-            content(percent(main_height, 62), terminal_width)
-        }
+        (AppView::FileHistory, FocusedPane::Primary) => content(
+            percent(main_height, FILE_HISTORY_LIST_PERCENT),
+            terminal_width,
+        ),
+        (AppView::FileHistory, FocusedPane::Diff) => content(
+            percent(main_height, FILE_HISTORY_CONTENT_PERCENT),
+            terminal_width,
+        ),
         (AppView::Code, FocusedPane::Primary | FocusedPane::Secondary) => {
-            content(percent(main_height, 42), terminal_width)
+            content(percent(main_height, CODE_TREE_PERCENT), terminal_width)
         }
-        (AppView::Code, FocusedPane::Diff) => content(percent(main_height, 58), terminal_width),
+        (AppView::Code, FocusedPane::Diff) => {
+            content(percent(main_height, CODE_CONTENT_PERCENT), terminal_width)
+        }
         _ => content(main_height, terminal_width),
     }
 }
 
-fn percent(value: usize, percentage: usize) -> usize {
-    value.saturating_mul(percentage).saturating_div(100)
+fn percent(value: usize, percentage: u16) -> usize {
+    value
+        .saturating_mul(usize::from(percentage))
+        .saturating_div(usize::from(FULL_PERCENT))
 }
 
 fn count_as_isize(count: usize) -> isize {
@@ -1532,13 +1654,13 @@ fn loading_vertical_delta(motion: VimMotion, viewport_height: usize) -> Option<i
         }
         VimMotionKind::PageUp => Some(-count_as_isize(
             viewport_height
-                .saturating_sub(2)
+                .saturating_sub(PAGE_OVERLAP_LINES)
                 .max(1)
                 .saturating_mul(count),
         )),
         VimMotionKind::PageDown => Some(count_as_isize(
             viewport_height
-                .saturating_sub(2)
+                .saturating_sub(PAGE_OVERLAP_LINES)
                 .max(1)
                 .saturating_mul(count),
         )),
@@ -1556,7 +1678,7 @@ fn move_selection(state: &mut AppState, delta: isize) -> Vec<GitEffect> {
         };
     }
     if state.view == AppView::FileHistory && state.focus == FocusedPane::Diff {
-        if state.file_view.showing_history_diff {
+        if state.file_view.mode.shows_history_diff() {
             move_diff_cursor(state, delta);
         } else {
             move_file_content_cursor(state, delta);
@@ -1654,10 +1776,10 @@ fn move_selection(state: &mut AppState, delta: isize) -> Vec<GitEffect> {
     }
 }
 
-fn move_to_edge(state: &mut AppState, bottom: bool) -> Vec<GitEffect> {
+fn move_to_edge(state: &mut AppState, edge: VerticalEdge) -> Vec<GitEffect> {
     if state.view == AppView::Code {
         return if state.focus == FocusedPane::Diff {
-            let target = if bottom {
+            let target = if edge.is_bottom() {
                 crate::app::code_view::last_line(state)
             } else {
                 0
@@ -1671,14 +1793,18 @@ fn move_to_edge(state: &mut AppState, bottom: bool) -> Vec<GitEffect> {
             );
             Vec::new()
         } else {
-            crate::app::code_view::move_to_edge(state, bottom)
+            crate::app::code_view::move_to_edge(state, edge)
         };
     }
     if state.view == AppView::FileHistory && state.focus == FocusedPane::Diff {
-        if state.file_view.showing_history_diff {
-            state.diff.vertical = if bottom { diff_last_line(state) } else { 0 };
+        if state.file_view.mode.shows_history_diff() {
+            state.diff.vertical = if edge.is_bottom() {
+                diff_last_line(state)
+            } else {
+                0
+            };
         } else {
-            state.file_view.vertical = if bottom {
+            state.file_view.vertical = if edge.is_bottom() {
                 file_content_last_line(state)
             } else {
                 0
@@ -1687,46 +1813,62 @@ fn move_to_edge(state: &mut AppState, bottom: bool) -> Vec<GitEffect> {
         return Vec::new();
     }
     if state.view != AppView::CommitDetails && state.focus == FocusedPane::Diff {
-        state.diff.vertical = if bottom { diff_last_line(state) } else { 0 };
+        state.diff.vertical = if edge.is_bottom() {
+            diff_last_line(state)
+        } else {
+            0
+        };
         return Vec::new();
     }
     if state.view == AppView::CommitDetails && state.focus == FocusedPane::Secondary {
-        state.message.scroll = if bottom { message_last_line(state) } else { 0 };
+        state.message.scroll = if edge.is_bottom() {
+            message_last_line(state)
+        } else {
+            0
+        };
         return Vec::new();
     }
     let moved = match (state.view, state.focus, state.history_panel) {
         (AppView::Changes, FocusedPane::Primary, _) => match &state.changes {
-            LoadState::Ready(items) => edge(&mut state.change_selection, items.len(), bottom),
+            LoadState::Ready(items) => select_edge(&mut state.change_selection, items.len(), edge),
             _ => false,
         },
         (AppView::History | AppView::CommitDetails | AppView::Graph, FocusedPane::Primary, _) => {
             match &state.commits {
-                LoadState::Ready(items) => edge(&mut state.commit_selection, items.len(), bottom),
+                LoadState::Ready(items) => {
+                    select_edge(&mut state.commit_selection, items.len(), edge)
+                }
                 _ => false,
             }
         }
         (AppView::History, FocusedPane::Secondary, HistoryPanel::ChangedFiles) => {
             match &state.files {
-                LoadState::Ready(items) => edge(&mut state.file_selection, items.len(), bottom),
+                LoadState::Ready(items) => {
+                    select_edge(&mut state.file_selection, items.len(), edge)
+                }
                 _ => false,
             }
         }
         (AppView::History, FocusedPane::Secondary, HistoryPanel::Tree) => {
             match &state.tree.visible {
-                LoadState::Ready(items) => edge(&mut state.tree.selection, items.len(), bottom),
+                LoadState::Ready(items) => {
+                    select_edge(&mut state.tree.selection, items.len(), edge)
+                }
                 _ => false,
             }
         }
         (AppView::CommitDetails, FocusedPane::Diff, _) => match &state.files {
-            LoadState::Ready(items) => edge(&mut state.file_selection, items.len(), bottom),
+            LoadState::Ready(items) => select_edge(&mut state.file_selection, items.len(), edge),
             _ => false,
         },
         (AppView::GraphDetails, FocusedPane::Secondary, _) => match &state.files {
-            LoadState::Ready(items) => edge(&mut state.file_selection, items.len(), bottom),
+            LoadState::Ready(items) => select_edge(&mut state.file_selection, items.len(), edge),
             _ => false,
         },
         (AppView::FileHistory, FocusedPane::Primary, _) => match &state.file_view.commits {
-            LoadState::Ready(items) => edge(&mut state.file_view.selection, items.len(), bottom),
+            LoadState::Ready(items) => {
+                select_edge(&mut state.file_view.selection, items.len(), edge)
+            }
             _ => false,
         },
         _ => false,
@@ -1749,8 +1891,12 @@ fn move_to_edge(state: &mut AppState, bottom: bool) -> Vec<GitEffect> {
     }
 }
 
-fn edge(selection: &mut crate::app::model::Selection, len: usize, bottom: bool) -> bool {
-    if bottom {
+fn select_edge(
+    selection: &mut crate::app::model::Selection,
+    len: usize,
+    edge: VerticalEdge,
+) -> bool {
+    if edge.is_bottom() {
         selection.bottom(len)
     } else {
         selection.top(len)
@@ -1765,7 +1911,7 @@ fn move_half_page(state: &mut AppState, delta: isize) -> Vec<GitEffect> {
         move_message_cursor(state, delta);
         Vec::new()
     } else if state.view == AppView::FileHistory && state.focus == FocusedPane::Diff {
-        if state.file_view.showing_history_diff {
+        if state.file_view.mode.shows_history_diff() {
             move_diff_cursor(state, delta);
         } else {
             move_file_content_cursor(state, delta);
@@ -1818,7 +1964,7 @@ fn refresh(state: &mut AppState) -> Vec<GitEffect> {
     match state.view {
         AppView::Changes => state.request_changes(),
         AppView::History | AppView::CommitDetails | AppView::Graph | AppView::GraphDetails => {
-            state.request_commits(false)
+            state.request_commits(crate::app::CommitLoadMode::Replace)
         }
         AppView::FileHistory => Vec::new(),
         AppView::Code => crate::app::code_view::request_tree(state),
@@ -1942,7 +2088,7 @@ fn activate(state: &mut AppState) -> Vec<GitEffect> {
             open_diff_overlay(state);
             Vec::new()
         }
-        (AppView::FileHistory, _, _) if state.file_view.showing_history_diff => {
+        (AppView::FileHistory, _, _) if state.file_view.mode.shows_history_diff() => {
             open_diff_overlay(state);
             Vec::new()
         }
@@ -1968,7 +2114,7 @@ fn selected_change_diff(state: &mut AppState) -> Vec<GitEffect> {
         (LoadState::Ready(changes), Some(index)) => {
             changes.get(index).map(|change| DiffTarget::Worktree {
                 path: change.path().clone(),
-                untracked: change.kind() == crate::domain::ChangeKind::Untracked,
+                kind: change.kind().into(),
             })
         }
         _ => None,
@@ -2117,7 +2263,7 @@ fn collapse_tree(state: &mut AppState, index: usize) {
         return;
     };
     if let Some(parent) = visible.get_mut(index) {
-        parent.set_expanded(false);
+        parent.collapse();
     }
     let end = visible[index + 1..]
         .iter()
@@ -2137,7 +2283,7 @@ fn insert_children(
         return;
     };
     if let Some(parent_entry) = visible.get_mut(index) {
-        parent_entry.set_expanded(true);
+        parent_entry.expand();
     }
     let additions = children.into_iter().map(|entry| {
         let path = parent.path().join(entry.name());
@@ -2156,7 +2302,7 @@ fn tree_loaded(
             let visible = entries
                 .into_iter()
                 .map(|entry| {
-                    let path = RepoPath::root_marker().join(entry.name());
+                    let path = entry.name().clone();
                     VisibleTreeEntry::new(entry, path, 0)
                 })
                 .collect::<Vec<_>>();
@@ -2195,7 +2341,7 @@ fn maybe_load_more(state: &mut AppState) -> Vec<GitEffect> {
         state.view,
         AppView::History | AppView::CommitDetails | AppView::Graph | AppView::GraphDetails
     ) || state.focus != FocusedPane::Primary
-        || !state.history_page.has_more
+        || !state.history_page.continuation.has_more()
         || state.history_page.loading_more.is_some()
     {
         return Vec::new();
@@ -2205,7 +2351,7 @@ fn maybe_load_more(state: &mut AppState) -> Vec<GitEffect> {
         _ => false,
     };
     if at_end {
-        state.request_commits(true)
+        state.request_commits(crate::app::CommitLoadMode::Append)
     } else {
         Vec::new()
     }
@@ -2213,23 +2359,32 @@ fn maybe_load_more(state: &mut AppState) -> Vec<GitEffect> {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
     use std::path::PathBuf;
 
     use super::{apply_action, apply_event};
     use crate::app::{
-        Action, AppState, AppView, Event, FocusedPane, GitEffect, HistoryPanel, LoadState, Overlay,
-        RepositorySearchKind, SearchDirection, VimMotion, VimMotionKind,
+        Action, AppState, AppView, Event, FocusedPane, GitEffect, HistoryContinuation,
+        HistoryPanel, LoadState, Overlay, RepositorySearchKind, SearchDirection, VimMotion,
+        VimMotionKind,
     };
     use crate::domain::{
-        ChangeKind, ChangedFile, CommitMessage, CommitSummary, DiffDocument, DiffLine,
-        DiffLineKind, DiffTarget, FileDocument, ObjectId, RepoPath, RepositoryRoot, SearchHit,
-        SourcePosition, TreeEntry, TreeKind, WorktreeChange,
+        ChangeKind, ChangedFile, CommitMessage, CommitPage, CommitSummary, DiffDocument, DiffLine,
+        DiffLineKind, DiffTarget, FileDocument, GitTreeMode, LineNumber, ObjectId, RepoPath,
+        RepositoryRoot, SearchHit, SourcePosition, TreeEntry, WorktreeChange,
     };
 
     fn state() -> AppState {
         let root = RepositoryRoot::new(PathBuf::from("/tmp/repo"))
             .unwrap_or_else(|error| panic!("{error}"));
         AppState::new(root, AppView::Changes)
+    }
+
+    fn commit_page(skip: usize, limit: usize) -> CommitPage {
+        CommitPage::new(
+            skip,
+            NonZeroUsize::new(limit).unwrap_or_else(|| panic!("page size must be non-zero")),
+        )
     }
 
     #[test]
@@ -2260,7 +2415,7 @@ mod tests {
         let mut state = state();
         let target = crate::domain::DiffTarget::Worktree {
             path: RepoPath::from_bytes(b"file".to_vec()).unwrap_or_else(|error| panic!("{error}")),
-            untracked: false,
+            kind: crate::domain::WorktreeDiffKind::Tracked,
         };
         let effect = state.request_diff(target);
         let request_id = match &effect[0] {
@@ -2373,8 +2528,8 @@ mod tests {
             &mut state,
             Event::CommitsLoaded {
                 request_id,
-                append: false,
-                limit: 200,
+                mode: crate::app::CommitLoadMode::Replace,
+                page: commit_page(0, 200),
                 result: Ok(vec![selected.clone(), first]),
             },
         );
@@ -2418,9 +2573,14 @@ mod tests {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
         let mut mapper = crate::tui::keymap::KeyMapper::new();
+        let context = if state.is_search_input_active() {
+            crate::tui::keymap::KeyInputContext::SearchInput
+        } else {
+            crate::tui::keymap::KeyInputContext::Normal
+        };
         let action = mapper.map(
             KeyEvent::new(KeyCode::Char(key), KeyModifiers::CONTROL),
-            state.is_search_input_active(),
+            context,
         );
         if let Some(action) = action {
             assert!(apply_action(state, action).is_empty());
@@ -2648,7 +2808,7 @@ mod tests {
         let target = DiffTarget::Worktree {
             path: RepoPath::from_bytes(b"pending.txt".to_vec())
                 .unwrap_or_else(|error| panic!("{error}")),
-            untracked: false,
+            kind: crate::domain::WorktreeDiffKind::Tracked,
         };
         let effects = state.request_diff(target);
         let request_id = match effects.first() {
@@ -2762,34 +2922,33 @@ mod tests {
         state.view = AppView::History;
         state.commits = LoadState::Ready((0..200).map(numbered_commit).collect());
         state.commit_selection.reset_to(200, Some(198));
-        state.history_page.has_more = true;
+        state.history_page.continuation = HistoryContinuation::Available;
 
         let effects = apply_action(&mut state, Action::MoveDown);
-        let (request_id, skip, limit) = effects
+        let (request_id, page) = effects
             .iter()
             .find_map(|effect| match effect {
                 GitEffect::LoadCommits {
                     request_id,
-                    skip,
-                    limit,
-                    append: true,
-                } => Some((*request_id, *skip, *limit)),
+                    page,
+                    mode: crate::app::CommitLoadMode::Append,
+                } => Some((*request_id, *page)),
                 _ => None,
             })
             .unwrap_or_else(|| panic!("expected next history page request"));
-        assert_eq!((skip, limit), (200, 200));
+        assert_eq!((page.skip(), page.limit().get()), (200, 200));
 
         let _none = apply_event(
             &mut state,
             Event::CommitsLoaded {
                 request_id,
-                append: true,
-                limit,
+                mode: crate::app::CommitLoadMode::Append,
+                page,
                 result: Ok(vec![numbered_commit(200)]),
             },
         );
         assert!(matches!(&state.commits, LoadState::Ready(commits) if commits.len() == 201));
-        assert!(!state.history_page.has_more);
+        assert!(!state.history_page.continuation.has_more());
         assert!(state.history_page.loading_more.is_none());
     }
 
@@ -2812,7 +2971,7 @@ mod tests {
             }) => (*request_id, commit.clone()),
             _ => panic!("expected root tree request"),
         };
-        let directory = tree_entry('b', TreeKind::Directory, "dir", "040000");
+        let directory = tree_entry('b', GitTreeMode::Directory, "dir");
         let _none = apply_event(
             &mut state,
             Event::TreeLoaded {
@@ -2833,7 +2992,7 @@ mod tests {
             }) => (*request_id, parent.clone()),
             _ => panic!("expected child tree request"),
         };
-        let file = tree_entry('c', TreeKind::File, "file.txt", "100644");
+        let file = tree_entry('c', GitTreeMode::RegularFile, "file.txt");
         let _none = apply_event(
             &mut state,
             Event::TreeLoaded {
@@ -3094,7 +3253,7 @@ mod tests {
                 request_id: first_request,
                 result: Ok(vec![SearchHit::content(
                     path.clone(),
-                    1,
+                    LineNumber::new(1).unwrap_or_else(|| panic!("fixture line must be nonzero")),
                     "old result".to_owned(),
                 )]),
             },
@@ -3113,7 +3272,7 @@ mod tests {
                 request_id: search_request,
                 result: Ok(vec![SearchHit::content(
                     path.clone(),
-                    2,
+                    LineNumber::new(2).unwrap_or_else(|| panic!("fixture line must be nonzero")),
                     "needle".to_owned(),
                 )]),
             },
@@ -3152,21 +3311,22 @@ mod tests {
             Event::FileContentLoaded {
                 request_id: content_request,
                 path,
-                result: Ok(FileDocument::Text {
-                    lines: vec!["one".to_owned(), "needle".to_owned()],
-                    source: "one\nneedle".to_owned(),
-                    valid_utf8: true,
-                    truncated: false,
-                }),
+                result: Ok(FileDocument::exact_text("one\nneedle")),
             },
         );
-        assert!(!state.file_view.showing_history_diff);
+        assert_eq!(
+            state.file_view.mode,
+            crate::app::model::FileViewMode::CurrentContent
+        );
         let _none = apply_action(&mut state, Action::Activate);
         assert_eq!(state.overlay, Overlay::FileContent);
         let _none = apply_action(&mut state, Action::CloseOverlay);
 
         let diff = apply_action(&mut state, Action::MoveDown);
-        assert!(state.file_view.showing_history_diff);
+        assert_eq!(
+            state.file_view.mode,
+            crate::app::model::FileViewMode::HistoryDiff
+        );
         assert!(diff.iter().any(|effect| {
             matches!(
                 effect,
@@ -3257,12 +3417,7 @@ mod tests {
             Event::CodeFileLoaded {
                 request_id: file_request,
                 path: source,
-                result: Ok(FileDocument::Text {
-                    lines: vec!["first".to_owned(), "searchable code".to_owned()],
-                    source: "first\nsearchable code".to_owned(),
-                    valid_utf8: true,
-                    truncated: false,
-                }),
+                result: Ok(FileDocument::exact_text("first\nsearchable code")),
             },
         );
         let _none = apply_action(&mut state, Action::FocusRight);
@@ -3306,7 +3461,7 @@ mod tests {
                 request_id: search_request,
                 result: Ok(vec![SearchHit::content(
                     match_path.clone(),
-                    2,
+                    LineNumber::new(2).unwrap_or_else(|| panic!("fixture line must be nonzero")),
                     "x".to_owned(),
                 )]),
             },
@@ -3338,12 +3493,7 @@ mod tests {
         let mut state = state();
         state.view = AppView::Code;
         state.focus = FocusedPane::Diff;
-        state.code_view.content = LoadState::Ready(FileDocument::Text {
-            source: lines.join("\n"),
-            lines: lines.iter().map(|line| (*line).to_owned()).collect(),
-            valid_utf8: true,
-            truncated: false,
-        });
+        state.code_view.content = LoadState::Ready(FileDocument::exact_text(lines.join("\n")));
         state
     }
 
@@ -3355,10 +3505,12 @@ mod tests {
             '\u{7f}' => KeyCode::Backspace,
             character => KeyCode::Char(character),
         };
-        if let Some(action) = mapper.map(
-            KeyEvent::new(code, KeyModifiers::NONE),
-            state.is_search_input_active(),
-        ) {
+        let context = if state.is_search_input_active() {
+            crate::tui::keymap::KeyInputContext::SearchInput
+        } else {
+            crate::tui::keymap::KeyInputContext::Normal
+        };
+        if let Some(action) = mapper.map(KeyEvent::new(code, KeyModifiers::NONE), context) {
             assert!(state.handle_app_action(action).is_empty());
         }
     }
@@ -3381,6 +3533,12 @@ mod tests {
             ),
             (AppView::Changes, Overlay::None, FocusedPane::Diff, false),
             (AppView::Changes, Overlay::Diff, FocusedPane::Primary, false),
+            (
+                AppView::Changes,
+                Overlay::FullFile,
+                FocusedPane::Primary,
+                false,
+            ),
             (AppView::History, Overlay::None, FocusedPane::Diff, false),
             (
                 AppView::GraphDetails,
@@ -3421,13 +3579,13 @@ mod tests {
                     state.view = view;
                     state.overlay = overlay;
                     state.focus = focus;
-                    state.file_view.showing_history_diff = history_diff;
-                    state.file_view.content = LoadState::Ready(FileDocument::Text {
-                        source: lines.join("\n"),
-                        lines: lines.iter().map(|line| (*line).to_owned()).collect(),
-                        valid_utf8: true,
-                        truncated: false,
-                    });
+                    state.file_view.mode = if history_diff {
+                        crate::app::model::FileViewMode::HistoryDiff
+                    } else {
+                        crate::app::model::FileViewMode::CurrentContent
+                    };
+                    state.file_view.content =
+                        LoadState::Ready(FileDocument::exact_text(lines.join("\n")));
                     state.diff.content = LoadState::Ready(DiffDocument::Text {
                         lines: lines
                             .iter()
@@ -3441,6 +3599,8 @@ mod tests {
                         "subject\n\n{}",
                         lines.join("\n")
                     )));
+                    state.full_file.content =
+                        LoadState::Ready(FileDocument::exact_text(lines.join("\n")));
                     state.set_terminal_size(80, 24);
                     let mut mapper = crate::tui::keymap::KeyMapper::new();
                     if let Some(visible) = previous {
@@ -3462,6 +3622,7 @@ mod tests {
                     state.file_view.byte_column = 6;
                     state.message.scroll = 20;
                     state.message.byte_column = 6;
+                    state.full_file.cursor = SourcePosition::new(20, 6);
                     state.code_view.viewport_vertical = 15;
                     state.code_view.viewport_horizontal = 2;
                     state.diff.viewport_vertical = 15;
@@ -3470,6 +3631,8 @@ mod tests {
                     state.file_view.horizontal = 2;
                     state.message.viewport_vertical = 15;
                     state.message.horizontal = 2;
+                    state.full_file.viewport_vertical = 15;
+                    state.full_file.viewport_horizontal = 2;
                     let before = format!("{state:?}");
                     for prompt in ['/', '?'] {
                         for input in ["", "a\u{7f}"] {
@@ -3561,10 +3724,15 @@ mod tests {
         let cursor = state.code_view.cursor;
         for kind in [RepositorySearchKind::Files, RepositorySearchKind::Content] {
             crate::app::repository_search::open(&mut state, kind);
+            let context = if state.is_search_input_active() {
+                crate::tui::keymap::KeyInputContext::SearchInput
+            } else {
+                crate::tui::keymap::KeyInputContext::Normal
+            };
             let action = mapper
                 .map(
                     KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
-                    state.is_search_input_active(),
+                    context,
                 )
                 .unwrap_or_else(|| panic!("expected search edit"));
             let effects = state.handle_app_action(action);
@@ -3582,7 +3750,7 @@ mod tests {
                 mapper
                     .map(
                         KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL),
-                        false
+                        crate::tui::keymap::KeyInputContext::Normal,
                     )
                     .is_none()
             );
@@ -3839,12 +4007,7 @@ mod tests {
             Action::VimMotion(VimMotion::new(VimMotionKind::SearchWordForward)),
         );
         state.view = AppView::FileHistory;
-        state.file_view.content = LoadState::Ready(FileDocument::Text {
-            source: "catfish cat".to_owned(),
-            lines: vec!["catfish cat".to_owned()],
-            valid_utf8: true,
-            truncated: false,
-        });
+        state.file_view.content = LoadState::Ready(FileDocument::exact_text("catfish cat"));
         let _none = apply_action(
             &mut state,
             Action::VimMotion(VimMotion::new(VimMotionKind::SearchNext)),
@@ -3886,12 +4049,11 @@ mod tests {
         )
     }
 
-    fn tree_entry(value: char, kind: TreeKind, name: &str, mode: &str) -> TreeEntry {
+    fn tree_entry(value: char, mode: GitTreeMode, name: &str) -> TreeEntry {
         TreeEntry::new(
             ObjectId::parse(value.to_string().repeat(40))
                 .unwrap_or_else(|error| panic!("invalid tree object ID: {error}")),
-            mode.to_owned(),
-            kind,
+            mode,
             RepoPath::from_bytes(name.as_bytes().to_vec())
                 .unwrap_or_else(|error| panic!("invalid tree path: {error}")),
         )

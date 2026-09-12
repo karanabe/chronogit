@@ -36,6 +36,14 @@ Press `Enter` on a file in the tree, or while the lower pane is focused, to open
 
 Recognized source types use embedded syntax definitions. Reads are bounded to 8 MiB, and the UI marks truncated text rather than growing without limit.
 
+`Space v` opens the selected source in the common full-file view used by diff
+workflows. With LSP enabled, `Space s` opens a document-symbol list from the
+focused Code pane, its floating content, or the current-content pane reached
+through file history. Select a symbol to jump to its selection range in the
+full file. The first row explicitly opens the full file without choosing a
+symbol. Source views have no diff line set, so their full-file view starts in
+plain **new state** mode.
+
 ## Search while browsing code
 
 `Space f` searches file paths and `Space g` searches fixed text from the Code viewer just as they do from Git screens. Opening a result returns directly to Code, expands the ancestors needed to reveal the selected file, and loads its current content. A content result positions the current-line marker at the matched line.
@@ -55,6 +63,7 @@ ChronoGit does not install these executables. Follow the upstream installation i
 
 Place the cursor on a symbol with `h` / `l` or Left / Right and use:
 
+- `Space s`: list document symbols for the displayed file
 - `K`: open or close hover information
 - `gd`: definition
 - `gi`: implementation
@@ -65,7 +74,7 @@ Place the cursor on a symbol with `h` / `l` or Left / Right and use:
 
 Hover opens in a floating window. Use `j` / `k` to scroll it, then press `K`, `q`, or `Esc` to close it. The initialized server's capabilities decide whether hover and each navigation operation are available. A server can temporarily return no information while it is indexing; close the float and invoke the operation again after indexing completes. A single navigation target opens directly. Multiple targets open a `j` / `k` selection list; `Enter` opens one and `q` / `Esc` closes the list. LSP targets, long-distance Vim motions, mark jumps, and searches share one jump list. A new jump after `Ctrl-o` discards the newer branch. In terminals that cannot distinguish `Ctrl-i` from Tab, Tab invokes the same newer-location action. No target, an unsupported capability, startup failure, timeout, or crash appears as a recoverable notice.
 
-Only complete UTF-8 current-working-tree files participate. ChronoGit accepts only repository-contained `file:` results through its rooted no-follow reader. Standard-library/dependency paths outside the repository and virtual URIs such as `jdt:` are displayed as unsupported and are never interpreted as repository paths.
+Position-based hover and navigation require a complete UTF-8 current-working-tree file. Document-symbol context additionally accepts the complete new-state file read from a selected commit. ChronoGit accepts only repository-contained `file:` navigation results through its rooted no-follow reader. Standard-library/dependency paths outside the repository and virtual URIs such as `jdt:` are displayed as unsupported and are never interpreted as repository paths.
 
 Profiles use the nearest configured root marker, falling back to the repository root. Sessions are keyed by profile and workspace root, start lazily, and retain at most four processes. A fifth workspace evicts the least recently used session. Rust, Java, Python, and user-defined languages all use the same standard request path.
 
@@ -76,7 +85,7 @@ The language-server executable and ChronoGit's profile file are separate:
 1. Install the server outside ChronoGit. Put the executable named by the profile on `PATH`, or override the profile with an absolute executable path in the trusted user-level `lsp.toml`.
 2. Use a built-in profile ID, or place custom/overridden profile data at `$XDG_CONFIG_HOME/chronogit/lsp.toml` (normally `~/.config/chronogit/lsp.toml`). ChronoGit never reads a repository-local server command.
 3. Start ChronoGit with one or more `--lsp PROFILE` options. Startup validates built-ins plus user overrides and retains only those explicitly selected, but starts no server yet.
-4. Focus a matching source file and invoke hover or navigation. ChronoGit selects exactly one enabled profile by extension, finds the nearest root marker, starts the command with that workspace as its current directory, performs LSP `initialize`, synchronizes the displayed file with `didOpen`/`didChange`, checks the advertised capability, and sends the request.
+4. Focus a matching source file and invoke hover, navigation, or document symbols. ChronoGit selects exactly one enabled profile by extension, finds the nearest root marker, starts the command with that workspace as its current directory, performs LSP `initialize`, synchronizes the displayed file with `didOpen`/`didChange`, checks the advertised capability, and sends the request.
 5. Later requests reuse the session for the same `(profile, workspace root)`. ChronoGit shuts resident sessions down on exit; JDT LS's writable workspace data is isolated in a temporary directory outside the repository.
 
 For example, a `rust-analyzer` binary on `PATH` needs no `lsp.toml`; `--lsp rust-analyzer` selects the built-in command. If a binary is elsewhere, copy the corresponding table from the packaged `config/lsp.toml` into the XDG file and replace the first `command` item with its absolute path. Java and Python follow exactly the same workflow with `jdtls`, `pyright-langserver`, `basedpyright-langserver`, or `pylsp`.

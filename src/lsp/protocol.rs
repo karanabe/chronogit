@@ -10,6 +10,7 @@ use crate::lsp::LspError;
 
 pub(crate) const MAX_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_HEADER_BYTES: usize = 16 * 1024;
+const BYTES_PER_MEBIBYTE: usize = 1024 * 1024;
 
 pub(crate) async fn read_message<R>(reader: &mut R) -> Result<Value, LspError>
 where
@@ -59,7 +60,7 @@ where
     if length > MAX_MESSAGE_BYTES {
         return Err(LspError::Protocol(format!(
             "language server message exceeded the {} MiB safety limit",
-            MAX_MESSAGE_BYTES / (1024 * 1024)
+            MAX_MESSAGE_BYTES / BYTES_PER_MEBIBYTE
         )));
     }
     let mut body = vec![0; length];

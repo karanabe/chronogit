@@ -16,11 +16,12 @@ ChronoGit treats repository contents and configuration as untrusted input. Its G
 The application can only request typed operations for repository discovery, bare/`HEAD` checks, worktree status, history, messages, changed files, diffs, tree entries, repository file lists, and fixed-text grep. It contains no generic “run Git arguments” path.
 
 - Git runs directly without a shell.
-- Repository paths and pathspecs are separate process arguments placed after `--` where applicable.
+- Repository paths and pathspecs are separate process arguments placed after `--` where applicable. Historical full-file reads use one `object:path` argument assembled only from an already validated hexadecimal object ID and validated relative repository path.
 - Optional Git locks and terminal prompts are disabled.
 - Pagers, color, external diff drivers, textconv, and fsmonitor execution are disabled.
 - Object IDs are accepted for reuse as revisions only after hexadecimal validation.
 - Current file reads open each component relative to the discovered worktree directory, do not follow symbolic links, and stop after 8 MiB.
+- Historical full-file reads use Git's object database, never check out the revision, and share the 8 MiB output bound.
 - Keymap files accept only documented action and key names; they cannot run commands.
 
 ChronoGit never stages, restores, commits, resets, checks out, creates branches, or updates references.
@@ -29,7 +30,7 @@ ChronoGit never stages, restores, commits, resets, checks out, creates branches,
 
 Language-server support does not weaken ChronoGit's Git guarantees, but the external server is a separate process with its own behavior. LSP is disabled unless `--lsp PROFILE` is supplied. Enable it only for a trusted repository: rust-analyzer may evaluate build scripts/procedural macros, and Java or Python servers may invoke project tooling, inspect environments, download dependencies through that tooling, or write caches and build artifacts.
 
-ChronoGit does not bundle or download servers. It starts a validated trusted user-level argument array directly, never reads a server command from repository configuration, and performs no implicit shell interpolation. JDT workspace data and writable OSGi configuration use one unique temporary tree outside the repository for each process. Only complete UTF-8 current files are synchronized. Returned locations are opened only when a `file:` path remains inside the repository and passes the existing no-follow reader; external and virtual URIs are notices only.
+ChronoGit does not bundle or download servers. It starts a validated trusted user-level argument array directly, never reads a server command from repository configuration, and performs no implicit shell interpolation. JDT workspace data and writable OSGi configuration use one unique temporary tree outside the repository for each process. Only complete UTF-8 displayed files are synchronized: current working-tree text for positional requests, plus selected-commit new-state text for document-symbol context. Returned locations are opened only when a `file:` path remains inside the repository and passes the existing no-follow reader; external and virtual URIs are notices only.
 
 :::note[Concurrent external changes]
 Read-only means ChronoGit does not mutate the repository. Editors, hooks started elsewhere, and other Git processes can still change it while the TUI is open. Press `r` to refresh after such a change.
@@ -48,13 +49,13 @@ Read-only means ChronoGit does not mutate the repository. Editors, hooks started
 | Diff cache | 16 entries and 16 MiB total |
 | History page | 200 commits |
 | File history | 200 commits |
-| Current file content | 8 MiB |
+| Current or historical full-file content | 8 MiB |
 | LSP message body | 8 MiB inbound and outbound |
 | LSP response headers | 16 KiB |
 | LSP writer queue | 64 messages per session |
 | Resident LSP sessions | 4 profile/workspace pairs; least-recently-used eviction |
 | Synchronized document | One complete file per session, at most 8 MiB |
-| LSP navigation or hover request | 15 seconds |
+| LSP navigation, hover, or document-symbol request | 15 seconds |
 | Normalized hover text | 262,144 characters |
 | LSP initialize request | 30 seconds |
 | LSP shutdown grace period | 2 seconds before child termination |

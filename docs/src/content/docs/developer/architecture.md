@@ -41,7 +41,7 @@ concepts. Preserve this layout when adding or splitting modules.
 
 ### `crates/vim-navigation`
 
-Owns framework-independent `Cursor`, `Viewport`, `Motion`, and `MotionState`
+Owns framework-independent `Cursor`, `Viewport`, `Motion`, `CountSource`, and `MotionState`
 types and an explicitly mutable `EditableBuffer` with separate Normal and
 Insert modes. It depends only on `unicode-width`; it has no Git, LSP,
 crossterm, ratatui, process, filesystem, or network boundary. The complete
@@ -50,7 +50,8 @@ non-motion boundaries live in the crate's `COMPATIBILITY.md`.
 
 The public module boundaries follow ownership rather than key syntax:
 
-- `command.rs` owns the saturating count, incomplete find/till target, and
+- `command.rs` owns the saturating count, typed explicit/implicit count origin,
+  incomplete find/till target, and
   `;`/`,` repetition state;
 - `motion.rs` owns the read-only coordinate and motion vocabulary and presents
   a facade over private `motion/buffer.rs` semantic scans,
@@ -75,12 +76,15 @@ editable.
 
 ### `src/domain.rs` and `src/domain/`
 
-Owns repository paths, object IDs, changes, commits, diffs, tree entries, search hits, and bounded current-file documents. It has no subprocess or terminal dependency.
+Owns repository paths, object IDs, changes, commits, diffs, tree entries, search hits, document symbols, and bounded current-or-revision file documents. It has no subprocess or terminal dependency.
 
-- `RepositoryRoot`, `RepoPath`, `ObjectId`, and `RequestId` prevent values with different meanings from being mixed.
+- `RepositoryRoot`, `RepoPath`, and `ObjectId` prevent filesystem paths, Git paths, and revisions from being mixed; their standard `AsRef`, `TryFrom`, or `FromStr` implementations preserve the same validation as their named constructors.
+- `CommitPage` keeps a history offset together with a non-zero page size, while `LineNumber` keeps diff and search positions one-based and non-zero.
 - `CommitBaseline` makes empty-tree and first-parent comparisons explicit.
 - `DiffTarget` identifies either an index-to-worktree path or a commit/baseline/path triple.
+- `FileRevision` identifies a working-tree or commit source without overloading a diff comparison.
 - `DiffDocument` represents text, binary, empty, and truncated results as exclusive variants.
+- `TextFileDocument` makes exact UTF-8, display-only, and truncated text mutually exclusive; `GitTreeMode` validates the Git object-type/mode pair, and `DocumentSymbolKind` normalizes the LSP numeric vocabulary.
 - Git paths remain bytes internally on Unix; only presentation is lossy for a non-UTF-8 name.
 
 Fields stay private. Constructors enforce absolute repository roots, relative repository paths, no NUL path bytes, and hexadecimal object IDs.
@@ -91,8 +95,8 @@ Owns all communication with the installed Git executable.
 
 - `GitCommand` is a closed allowlist; callers cannot pass arbitrary arguments.
 - `GitRunner` is the only substitution trait because subprocess I/O is a real slow and stateful test boundary.
-- `SystemGitRunner` executes without a shell, captures bounded byte output, and disables optional locks, prompts, pager, color, external diff, textconv, and fsmonitor execution.
-- `GitService` exposes domain use cases: discovery, status, history, message, changed files, diff, tree children, tracked/non-ignored path listing, file/content search, per-file history, and bounded current-file content. Current-file opens stay relative to the discovered worktree descriptor and reject symbolic links in every path component.
+- `SystemGitRunner` executes without a shell, captures bounded byte output, records command status and stream completeness as distinct internal states, and disables optional locks, prompts, pager, color, external diff, textconv, and fsmonitor execution.
+- `GitService` exposes domain use cases: discovery, status, history, message, changed files, diff, tree children, tracked/non-ignored path listing, file/content search, per-file history, and bounded current-or-revision file content. Current-file opens stay relative to the discovered worktree descriptor and reject symbolic links in every path component; revision files use a validated object/path Git read without checking out the commit.
 - `git::parse` modules decode NUL-delimited machine output and unified patches.
 
 The repository object format is not assumed to be SHA-1. ChronoGit retains complete hexadecimal IDs returned by Git.
@@ -103,14 +107,15 @@ Owns interactive state and transitions.
 
 `app::vim` is a coordinate adapter over the workspace `vim-navigation` crate; it converts `SourcePosition` and pane geometry, then applies the crate's count-aware cursor and viewport motion to borrowed document lines. Search repetition uses the current cursor and rebuilds matches for the active document; counts wrap by match index. Code marks and searches share the bounded LSP jump history, and counted traversal loads only the final destination. Search queries/highlights and resource-aware marks/jumps remain application state because they refer to ChronoGit documents and paths.
 
-- `AppView`, `FocusedPane`, `HistoryPanel`, and `Overlay` model mutually exclusive UI states. Changes, History/body, Graph/details, file history, and Code are views; repository search, complete messages, full diffs, current file content, and full Code content are overlays.
-- `SearchState` owns smart-case positional search inside the active Code, diff, file, or commit-message document. `RepositorySearchState` separately owns the global prompt, live query, results, selection, and return view. An active prompt represents Search focus; moving to Results retains the query so returning to Search can restore and edit it. Every query edit issues a new typed effect; request IDs prevent an older completion from replacing newer results. `FileViewState` owns the selected search-result path, its history/current content, and whether the lower pane shows content or a historical diff. `CodeViewState` owns the complete path set, projected visible tree, selected path, bounded content, and code viewport.
-- `SearchState` stores original UTF-8 match start/end offsets and independent highlight visibility. Diff/Code renderers map ranges through sanitization, decorate syntax spans, then apply cursor styling and viewport clipping. Dismissal preserves search/navigation state; successful search selection restores visibility. Only default Esc emits `DismissSearchOrClose`; prompt/character cancellation and frontmost overlays take precedence. Explicit `close` overrides replace both default close keys with immediate close actions.
+- `AppView`, `FocusedPane`, `HistoryPanel`, and `Overlay` model mutually exclusive UI states. Changes, History/body, Graph/details, file history, and Code are views; repository search, complete messages, full diffs, source content, complete source, and symbol context are overlays.
+- `SearchState` owns smart-case positional search inside the active Code, diff, file, or commit-message document. Search scope, case sensitivity, and anchor inclusion are separate values rather than positional booleans. `RepositorySearchState` separately owns the global prompt, live query, results, selection, and return view. An active prompt represents Search focus; moving to Results retains the query so returning to Search can restore and edit it. Every query edit issues a new typed effect; request IDs prevent an older completion from replacing newer results. `FileViewState` owns the selected search-result path, its history/current content, and an exclusive current-content/history-diff mode. `CodeViewState` owns the complete path set, projected visible tree, selected path, bounded content, and code viewport.
+- `SearchState` stores original UTF-8 match start/end offsets and independent highlight visibility. Diff/Code/full-file renderers map ranges through sanitization, decorate syntax spans, then apply cursor styling and viewport clipping. Dismissal preserves search/navigation state; successful search selection restores visibility. Only default Esc emits `DismissSearchOrClose`; prompt/character cancellation and frontmost overlays take precedence. Explicit `close` overrides replace both default close keys with immediate close actions.
 - Document-search deletion belongs to `SearchState`: Backspace removes one character, or cancels only when the prompt was already empty. The reducer consumes that action without also applying a normal motion or close. Cancellation drops only the prompt; confirmed search and document position remain intact. Repository-search deletion retains its separate live-query path.
 - `LoadState<T>` is idle, loading with a request ID, ready, or failed.
 - `Action` represents user intent, `Event` an asynchronous completion, and `GitEffect` a closed Git side-effect description.
 - `AppEffect` routes existing `GitEffect` values and persistent `LspEffect` values without mixing their lifecycle policies. `SemanticNavigationState` owns candidates, request identity, and a bounded bidirectional jump history; `LspHoverState` owns the hover request, return overlay, and scroll offset.
-- Every request receives a monotonically increasing `RequestId`. A completion applies only if it still matches the current resource and selected commit.
+- `app::source_view` projects a diff cursor onto the new-side source line, loads the worktree or selected commit, records changed new-side lines, and coordinates complete-file and document-symbol overlays. Symbol selection is local navigation into that exact loaded document.
+- Every request receives a monotonically increasing `RequestId`, and source snapshots use a separate `DocumentRevision`. A completion applies only if it still matches the current resource and selected commit or document generation. LSP operation, JSON-RPC request, and document-version counters stay distinct behind the protocol adapter.
 - Diff requests have a 75 ms debounce, live repository searches have a 100 ms debounce, and at most two Git tasks run concurrently.
 - The diff cache keeps at most 16 entries and 16 MiB. Refresh clears it.
 - History loads 200 commits per page and file history loads up to 200 commits. Messages, changed files, diffs, current content, searches, and tree directories load on demand.
@@ -123,13 +128,15 @@ The Code tree is different: Git enumerates all tracked and non-ignored worktree 
 
 Owns key translation, terminal lifecycle, layout, rendering, and the event loop.
 
-- `KeyMapper` converts Vim normal-mode keys to actions through built-in or XDG/`--keymap` bindings. The reusable `MotionState` owns decimal counts, find/till character arguments, and `;`/`,` direction; the adapter owns terminal sequences and resource-aware mark arguments. ChronoGit reserves Space as an application leader and therefore omits the crate's standalone Space/`RightWrap` motion from its default normal-context bindings; `l`/Right remain available, and custom maps may place `cursor_right_wrap` on a non-conflicting key. Search input resolves printable Space and `jj` as query text before normal bindings. The mapper rejects ambiguous prefixes and times ordinary sequences out after 750 ms. Ctrl-C remains reserved for safe exit.
+- `KeyMapper` converts Vim normal-mode keys to actions through built-in or XDG/`--keymap` bindings. `KeyInputContext` distinguishes normal commands from search input without a positional Boolean. The reusable `MotionState` owns decimal counts, find/till character arguments, and `;`/`,` direction; the adapter owns terminal sequences and resource-aware mark arguments. ChronoGit reserves Space as an application leader and therefore omits the crate's standalone Space/`RightWrap` motion from its default normal-context bindings; `l`/Right remain available, and custom maps may place `cursor_right_wrap` on a non-conflicting key. Search input resolves printable Space and `jj` as query text before normal bindings. The mapper rejects ambiguous prefixes and times ordinary sequences out after 750 ms. Ctrl-C remains reserved for safe exit.
 - `TerminalSession` enables raw mode and the alternate screen and restores terminal state from `Drop`.
 - A panic hook performs the same restoration before forwarding to the previous hook.
 - `tokio::select!` waits for terminal input, resize/tick events, Ctrl-C, and typed asynchronous completion events.
 - The same event channel carries Git and LSP completions. Normal TUI exit restores the terminal before awaiting bounded LSP shutdown.
 - Standard History renders commits, changed files/tree, and diff as three full-width rows. Its body layout renders the same commit list, commit body, and changed files. Graph renders client-side lanes from loaded parent IDs; its two-row details are drawn in a centered window over the graph, while file history and Code use two-row views. Changes renders both panes from 110 columns and gives the focused pane the full width below that threshold.
 - Below 80×24, rendering becomes a stable size message and quit remains available.
+
+Shared pane percentages, overlay insets, borders, gutters, and responsive thresholds live in `src/layout.rs`. Rendering and reducer-side viewport calculations consume the same constants so cursor-follow behavior cannot silently diverge from the visible layout.
 
 ## Git comparison contracts
 
@@ -157,7 +164,7 @@ No new effects are dispatched during exit. Dropping the Tokio runtime completes 
 - Keep repository paths and pathspecs as separate process arguments, never shell text.
 - Reuse object IDs as revisions only after hexadecimal validation.
 - Prevent repository configuration from launching pager, diff, textconv, or fsmonitor programs.
-- Keep current-file reads descriptor-relative and reject symbolic links in every path component.
+- Keep current-file reads descriptor-relative and reject symbolic links in every path component; keep revision reads typed, validated, shell-free, and bounded.
 - Preserve integration tests that compare `HEAD`, porcelain status, and worktree bytes before and after every read operation.
 - Keep ChronoGit document input read-only. Never route it through
   `vim_navigation::EditableBuffer`; repository/document search prompts retain
@@ -169,13 +176,13 @@ Future features should add a domain variant and a typed command/effect path inst
 
 ## Language-semantic navigation
 
-`src/lsp.rs` and `src/lsp/` implement one generic LSP 3.17 client boundary. `config` owns trusted user profiles and extension/root-marker routing; `protocol` owns bounded `Content-Length` JSON-RPC framing; `position` converts ChronoGit UTF-8 byte columns to negotiated UTF-8/16/32 code units; `session` owns initialize, document synchronization, navigation/hover requests, cancellation, server requests, shutdown, and child cleanup; `manager` owns profile/workspace sessions and LRU eviction.
+`src/lsp.rs` and `src/lsp/` implement one generic LSP 3.17 client boundary. `config` owns trusted user profiles and extension/root-marker routing; `protocol` owns bounded `Content-Length` JSON-RPC framing; `position` converts ChronoGit UTF-8 byte columns to negotiated UTF-8/16/32 code units; `session` owns initialize, document synchronization, navigation/hover/document-symbol requests, cancellation, server requests, shutdown, and child cleanup; `manager` owns profile/workspace sessions and LRU eviction.
 
 LSP intentionally remains a module in the existing `chronogit` crate, not a new crate. Its processes share the application's startup/shutdown lifecycle, its only current consumer is the app effect executor, and it uses the same Tokio/serde/url dependencies already needed by the binary. A separate crate would add a manifest, release/API surface, and conversion layer without creating independent reuse or dependency isolation. Reconsider extraction only if another binary/library becomes a real consumer or Cargo-level dependency isolation becomes necessary.
 
 The app never branches on Rust, Java, or Python. A selected extension resolves to exactly one explicitly enabled `ServerProfile`; the nearest root marker determines a workspace, and `(profile ID, workspace root)` is the session key. Built-ins for rust-analyzer, JDT LS, Pyright, basedpyright, and pylsp are ordinary profile data. User-level TOML can add another language without implementing another transport. Multiple enabled profiles claiming one extension are rejected at request time rather than ordered implicitly.
 
-Each session negotiates capabilities and position encoding, keeps one exact open document, uses full-content `didChange` after a refresh, and closes the preceding document when switching. Navigation and `textDocument/hover` use the same synchronized position request path; standard hover content shapes are normalized to bounded display text before reaching the app. The connection has independent reader and writer tasks so notifications and server-to-client requests cannot deadlock a response. Standard log/progress notifications become one bounded footer status. Only `workspace/configuration` and work-progress creation are answered; unadvertised requests receive JSON-RPC method-not-found. A newer LSP intent sends `$/cancelRequest`, while the reducer independently rejects stale request ID/path/cursor completions.
+Each session negotiates capabilities and position encoding, keeps one exact open document, uses full-content `didChange` after a refresh, and closes the preceding document when switching. Navigation and `textDocument/hover` use the synchronized position request path; `textDocument/documentSymbol` uses the same document synchronization without a cursor position. Standard hover content and hierarchical/flat document-symbol shapes are normalized to bounded domain values before reaching the app. The connection has independent reader and writer tasks so notifications and server-to-client requests cannot deadlock a response. Standard log/progress notifications become one bounded footer status. Only `workspace/configuration` and work-progress creation are answered; unadvertised requests receive JSON-RPC method-not-found. A newer LSP intent sends `$/cancelRequest`, while the reducer independently rejects stale request ID/path/cursor completions.
 
 Wire `Location` and `LocationLink` values normalize behind the adapter. Repository `file:` results are converted to `RepoPath`, then their wire columns are converted using content read by `GitService`, preserving the no-follow boundary. Non-file, `jdt:`, malformed, and repository-external URIs become display-only targets. At most four sessions and one 8 MiB synchronized document per session are retained. A fifth session shuts down the least recently used one. Normal shutdown sends `shutdown`, waits, sends `exit`, then kills a child that exceeds the grace period; `kill_on_drop` is the final cleanup invariant.
 

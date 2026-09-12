@@ -44,6 +44,8 @@ mod tests;
 pub(crate) use engine::reveal_cursor_line;
 pub use engine::{apply, reveal};
 
+pub(crate) const FULL_PERCENT: usize = 100;
+
 /// A zero-based text position whose column is a UTF-8 byte offset.
 ///
 /// Construction is deliberately unchecked so adapters can store a cursor
@@ -81,6 +83,29 @@ impl Cursor {
     }
 }
 
+/// Origin of a motion count, including the semantically distinct implicit one.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CountSource {
+    /// No decimal count was supplied; the effective count defaults to one.
+    Implicit,
+    /// The user supplied a decimal count, including an explicit one.
+    Explicit,
+}
+
+impl CountSource {
+    /// Reports whether the count was explicitly supplied.
+    #[must_use]
+    pub const fn is_explicit(self) -> bool {
+        matches!(self, Self::Explicit)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Repetition {
+    Original,
+    Repeated,
+}
+
 /// A completed Vim movement with its count and optional character argument.
 ///
 /// Use [`crate::MotionState`] when counts and character arguments arrive as
@@ -93,9 +118,9 @@ impl Cursor {
 pub struct Motion {
     kind: MotionKind,
     count: usize,
-    explicit_count: bool,
+    count_source: CountSource,
     target: Option<char>,
-    repeated: bool,
+    repetition: Repetition,
 }
 
 impl Motion {
@@ -105,9 +130,9 @@ impl Motion {
         Self {
             kind,
             count: 1,
-            explicit_count: false,
+            count_source: CountSource::Implicit,
             target: None,
-            repeated: false,
+            repetition: Repetition::Original,
         }
     }
 
@@ -130,7 +155,7 @@ impl Motion {
     /// form even though both carry the numeric value one.
     #[must_use]
     pub const fn has_explicit_count(self) -> bool {
-        self.explicit_count
+        self.count_source.is_explicit()
     }
 
     /// Returns the character argument for find, till, delimiter, or method movement.
@@ -139,15 +164,15 @@ impl Motion {
         self.target
     }
 
-    /// Attaches a normalized count and records whether it was explicit.
+    /// Attaches a normalized count and its explicit or implicit [`CountSource`].
     ///
     /// A zero count is normalized to one. Counts produced from decimal input
     /// should normally come from [`crate::MotionState`], which also saturates
     /// overflow and applies Vim's counted-command reinterpretations.
     #[must_use]
-    pub const fn counted(mut self, count: usize, explicit: bool) -> Self {
+    pub const fn counted(mut self, count: usize, source: CountSource) -> Self {
         self.count = if count == 0 { 1 } else { count };
-        self.explicit_count = explicit;
+        self.count_source = source;
         self
     }
 
@@ -165,14 +190,18 @@ impl Motion {
     /// emulating it by issuing the original motion again.
     #[must_use]
     pub const fn repeating(mut self) -> Self {
-        self.repeated = true;
+        self.repetition = Repetition::Repeated;
         self
     }
 
     /// Reports whether this movement repeats a prior character search.
     #[must_use]
     pub const fn is_repeated(self) -> bool {
-        self.repeated
+        matches!(self.repetition, Repetition::Repeated)
+    }
+
+    pub(super) const fn repetition(self) -> Repetition {
+        self.repetition
     }
 }
 
@@ -333,9 +362,9 @@ pub enum MotionKind {
     HalfPageDown,
     /// Ctrl-U.
     HalfPageUp,
-    /// Ctrl-F or PageDown.
+    /// Ctrl-F or `PageDown`.
     PageDown,
-    /// Ctrl-B or PageUp.
+    /// Ctrl-B or `PageUp`.
     PageUp,
     /// Ctrl-E.
     ScrollLineDown,

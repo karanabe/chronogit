@@ -62,6 +62,14 @@ Staged-only files are intentionally hidden. A file with both staged and unstaged
 
 Press `Space 2`, or start with `chronogit --view history`. History uses three full-width rows—commits, changed files/tree, then diff—so commit subjects and paths retain the terminal width. Select a commit and press `Enter` to focus Changed files, select a file, then press `Enter` to open its patch in a large floating diff.
 
+From a focused or floating diff, press `Space v` to open the selected commit's
+complete new-state file at the corresponding line. Its Changes mode highlights
+added lines and inserts removed lines in red at their former positions;
+`Space d` switches to the undecorated new-state view. With an explicitly enabled language
+server, `Space s` lists document symbols that contain changed lines; choose a
+symbol to jump into the complete file, or choose the first row to open the file
+without selecting a symbol.
+
 - A root commit is compared with the empty tree.
 - A normal commit is compared with its parent.
 - A merge commit is compared with its first parent.
@@ -88,6 +96,12 @@ Press `Space 4`, or start with `chronogit --view code`, to enter the Code viewer
 
 Press `Enter` on a file in the tree, or from the code pane, to open the current content in a large floating view. It shares the read-only Vim movement vocabulary with diffs, including word motions, counts, character searches, marks, the jump list, and viewport commands. `Enter` moves down inside the document; `q` returns immediately. `Esc` first dismisses search highlights, then returns. `Space f` and `Space g` search from the Code viewer; selecting a result reveals the file in the tree and opens its current content at the matching line when available.
 
+`Space v` opens the selected source in the common full-file view. With LSP
+enabled, `Space s` opens its document-symbol list from either the Code or file-
+history content viewer; selecting a symbol jumps to it in the full file. The
+list always includes an explicit full-file choice, so symbol selection is never
+required.
+
 In focused Code content, Vim movements operate on a UTF-8-safe character cursor. Set a mark with `m{letter}`, jump linewise with `'{letter}`, or jump to its exact column with `` `{letter}``. With an explicitly enabled language server, `K` opens hover information; `gd`, `gi`, `gy`, and `gD` navigate to definition, implementation, type definition, and declaration. `Ctrl-o` / `Ctrl-i` traverse a shared jump list containing Vim motions, marks, searches, and LSP targets. Results outside the repository, including virtual `jdt:` documents, are reported but never passed to the file reader.
 
 ### Search files or working-tree text
@@ -103,10 +117,11 @@ The file view shows its commit history above its current working-tree content. C
 | Key | Action |
 |---|---|
 | `q` | Close the current float or go back immediately |
-| `Esc` | Cancel input; in Diff/Code dismiss search highlights first, then close/back |
+| `Esc` | Cancel input; in Diff/Code/full-file views dismiss search highlights first, then close/back |
 | `Q` / `Ctrl-C` | Quit |
 | `Space 1` / `Space 2` / `Space 3` / `Space 4` | Changes / History / Graph / Code |
 | `Space f` / `Space g` | Search repository files / working-tree text |
+| `Space s` / `Space v` / `Space d` | Changed-symbol context / complete file / annotated-changes mode |
 | `Ctrl-h` / `Ctrl-k`, `Ctrl-j` / `Ctrl-l` | Focus the previous / next pane; the `Ctrl-w h/k/j/l`, `Ctrl-w W/w`, and arrow sequences still work |
 | `[count]h/j/k/l`, arrows | Character / line movement; counts apply throughout |
 | `[count]Backspace` | Move left across lines like enabling Vim's corresponding `'whichwrap'` flag |
@@ -126,7 +141,7 @@ The file view shows its commit history above its current working-tree content. C
 | `/` / `?`, `n` / `N`, `*` / `#`, `g*` / `g#` | Search within the active text document |
 | `F1` | Toggle in-app help |
 
-Diff and Code highlight each matched string: the current match has a yellow background, other matches are underlined, and the cursor stays cyan. Default `Esc` removes only search decoration, keeping the query, direction, focus, cursor and scroll position. `n` / `N` or a confirmed search restores it. With no highlights, `Esc` follows the existing close/back behavior; `q` always closes/backs immediately outside input. Prompt and find/till/mark cancellation and frontmost help, hover or repository search take priority.
+Diff, Code, and full-file views highlight each matched string: the current match has a yellow background, other matches are underlined, and the cursor stays cyan. Default `Esc` removes only search decoration, keeping the query, direction, focus, cursor and scroll position. `n` / `N` or a confirmed search restores it. With no highlights, `Esc` follows the existing close/back behavior; `q` always closes/backs immediately outside input. Prompt and find/till/mark cancellation and frontmost help, hover or repository search take priority.
 
 History always stacks its three panes vertically at the supported terminal sizes. In Changes, widths below 110 columns show the focused pane at full width; use `Ctrl-h` / `Ctrl-k` and `Ctrl-j` / `Ctrl-l` to move between panes.
 
@@ -180,7 +195,7 @@ chronogit --view code --lsp pylsp
 chronogit --view code --lsp rust-analyzer --lsp jdtls --lsp pyright
 ```
 
-Install the selected executable separately using the upstream instructions for [rust-analyzer](https://rust-analyzer.github.io/book/installation.html), [Eclipse JDT LS](https://github.com/eclipse-jdtls/eclipse.jdt.ls), [Pyright](https://github.com/microsoft/pyright), [basedpyright](https://docs.basedpyright.com/latest/installation/), or [Python LSP Server](https://github.com/python-lsp/python-lsp-server), and put it on `PATH`. JDT LS uses its `jdtls` wrapper and currently needs a Java 21+ runtime. Pyright and basedpyright use their `*-langserver --stdio` commands; Python LSP Server uses `pylsp`. Do not enable multiple Python profiles together: ChronoGit refuses ambiguous routing instead of selecting one implicitly. At startup, ChronoGit only validates and selects profiles. The matching process starts lazily on the first hover/navigation request, after extension and workspace-root routing, and is reused until eviction or shutdown.
+Install the selected executable separately using the upstream instructions for [rust-analyzer](https://rust-analyzer.github.io/book/installation.html), [Eclipse JDT LS](https://github.com/eclipse-jdtls/eclipse.jdt.ls), [Pyright](https://github.com/microsoft/pyright), [basedpyright](https://docs.basedpyright.com/latest/installation/), or [Python LSP Server](https://github.com/python-lsp/python-lsp-server), and put it on `PATH`. JDT LS uses its `jdtls` wrapper and currently needs a Java 21+ runtime. Pyright and basedpyright use their `*-langserver --stdio` commands; Python LSP Server uses `pylsp`. Do not enable multiple Python profiles together: ChronoGit refuses ambiguous routing instead of selecting one implicitly. At startup, ChronoGit only validates and selects profiles. The matching process starts lazily on the first hover, navigation, or document-symbol request, after extension and workspace-root routing, and is reused until eviction or shutdown.
 
 Built-ins can be replaced or extended only from the trusted user-level `$XDG_CONFIG_HOME/chronogit/lsp.toml` (or `~/.config/chronogit/lsp.toml`), or `--lsp-config PATH`. Start from [`config/lsp.toml`](config/lsp.toml). Repository-local command configuration is never loaded. A profile is data, so future languages do not require another client implementation:
 
@@ -196,17 +211,17 @@ Commands are direct argument arrays, not shell strings. Supported whole-argument
 
 ## Read-only and failure behavior
 
-ChronoGit only invokes an allowlisted set of Git read commands. It never stages, restores, commits, checks out, resets, or updates references. Commands are executed without a shell, paths are passed after `--`, optional Git locks are disabled, and external diff, textconv, pager, and fsmonitor programs are disabled. Code-viewer file reads remain rooted at the discovered worktree and do not follow symbolic links.
+ChronoGit only invokes an allowlisted set of Git read commands. It never stages, restores, commits, checks out, resets, or updates references. Commands are executed without a shell; pathspecs use separate arguments after `--` where Git supports them, while historical full-file reads combine a validated object ID and validated repository path into one revision expression. Optional Git locks are disabled, and external diff, textconv, pager, and fsmonitor programs are disabled. Code-viewer file reads remain rooted at the discovered worktree and do not follow symbolic links.
 
-An explicitly enabled language server is a separate trust boundary. It receives the repository workspace and current source text, and may execute project tooling or create caches/build artifacts according to that server and project configuration. Enable LSP only for repositories you trust. ChronoGit starts no server by default, downloads nothing, uses no repository-provided server command, and keeps JDT workspace data outside the repository.
+An explicitly enabled language server is a separate trust boundary. It receives the repository workspace and the complete UTF-8 source text currently being inspected, including a selected commit's new-state file for document-symbol requests, and may execute project tooling or create caches/build artifacts according to that server and project configuration. Enable LSP only for repositories you trust. ChronoGit starts no server by default, downloads nothing, uses no repository-provided server command, and keeps JDT workspace data outside the repository.
 
-Git output is bounded. A text diff larger than 8 MiB is terminated and displayed as truncated instead of growing memory without limit; current file reads are also capped at 8 MiB. A Git command that runs longer than 30 seconds is terminated with a recoverable error. Binary changes and files are shown as a summary.
+Git output is bounded. A text diff larger than 8 MiB is terminated and displayed as truncated instead of growing memory without limit; current and historical full-file reads are also capped at 8 MiB. A Git command that runs longer than 30 seconds is terminated with a recoverable error. Binary changes and files are shown as a summary.
 
 Startup errors are printed before raw terminal mode is enabled. During the TUI, recoverable Git errors are shown in the affected pane. Normal exit, errors, Ctrl-C, and panics restore the alternate screen, cursor, mouse capture, and raw mode.
 
 ## Non-goals
 
-ChronoGit does not stage, restore, commit, reset, check out, or otherwise mutate a repository. It also does not provide staged-change, remote, pull-request, blame, stash, editor, plugin, or machine-readable export features. Semantic navigation is limited to complete current-working-tree text files and repository-contained `file:` URI results; dependency, standard-library, archive, and virtual-document source is not opened.
+ChronoGit does not stage, restore, commit, reset, check out, or otherwise mutate a repository. It also does not provide staged-change, remote, pull-request, blame, stash, editor, plugin, or machine-readable export features. Position-based semantic navigation remains limited to complete current-working-tree text files and repository-contained `file:` URI results. Document-symbol context also supports the complete new-state text of a selected commit; dependency, standard-library, archive, and virtual-document source is not opened.
 
 ## Troubleshooting
 

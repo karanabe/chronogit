@@ -13,7 +13,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use vim_navigation::{Cursor, Motion, MotionKind, Viewport, apply};
+use vim_navigation::{CountSource, Cursor, Motion, MotionKind, Viewport, apply};
 
 const HEIGHT: usize = 23;
 const WIDTH: usize = 80;
@@ -113,7 +113,7 @@ impl Case {
 }
 
 const fn counted(kind: MotionKind, count: usize) -> Motion {
-    Motion::new(kind).counted(count, true)
+    Motion::new(kind).counted(count, CountSource::Explicit)
 }
 
 const fn targeted(kind: MotionKind, count: usize, target: char) -> Motion {

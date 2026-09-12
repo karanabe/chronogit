@@ -1,13 +1,43 @@
 //! User intent accepted by the reducer and completion events returned by effects.
 
-use crate::app::{RequestId, SearchDirection, VisibleTreeEntry};
+use crate::app::{CommitLoadMode, DocumentRevision, RequestId, SearchDirection, VisibleTreeEntry};
 use crate::domain::{
-    ChangedFile, CommitMessage, CommitSummary, DiffDocument, FileDocument, ObjectId, RepoPath,
-    SearchHit, SemanticNavigationKind, SourcePosition, TreeEntry, WorktreeChange,
+    ChangedFile, CommitMessage, CommitPage, CommitSummary, DiffDocument, FileDocument, ObjectId,
+    RepoPath, SearchHit, SemanticNavigationKind, SourcePosition, TreeEntry, WorktreeChange,
 };
 use crate::git::GitError;
 use crate::lsp::LspError;
 use vim_navigation::Motion as VimMotion;
+
+/// How a Vim mark determines the destination column.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MarkJumpTarget {
+    /// Move to the first non-blank byte of the marked line.
+    Line,
+    /// Preserve the exact marked byte column.
+    Exact,
+}
+
+impl MarkJumpTarget {
+    pub(crate) const fn is_linewise(self) -> bool {
+        matches!(self, Self::Line)
+    }
+}
+
+/// Whether a completed mark jump is added to the shared jump history.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum JumpHistory {
+    /// Add the location left by the jump to history.
+    Record,
+    /// Move without changing jump history.
+    Preserve,
+}
+
+impl JumpHistory {
+    pub(crate) const fn records_jump(self) -> bool {
+        matches!(self, Self::Record)
+    }
+}
 
 /// A semantic input handled by [`crate::app::AppState`].
 ///
@@ -57,13 +87,19 @@ pub enum Action {
     JumpToVimMark {
         /// Mark name supplied after backtick or apostrophe.
         mark: char,
-        /// Apostrophe jumps are linewise; backtick jumps retain the column.
-        linewise: bool,
-        /// Plain mark jumps update the jump list; `g'` / `` g` `` do not.
-        record_jump: bool,
+        /// Whether to select the marked line or the exact byte column.
+        target: MarkJumpTarget,
+        /// Whether the jump updates the shared jump list.
+        history: JumpHistory,
     },
     /// Open or close language-server hover information at the Code cursor.
     ToggleLspHover,
+    /// Open the LSP document-symbol/context chooser for the active source file.
+    OpenSymbolContext,
+    /// Open the active diff or file as a complete source document.
+    OpenFullFile,
+    /// Toggle a complete file between changed-line annotations and plain new state.
+    ToggleFullFileMode,
     /// Request one standard semantic target from the enabled language server.
     GoToSemanticTarget(SemanticNavigationKind),
     /// Return to the source location preceding the latest semantic jump.
@@ -131,10 +167,10 @@ pub enum Event {
     CommitsLoaded {
         /// Identifier allocated when the request began.
         request_id: RequestId,
-        /// Whether the reducer should append rather than replace the page.
-        append: bool,
-        /// Requested page size, used to detect the end of history.
-        limit: usize,
+        /// Whether the page replaces or extends the current history.
+        mode: CommitLoadMode,
+        /// Requested page, used to detect the end of history.
+        page: CommitPage,
         /// Parsed commit summaries or the Git boundary error.
         result: Result<Vec<CommitSummary>, GitError>,
     },
@@ -215,6 +251,28 @@ pub enum Event {
         /// Typed file document or the filesystem/Git boundary error.
         result: Result<FileDocument, GitError>,
     },
+    /// Completed a full working-tree or historical source-file read.
+    FullFileLoaded {
+        /// Identifier used to reject an obsolete response.
+        request_id: RequestId,
+        /// Snapshot selected when loading began.
+        revision: crate::domain::FileRevision,
+        /// Repository path selected when loading began.
+        path: RepoPath,
+        /// Typed source document or Git/filesystem boundary error.
+        result: Result<FileDocument, GitError>,
+    },
+    /// Completed the latest document-symbol request.
+    DocumentSymbolsCompleted {
+        /// Identifier allocated for the symbol-list intent.
+        request_id: RequestId,
+        /// Document selected when the request was sent.
+        path: RepoPath,
+        /// Full-file document generation used to reject refresh races.
+        document_revision: DocumentRevision,
+        /// Flattened symbols using UTF-8 byte source positions.
+        result: Result<Vec<crate::domain::DocumentSymbol>, LspError>,
+    },
     /// Completed the latest semantic navigation request.
     SemanticNavigationCompleted {
         /// Identifier allocated for the navigation intent.
@@ -224,7 +282,7 @@ pub enum Event {
         /// Cursor selected when the request was sent.
         position: SourcePosition,
         /// Code document generation selected when the request was sent.
-        document_revision: u64,
+        document_revision: DocumentRevision,
         /// Requested standard navigation operation.
         kind: SemanticNavigationKind,
         /// Normalized repository or explicitly unsupported targets.
@@ -239,7 +297,7 @@ pub enum Event {
         /// Cursor selected when the request was sent.
         position: SourcePosition,
         /// Code document generation selected when the request was sent.
-        document_revision: u64,
+        document_revision: DocumentRevision,
         /// Plain or Markdown-formatted hover text, when the server has any.
         result: Result<Option<String>, LspError>,
     },

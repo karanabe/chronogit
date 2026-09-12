@@ -16,9 +16,11 @@ The current implementation covers the `0.5.0` scope described in
 - parent-lane Git graph with changed-file/diff details
 - repository file/content search with per-file history and current content
 - expandable working-tree Code viewer with bounded full-file content
+- diff-to-source navigation for working-tree and commit files, with inline
+  addition/removal context and a complete new-state view
 - full commit messages, changed-file lists, and lazy commit trees
 - optional validated XDG or explicit keymap configuration
-- opt-in profile-driven LSP navigation and hover for current source files
+- opt-in profile-driven LSP navigation, hover, and document-symbol context
 - bounded, asynchronous Git reads through a typed command allowlist
 - count-aware Vim movement, document search, Code marks, and shared Vim/LSP jump history
 - a framework-independent Vim motion and explicit Normal/Insert input contract
@@ -30,10 +32,10 @@ The current implementation covers the `0.5.0` scope described in
 | Module | Role | Notes |
 | --- | --- | --- |
 | [`crates/vim-navigation`](crates/vim-navigation) | Reusable text navigation | Public `command`, `motion`, and `editor` modules own incomplete Normal command state, pure cursor/viewport motion, and an explicitly mutable Normal/Insert buffer with configurable Insert escape input (`jj` by default). Private motion children separate semantic buffer scans, motion/viewport policy, Unicode display calculations, and tests. The crate has no Git, LSP, ratatui, or crossterm dependencies. |
-| [`src/domain.rs`](src/domain.rs) + [`src/domain/`](src/domain) | Domain model | Owns validated repository paths, object IDs, changes, commits, diffs, search hits, file documents, and tree entries without Git or terminal I/O. |
-| [`src/git.rs`](src/git.rs) + [`src/git/`](src/git) | Repository adapter | Owns the read-only Git command allowlist, bounded process/current-file reads, machine-output parsing, and domain-level repository operations. |
+| [`src/domain.rs`](src/domain.rs) + [`src/domain/`](src/domain) | Domain model | Owns validated repository paths, object IDs, changes, commits, diffs, search hits, file revisions/documents, document symbols, and tree entries without Git or terminal I/O. |
+| [`src/git.rs`](src/git.rs) + [`src/git/`](src/git) | Repository adapter | Owns the read-only Git command allowlist, bounded process/current/revision-file reads, machine-output parsing, and domain-level repository operations. |
 | [`src/lsp.rs`](src/lsp.rs) + [`src/lsp/`](src/lsp) | Language-server adapter | Owns trusted profiles, bounded JSON-RPC transport, document synchronization, capability/position negotiation, and profile/workspace session lifecycle. |
-| [`src/app.rs`](src/app.rs) + [`src/app/`](src/app) | Application state | Owns actions, events, effects, asynchronous load state, Git and Code workflow selection, projected code-tree state, caching, and stale-response rejection. |
+| [`src/app.rs`](src/app.rs) + [`src/app/`](src/app) | Application state | Owns actions, events, effects, asynchronous load state, Git and Code workflow selection, diff-to-source projection, symbol/full-file overlays, caching, and stale-response rejection. |
 | [`src/tui.rs`](src/tui.rs) + [`src/tui/`](src/tui) | Terminal presentation | Owns configurable key mapping, graph lanes, bounded syntax highlighting, terminal lifecycle, layout, rendering, and the interactive event loop. |
 | [`src/cli.rs`](src/cli.rs) | CLI boundary | Owns command-line parsing, repository discovery input, and startup validation. |
 | [`src/error.rs`](src/error.rs) | Top-level errors | Owns contextual application errors and source chaining. |
@@ -88,6 +90,8 @@ real terminal or language server.
 - Keep Git paths as bytes on Unix until presentation requires lossy rendering.
 - Open current files relative to the discovered worktree descriptor and reject
   symbolic links in every path component.
+- Read historical files only through a validated object ID and repository path;
+  never check out a revision to display it.
 - Represent exclusive UI states and load outcomes with enums instead of
   combinations of flags.
 - Attach request IDs to asynchronous work and ignore completions that no longer

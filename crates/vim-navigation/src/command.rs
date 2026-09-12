@@ -30,7 +30,8 @@
 //! assert_eq!(motion.count(), 3);
 //! ```
 
-use crate::{Motion, MotionKind};
+use crate::motion::FULL_PERCENT;
+use crate::{CountSource, Motion, MotionKind};
 
 /// The result of submitting a motion template to [`MotionState`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -127,12 +128,17 @@ impl MotionState {
     /// or [`Self::reset_pending`] before submitting an unrelated command.
     pub fn finish(&mut self, motion: Motion) -> MotionResolution {
         let count = self.count.take();
-        let mut motion = motion.counted(count.unwrap_or(1), count.is_some());
+        let source = if count.is_some() {
+            CountSource::Explicit
+        } else {
+            CountSource::Implicit
+        };
+        let mut motion = motion.counted(count.unwrap_or(1), source);
         // `%` changes meaning in Vim when prefixed by a count: it becomes an
         // absolute percentage rather than delimiter matching.
         if motion.kind() == MotionKind::MatchingPair && motion.has_explicit_count() {
-            motion =
-                Motion::new(MotionKind::BufferPercentage).counted(motion.count().min(100), true);
+            motion = Motion::new(MotionKind::BufferPercentage)
+                .counted(motion.count().min(FULL_PERCENT), CountSource::Explicit);
         }
         // A count before either `gg` or `G` is a one-based absolute line.
         if matches!(
@@ -140,7 +146,8 @@ impl MotionState {
             MotionKind::BufferTop | MotionKind::BufferBottom
         ) && motion.has_explicit_count()
         {
-            motion = Motion::new(MotionKind::BufferTop).counted(motion.count(), true);
+            motion =
+                Motion::new(MotionKind::BufferTop).counted(motion.count(), CountSource::Explicit);
         }
         if matches!(
             motion.kind(),
@@ -166,11 +173,21 @@ impl MotionState {
                 let Some(target) = repeated.target() else {
                     return MotionResolution::Unavailable;
                 };
+                let source = if motion.has_explicit_count() {
+                    CountSource::Explicit
+                } else {
+                    CountSource::Implicit
+                };
                 repeated = Motion::new(reverse_character_search(repeated.kind()))
-                    .counted(motion.count(), motion.has_explicit_count())
+                    .counted(motion.count(), source)
                     .targeting(target);
             } else {
-                repeated = repeated.counted(motion.count(), motion.has_explicit_count());
+                let source = if motion.has_explicit_count() {
+                    CountSource::Explicit
+                } else {
+                    CountSource::Implicit
+                };
+                repeated = repeated.counted(motion.count(), source);
             }
             return MotionResolution::Ready(repeated.repeating());
         }
@@ -211,7 +228,7 @@ fn reverse_character_search(kind: MotionKind) -> MotionKind {
 #[cfg(test)]
 mod tests {
     use super::{MotionResolution, MotionState};
-    use crate::{Motion, MotionKind};
+    use crate::{CountSource, Motion, MotionKind};
 
     #[test]
     fn a_pre_targeted_search_becomes_the_repeat_source() {
@@ -240,7 +257,9 @@ mod tests {
         assert!(state.push_count_digit('2'));
         assert_eq!(
             state.finish(Motion::new(MotionKind::WordForward)),
-            MotionResolution::Ready(Motion::new(MotionKind::WordForward).counted(12, true))
+            MotionResolution::Ready(
+                Motion::new(MotionKind::WordForward).counted(12, CountSource::Explicit)
+            )
         );
         for _ in 0..usize::BITS {
             assert!(state.push_count_digit('9'));
@@ -288,12 +307,16 @@ mod tests {
         assert!(state.push_count_digit('5'));
         assert_eq!(
             state.finish(Motion::new(MotionKind::MatchingPair)),
-            MotionResolution::Ready(Motion::new(MotionKind::BufferPercentage).counted(5, true))
+            MotionResolution::Ready(
+                Motion::new(MotionKind::BufferPercentage).counted(5, CountSource::Explicit)
+            )
         );
         assert!(state.push_count_digit('4'));
         assert_eq!(
             state.finish(Motion::new(MotionKind::BufferBottom)),
-            MotionResolution::Ready(Motion::new(MotionKind::BufferTop).counted(4, true))
+            MotionResolution::Ready(
+                Motion::new(MotionKind::BufferTop).counted(4, CountSource::Explicit)
+            )
         );
     }
 }

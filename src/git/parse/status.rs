@@ -3,6 +3,20 @@
 use crate::domain::{ChangeKind, RepoPath, WorktreeChange};
 use crate::git::GitError;
 
+const WORKTREE_STATUS_INDEX: usize = 3;
+const ORDINARY_FIELD_COUNT: usize = 9;
+const ORDINARY_PATH_INDEX: usize = ORDINARY_FIELD_COUNT - 1;
+const RENAMED_FIELD_COUNT: usize = 10;
+const RENAMED_PATH_INDEX: usize = RENAMED_FIELD_COUNT - 1;
+const UNMERGED_FIELD_COUNT: usize = 11;
+const UNMERGED_PATH_INDEX: usize = UNMERGED_FIELD_COUNT - 1;
+const UNTRACKED_PATH_OFFSET: usize = 2;
+const ORDINARY_RECORD_TAG: u8 = b'1';
+const RENAMED_RECORD_TAG: u8 = b'2';
+const UNMERGED_RECORD_TAG: u8 = b'u';
+const UNTRACKED_RECORD_TAG: u8 = b'?';
+const IGNORED_RECORD_TAG: u8 = b'!';
+
 pub(crate) fn parse_status(input: &[u8]) -> Result<Vec<WorktreeChange>, GitError> {
     let records: Vec<&[u8]> = input.split(|byte| *byte == 0).collect();
     let mut changes = Vec::new();
@@ -14,27 +28,31 @@ pub(crate) fn parse_status(input: &[u8]) -> Result<Vec<WorktreeChange>, GitError
             continue;
         }
         match record.first().copied() {
-            Some(b'1') => {
+            Some(ORDINARY_RECORD_TAG) => {
                 if worktree_status(record)? == b'.' {
                     continue;
                 }
-                let fields: Vec<&[u8]> = record.splitn(9, |byte| *byte == b' ').collect();
-                let path = field(&fields, 8, "ordinary status path")?;
+                let fields: Vec<&[u8]> = record
+                    .splitn(ORDINARY_FIELD_COUNT, |byte| *byte == b' ')
+                    .collect();
+                let path = field(&fields, ORDINARY_PATH_INDEX, "ordinary status path")?;
                 changes.push(WorktreeChange::new(
                     repo_path(path, "ordinary status path")?,
                     None,
                     kind_from_status(worktree_status(record)?)?,
                 ));
             }
-            Some(b'2') => {
+            Some(RENAMED_RECORD_TAG) => {
                 if worktree_status(record)? == b'.' {
                     if index < records.len() {
                         index += 1;
                     }
                     continue;
                 }
-                let fields: Vec<&[u8]> = record.splitn(10, |byte| *byte == b' ').collect();
-                let path = field(&fields, 9, "renamed status path")?;
+                let fields: Vec<&[u8]> = record
+                    .splitn(RENAMED_FIELD_COUNT, |byte| *byte == b' ')
+                    .collect();
+                let path = field(&fields, RENAMED_PATH_INDEX, "renamed status path")?;
                 let original = records.get(index).copied().ok_or_else(|| {
                     GitError::parse("status", "rename record has no original path")
                 })?;
@@ -45,23 +63,25 @@ pub(crate) fn parse_status(input: &[u8]) -> Result<Vec<WorktreeChange>, GitError
                     kind_from_status(worktree_status(record)?)?,
                 ));
             }
-            Some(b'u') => {
-                let fields: Vec<&[u8]> = record.splitn(11, |byte| *byte == b' ').collect();
-                let path = field(&fields, 10, "unmerged status path")?;
+            Some(UNMERGED_RECORD_TAG) => {
+                let fields: Vec<&[u8]> = record
+                    .splitn(UNMERGED_FIELD_COUNT, |byte| *byte == b' ')
+                    .collect();
+                let path = field(&fields, UNMERGED_PATH_INDEX, "unmerged status path")?;
                 changes.push(WorktreeChange::new(
                     repo_path(path, "unmerged status path")?,
                     None,
                     ChangeKind::Unmerged,
                 ));
             }
-            Some(b'?') if record.get(1) == Some(&b' ') => {
+            Some(UNTRACKED_RECORD_TAG) if record.get(1) == Some(&b' ') => {
                 changes.push(WorktreeChange::new(
-                    repo_path(&record[2..], "untracked status path")?,
+                    repo_path(&record[UNTRACKED_PATH_OFFSET..], "untracked status path")?,
                     None,
                     ChangeKind::Untracked,
                 ));
             }
-            Some(b'!') => {}
+            Some(IGNORED_RECORD_TAG) => {}
             _ => {
                 return Err(GitError::parse(
                     "status",
@@ -75,7 +95,7 @@ pub(crate) fn parse_status(input: &[u8]) -> Result<Vec<WorktreeChange>, GitError
 
 fn worktree_status(record: &[u8]) -> Result<u8, GitError> {
     record
-        .get(3)
+        .get(WORKTREE_STATUS_INDEX)
         .copied()
         .ok_or_else(|| GitError::parse("status", "record does not contain XY status"))
 }

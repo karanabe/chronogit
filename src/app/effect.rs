@@ -1,21 +1,24 @@
 //! Bounded asynchronous routing of typed Git reads and optional LSP requests.
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use tokio::sync::{Semaphore, mpsc, watch};
 
-use crate::app::{Event, RequestId, VisibleTreeEntry};
+use crate::app::{CommitLoadMode, DocumentRevision, Event, RequestId, VisibleTreeEntry};
 use crate::domain::{
-    CommitBaseline, DiffTarget, NavigationTarget, ObjectId, RepoPath, RepositoryLocation,
-    SemanticNavigationKind, SourcePosition, SourceRange,
+    CommitBaseline, CommitPage, DiffTarget, FileRevision, NavigationTarget, ObjectId, RepoPath,
+    RepositoryLocation, SemanticNavigationKind, SourcePosition, SourceRange,
 };
 use crate::git::{GitError, GitRunner, GitService};
-use crate::lsp::{LspError, LspManager, WireNavigationTarget, from_lsp_character};
+use crate::lsp::{LspError, LspManager, LspOperationId, WireNavigationTarget, from_lsp_character};
 
 const DIFF_DEBOUNCE: Duration = Duration::from_millis(75);
 const REPOSITORY_SEARCH_DEBOUNCE: Duration = Duration::from_millis(100);
+const MAX_CONCURRENT_GIT_EFFECTS: usize = 2;
+const NO_REQUEST_ID: u64 = 0;
 
 /// Any asynchronous work requested by the complete application reducer.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -45,10 +48,10 @@ pub enum LspEffect {
         path: RepoPath,
         /// Exact complete text currently displayed.
         text: String,
-        /// ChronoGit's zero-based UTF-8 byte position.
+        /// `ChronoGit`'s zero-based UTF-8 byte position.
         position: SourcePosition,
         /// Code document generation used to reject refresh races.
-        document_revision: u64,
+        document_revision: DocumentRevision,
     },
     /// Synchronize the current document and request hover information.
     Hover {
@@ -58,10 +61,21 @@ pub enum LspEffect {
         path: RepoPath,
         /// Exact complete text currently displayed.
         text: String,
-        /// ChronoGit's zero-based UTF-8 byte position.
+        /// `ChronoGit`'s zero-based UTF-8 byte position.
         position: SourcePosition,
         /// Code document generation used to reject refresh races.
-        document_revision: u64,
+        document_revision: DocumentRevision,
+    },
+    /// Synchronize a complete document and request its symbol hierarchy.
+    DocumentSymbols {
+        /// Identifier used by cancellation and stale-response checks.
+        request_id: RequestId,
+        /// Repository-relative document path.
+        path: RepoPath,
+        /// Exact complete text currently displayed.
+        text: String,
+        /// Full-file document generation used to reject refresh races.
+        document_revision: DocumentRevision,
     },
 }
 
@@ -70,7 +84,7 @@ struct LspPositionRequest {
     path: RepoPath,
     text: String,
     position: SourcePosition,
-    document_revision: u64,
+    document_revision: DocumentRevision,
 }
 
 /// A repository operation requested by an application-state transition.
@@ -88,12 +102,10 @@ pub enum GitEffect {
     LoadCommits {
         /// Identifier used to reject an obsolete response.
         request_id: RequestId,
-        /// Number of leading commits to omit.
-        skip: usize,
-        /// Maximum number of commits requested.
-        limit: usize,
-        /// Whether the returned page extends an existing history list.
-        append: bool,
+        /// Validated offset and non-zero maximum result count.
+        page: CommitPage,
+        /// Whether the returned page replaces or extends the history list.
+        mode: CommitLoadMode,
     },
     /// Load paths changed by one commit relative to its baseline.
     LoadFiles {
@@ -150,7 +162,7 @@ pub enum GitEffect {
         /// Repository-relative path whose history is requested.
         path: RepoPath,
         /// Maximum number of commits requested.
-        limit: usize,
+        limit: NonZeroUsize,
     },
     /// Read bounded content from one current working-tree path.
     LoadFileContent {
@@ -169,6 +181,15 @@ pub enum GitEffect {
         /// Identifier used to reject an obsolete response.
         request_id: RequestId,
         /// Repository-relative path to read.
+        path: RepoPath,
+    },
+    /// Read a complete source file from the working tree or one commit.
+    LoadFullFile {
+        /// Identifier used to reject an obsolete response.
+        request_id: RequestId,
+        /// Snapshot containing the requested source file.
+        revision: FileRevision,
+        /// Repository-relative source path.
         path: RepoPath,
     },
 }
@@ -200,6 +221,7 @@ struct LatestRequests {
     file_content: AtomicU64,
     code_tree: AtomicU64,
     code_file: AtomicU64,
+    full_file: AtomicU64,
     lsp_request: AtomicU64,
 }
 
@@ -222,10 +244,9 @@ impl<R: GitRunner> EffectExecutor<R> {
         Self {
             service,
             lsp: None,
-            // Two Git reads keep navigation responsive without flooding large repositories.
-            permits: Arc::new(Semaphore::new(2)),
+            permits: Arc::new(Semaphore::new(MAX_CONCURRENT_GIT_EFFECTS)),
             latest: Arc::new(LatestRequests::default()),
-            request_version: watch::channel(0).0,
+            request_version: watch::channel(NO_REQUEST_ID).0,
         }
     }
 
@@ -289,6 +310,12 @@ impl<R: GitRunner> EffectExecutor<R> {
                 },
                 sender,
             ),
+            LspEffect::DocumentSymbols {
+                request_id,
+                path,
+                text,
+                document_revision,
+            } => self.dispatch_document_symbols(request_id, path, text, document_revision, sender),
         }
     }
 
@@ -315,9 +342,10 @@ impl<R: GitRunner> EffectExecutor<R> {
             let result = if let Some(manager) = manager {
                 let mut status = manager.subscribe_status();
                 let navigation = async {
-                    manager.cancel_obsolete(request_id.value()).await;
+                    let operation_id = LspOperationId::new(request_id.value());
+                    manager.cancel_obsolete(operation_id).await;
                     match manager
-                        .navigate(request_id.value(), kind, &path, &text, position)
+                        .navigate(operation_id, kind, &path, &text, position)
                         .await
                     {
                         Ok(targets) => normalize_targets_async(service, targets).await,
@@ -383,10 +411,9 @@ impl<R: GitRunner> EffectExecutor<R> {
             let result = if let Some(manager) = manager {
                 let mut status = manager.subscribe_status();
                 let hover = async {
-                    manager.cancel_obsolete(request_id.value()).await;
-                    manager
-                        .hover(request_id.value(), &path, &text, position)
-                        .await
+                    let operation_id = LspOperationId::new(request_id.value());
+                    manager.cancel_obsolete(operation_id).await;
+                    manager.hover(operation_id, &path, &text, position).await
                 };
                 tokio::pin!(hover);
                 loop {
@@ -422,6 +449,67 @@ impl<R: GitRunner> EffectExecutor<R> {
                     request_id,
                     path,
                     position,
+                    document_revision,
+                    result,
+                })
+                .await;
+        });
+    }
+
+    fn dispatch_document_symbols(
+        &self,
+        request_id: RequestId,
+        path: RepoPath,
+        text: String,
+        document_revision: DocumentRevision,
+        sender: mpsc::Sender<Event>,
+    ) {
+        self.latest
+            .lsp_request
+            .store(request_id.value(), Ordering::Release);
+        let manager = self.lsp.clone();
+        let latest = Arc::clone(&self.latest);
+        tokio::spawn(async move {
+            let result = if let Some(manager) = manager {
+                let mut status = manager.subscribe_status();
+                let symbols = async {
+                    let operation_id = LspOperationId::new(request_id.value());
+                    manager.cancel_obsolete(operation_id).await;
+                    manager.document_symbols(operation_id, &path, &text).await
+                };
+                tokio::pin!(symbols);
+                loop {
+                    tokio::select! {
+                        result = &mut symbols => break result,
+                        changed = status.changed() => {
+                            if changed.is_err() {
+                                continue;
+                            }
+                            let message = status.borrow_and_update().clone();
+                            if latest.lsp_request.load(Ordering::Acquire) == request_id.value()
+                                && let Some(message) = message
+                            {
+                                let _ignored = sender.try_send(Event::LspStatus {
+                                    request_id,
+                                    message,
+                                });
+                            }
+                        }
+                    }
+                }
+            } else {
+                Err(LspError::Disabled(
+                    "LSP is disabled; restart with --lsp PROFILE for a trusted repository"
+                        .to_owned(),
+                ))
+            };
+            if latest.lsp_request.load(Ordering::Acquire) != request_id.value() {
+                return;
+            }
+            let _ignored = sender
+                .send(Event::DocumentSymbolsCompleted {
+                    request_id,
+                    path,
                     document_revision,
                     result,
                 })
@@ -503,7 +591,8 @@ impl GitEffect {
             | Self::LoadFileHistory { request_id, .. }
             | Self::LoadFileContent { request_id, .. }
             | Self::LoadCodeTree { request_id }
-            | Self::LoadCodeFile { request_id, .. } => *request_id,
+            | Self::LoadCodeFile { request_id, .. }
+            | Self::LoadFullFile { request_id, .. } => *request_id,
         }
     }
 
@@ -520,6 +609,7 @@ impl GitEffect {
             Self::LoadFileContent { .. } => &latest.file_content,
             Self::LoadCodeTree { .. } => &latest.code_tree,
             Self::LoadCodeFile { .. } => &latest.code_file,
+            Self::LoadFullFile { .. } => &latest.full_file,
         }
     }
 
@@ -536,15 +626,14 @@ async fn execute<R: GitRunner>(service: Arc<GitService<R>>, effect: GitEffect) -
         }
         GitEffect::LoadCommits {
             request_id,
-            skip,
-            limit,
-            append,
+            page,
+            mode,
         } => {
-            let result = run_blocking(move || service.commits(skip, limit)).await;
+            let result = run_blocking(move || service.commits(page)).await;
             Event::CommitsLoaded {
                 request_id,
-                append,
-                limit,
+                mode,
+                page,
                 result,
             }
         }
@@ -628,6 +717,21 @@ async fn execute<R: GitRunner>(service: Arc<GitService<R>>, effect: GitEffect) -
             let result = run_blocking(move || service.file_content(&path)).await;
             Event::CodeFileLoaded {
                 request_id,
+                path: event_path,
+                result,
+            }
+        }
+        GitEffect::LoadFullFile {
+            request_id,
+            revision,
+            path,
+        } => {
+            let event_revision = revision.clone();
+            let event_path = path.clone();
+            let result = run_blocking(move || service.source_file(&revision, &path)).await;
+            Event::FullFileLoaded {
+                request_id,
+                revision: event_revision,
                 path: event_path,
                 result,
             }
@@ -728,7 +832,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     use super::{AppEffect, EffectExecutor, GitEffect, LspEffect};
-    use crate::app::{Action, AppState, AppView, Event};
+    use crate::app::{Action, AppState, AppView, DocumentRevision, Event};
     use crate::domain::{DiffTarget, RepoPath, SemanticNavigationKind, SourcePosition};
     use crate::git::{CommandOutput, GitCommand, GitError, GitRunner, GitService};
     use crate::lsp::{LspConfig, LspManager};
@@ -916,7 +1020,7 @@ mod tests {
                 path: path.clone(),
                 text: "fn main() {}\n".to_owned(),
                 position: SourcePosition::new(0, 3),
-                document_revision: 1,
+                document_revision: DocumentRevision::default(),
             }),
             sender.clone(),
         );
@@ -939,7 +1043,7 @@ mod tests {
                 path,
                 text: "fn main() {}\n".to_owned(),
                 position: SourcePosition::new(0, 3),
-                document_revision: 1,
+                document_revision: DocumentRevision::default(),
             }),
             sender,
         );
@@ -1000,7 +1104,7 @@ mod tests {
         DiffTarget::Worktree {
             path: RepoPath::from_bytes(path.to_vec())
                 .unwrap_or_else(|error| panic!("invalid fake path: {error}")),
-            untracked: false,
+            kind: crate::domain::WorktreeDiffKind::Tracked,
         }
     }
 }

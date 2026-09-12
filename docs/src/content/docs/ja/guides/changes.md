@@ -40,6 +40,12 @@ ChronoGitは`HEAD`からインデックスへのステージ済み差分を表�
 
 画面幅が110列未満では、フォーカス中のペインだけが表示されます。ファイル一覧と差分の移動には`Ctrl-h` / `Ctrl-k`と`Ctrl-j` / `Ctrl-l`を使います。従来の`Ctrl-w`形式とlist contextの`h` / `l`も維持しています。全キーは[キー操作とレイアウト](/ja/guides/navigation/)を参照してください。
 
+## 差分からソースへ移動する
+
+フォーカス中の差分ペインまたは差分フロートで`Space v`を押すと、対応するnew側の行でワークツリーファイル全文を開きます。全文表示はまず**changes** modeになり、ファイル全体を残したままnew側の追加行を強調します。`Space d`で、この強調表示と通常の**new state**表示を切り替えます。
+
+language-server profileを1つ以上有効にしている場合は、`Space s`で対応serverへdocument symbolを問い合わせます。差分から開いたlistでは、new側の変更行をrangeに含むsymbolだけを表示します。symbolを選ぶと全文内のその位置へ移動し、**Open full file without selecting a symbol**を選べばsymbolを選ばずに全文を開けます。`--lsp PROFILE`なしではこの操作を利用できず、空のchooserへ移動せずnoticeを表示します。
+
 ## 外部で編集した後に更新する
 
 エディターや別プロセスがリポジトリを変更したら`r`を押します。更新後も同じパスが存在すれば選択を保ち、キャッシュ済み差分を破棄して古い内容が残らないようにします。

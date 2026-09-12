@@ -18,7 +18,7 @@ pub struct Cli {
     #[arg(long, value_enum, default_value_t = InitialView::Changes)]
     view: InitialView,
 
-    /// Keymap file. Defaults to $XDG_CONFIG_HOME/chronogit/keymap.conf when present.
+    /// Keymap file. Defaults to `$XDG_CONFIG_HOME/chronogit/keymap.conf` when present.
     #[arg(long, value_name = "PATH")]
     keymap: Option<PathBuf>,
 

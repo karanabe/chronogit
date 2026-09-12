@@ -16,10 +16,11 @@ ChronoGitはキーボードだけで操作できます。アプリ内で`F1`を�
 | キー | 操作 |
 | --- | --- |
 | `q` | 現在のフロートを即座に閉じる、または戻る |
-| `Esc` | 入力をキャンセル。Diff・Codeでは検索強調を解除してから、次のEscでclose/back |
+| `Esc` | 入力をキャンセル。Diff・Code・全文表示では検索強調を解除してから、次のEscでclose/back |
 | `Q` / `Ctrl-C` | 終了 |
 | `Space 1` / `Space 2` / `Space 3` / `Space 4` | Changes / History / Graph / Codeを開く |
 | `Space f` / `Space g` | リポジトリのファイル名 / ワークツリー内容を検索 |
+| `Space s` / `Space v` / `Space d` | document-symbol context / source全文を開く、追加・削除付きChanges/new-state modeを切り替える |
 | `Ctrl-h` / `Ctrl-k`、`Ctrl-j` / `Ctrl-l` | 通常のpane contextで前 / 次のペインへフォーカス（既存の`Ctrl-w h/k/j/l`、`Ctrl-w W/w`、control文字、Backspace、矢印のsequenceも維持） |
 | `[count]h/j/k/l`、矢印 | 文字または論理行単位で移動 |
 | `[count]Backspace` | Vimで対応する`'whichwrap'` flagを有効にした場合と同様、行をまたいで左へ文字移動 |
@@ -73,7 +74,7 @@ Changesにはファイルと差分のペインがあります。通常のHistory
 
 ## オーバーレイ
 
-ヘルプ、Graph詳細、リポジトリ検索、コミットメッセージ全文、現在のファイル内容、Codeファイル、選択ファイルの差分はメインのペイン上に表示されます。Graph詳細は2pane viewですが、それ以外の単一overlayはfocus commandを背後のpaneへ通しません。メッセージはもう一度`Space m`を押して閉じられます。テキストoverlayでもVimの文字cursorとmotionを維持します。`Enter`は`+`と同様に次行の最初の非空白へ移動し、`q`でoverlayを即座に閉じます。`Esc`はDiff・Codeの検索強調を先に解除し、次のEscで閉じます。リポジトリ検索では、`Enter`または`Ctrl-j`でSearchからResultsへ移り、Resultsでは`Ctrl-h`、`Ctrl-k`、または従来の`Ctrl-w k` sequenceで現在のクエリを維持したままSearchへ戻って再編集できます。リポジトリSearch入力では、予約された`Ctrl-k`はno-opです。文書内検索入力では、予約された`Ctrl-j/k`がpromptを取り消して次 / 前のfocusを要求し、単一text overlayは背後のpaneを動かさずそのactionを消費します。どちらの入力中もnormal modeの`Ctrl-h/l` bindingは解決しません。文字入力中でなければ、`q`は現在のフロートを閉じるか、詳細/ファイル画面から戻ります。検索強調がない状態の`Esc`も同じ動作です。検索prompt入力中は`q`と`Q`をクエリ文字として入力でき、`Esc`で入力をキャンセルし、`Ctrl-C`で終了します。find/tillとmark commandは次の文字または`Esc`を消費し、引数にできないcontrolキーは待ちを終えますが同じ打鍵でpane focusも行いません。`/`が前方検索、`?`が後方検索で、count付き`n` / `N`は末尾・先頭をまたいで反復します。`*` / `#`はcursor位置のword全体、`g*` / `g#`は部分一致を検索します。小文字だけのクエリは大文字小文字を区別せず、大文字を含むクエリは区別します。
+ヘルプ、Graph詳細、リポジトリ検索、コミットメッセージ全文、現在のファイル内容、Codeファイル、選択ファイルの差分、source全文、symbol contextはメインのペイン上に表示されます。Graph詳細は2pane viewですが、それ以外の単一overlayはfocus commandを背後のpaneへ通しません。メッセージはもう一度`Space m`を押して閉じられます。テキストoverlayでもVimの文字cursorとmotionを維持します。`Enter`は`+`と同様に次行の最初の非空白へ移動し、`q`でoverlayを即座に閉じます。`Esc`はDiff・Code・全文表示の検索強調を先に解除し、次のEscで閉じます。リポジトリ検索では、`Enter`または`Ctrl-j`でSearchからResultsへ移り、Resultsでは`Ctrl-h`、`Ctrl-k`、または従来の`Ctrl-w k` sequenceで現在のクエリを維持したままSearchへ戻って再編集できます。リポジトリSearch入力では、予約された`Ctrl-k`はno-opです。文書内検索入力では、予約された`Ctrl-j/k`がpromptを取り消して次 / 前のfocusを要求し、単一text overlayは背後のpaneを動かさずそのactionを消費します。どちらの入力中もnormal modeの`Ctrl-h/l` bindingは解決しません。文字入力中でなければ、`q`は現在のフロートを閉じるか、詳細/ファイル画面から戻ります。検索強調がない状態の`Esc`も同じ動作です。検索prompt入力中は`q`と`Q`をクエリ文字として入力でき、`Esc`で入力をキャンセルし、`Ctrl-C`で終了します。find/tillとmark commandは次の文字または`Esc`を消費し、引数にできないcontrolキーは待ちを終えますが同じ打鍵でpane focusも行いません。`/`が前方検索、`?`が後方検索で、count付き`n` / `N`は末尾・先頭をまたいで反復します。`*` / `#`はcursor位置のword全体、`g*` / `g#`は部分一致を検索します。小文字だけのクエリは大文字小文字を区別せず、大文字を含むクエリは区別します。
 
 文書内検索（`/`・`?`）では、Backspaceで末尾の文字を削除します。最後の文字を消した直後は空のpromptを保つため、そのまま別の語を入力できます。空の状態でもう一度Backspaceを押すと入力を取り消します。Escは入力の有無にかかわらずキャンセルします。入力カーソル（`█`）が消え、画面・フォーカス・本文カーソル・縦横のスクロール位置と、前回の確定検索の語・方向・一致情報・強調の表示状態を保ちます。`n` / `N`で前回の検索を再開でき、空のpromptでEnterを押すと前回の語を使って検索します。`/word 1/3`等の確定検索の状態欄が残っていても、入力待ちではありません。リポジトリ検索（`Space f`・`Space g`）の操作は変わりません。
 
@@ -81,6 +82,6 @@ Changesにはファイルと差分のペインがあります。通常のHistory
 
 起動時エラーはraw modeを有効にする前に発生し、ターミナルへ触れません。TUI開始後の通常終了、`Q`、`Ctrl-C`、実行時エラー、panicでは、raw mode、カーソル、マウスキャプチャ、alternate screenを復元する設計です。強制終了や端末障害の後にシェル表示が戻らない場合は、[トラブルシューティング](/ja/troubleshooting/common-problems/#ターミナルが復元されない)を参照してください。
 
-Diff・Codeの通常ペインとフロートでは、一致文字列だけを強調します。現在の一致は黄色背景、他の一致は下線、カーソルは水色です。標準`Esc`で検索由来の装飾だけを消し、検索語・方向・フォーカス・カーソル・スクロール位置を保って読み続けられます。`n` / `N`または次の確定検索で強調が戻ります。一致なしの場合は追加のEscを要求しません。promptやfind/till・markの文字待ちでは入力キャンセルを優先し、直前の検索と強調の表示・解除状態を保ちます。ヘルプ・hover・リポジトリ検索が最前面なら、その画面を先に閉じます。
+Diff・Code・全文表示の通常ペインとフロートでは、一致文字列だけを強調します。現在の一致は黄色背景、他の一致は下線、カーソルは水色です。標準`Esc`で検索由来の装飾だけを消し、検索語・方向・フォーカス・カーソル・スクロール位置を保って読み続けられます。`n` / `N`または次の確定検索で強調が戻ります。一致なしの場合は追加のEscを要求しません。promptやfind/till・markの文字待ちでは入力キャンセルを優先し、直前の検索と強調の表示・解除状態を保ちます。ヘルプ・hover・リポジトリ検索が最前面なら、その画面を先に閉じます。
 
 物理`Ctrl-h`とBackspaceを区別できるのは、terminalまたはmultiplexerが別々の入力eventを送る場合だけです。ChronoGitはControl modifier付きの`h` eventを前pane focus、Backspace eventを従来の行をまたぐmotionまたはprompt削除へ割り当てます。両方の物理キーが同じbyteになる場合、アプリはその由来を判別できません。その環境では従来の`Ctrl-w` sequenceを使うか、`focus_previous`を別のキーへ変更してください。

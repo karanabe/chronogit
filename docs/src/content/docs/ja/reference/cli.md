@@ -43,7 +43,7 @@ chronogit /srv/project --view graph --keymap ./keymap.conf
 # ワークツリーのソース閲覧から開始
 chronogit /srv/project --view code
 
-# Rustのsemantic navigation
+# Rustのsemantic navigationとdocument symbol
 chronogit /srv/project --view code --lsp rust-analyzer
 
 # Rust、Java、Pythonを含むpolyglot repository
@@ -61,6 +61,6 @@ chronogit --version
 
 リポジトリ由来の制御文字は、診断に出す前にエスケープします。起動後の復旧可能なGitエラーはアプリを終了せず、影響するペインまたはフッターに表示します。
 
-`--lsp`はprojectを信頼する明示操作で、serverをdownloadしません。組み込みIDは`rust-analyzer`、`jdtls`、`pyright`、`basedpyright`、`pylsp`です。同じ拡張子のprofileを2つ有効化しても起動はできますが、navigation時にambiguousとして拒否します。明示した`--lsp-config`は存在し、schemaとcommand validationを通る必要があります。暗黙pathは`$XDG_CONFIG_HOME/chronogit/lsp.toml`、fallbackは`~/.config/chronogit/lsp.toml`です。
+`--lsp`はprojectを信頼する明示操作で、serverをdownloadしません。組み込みIDは`rust-analyzer`、`jdtls`、`pyright`、`basedpyright`、`pylsp`です。同じ拡張子のprofileを2つ有効化しても起動はできますが、semantic navigationとdocument-symbol要求はambiguousとして拒否します。明示した`--lsp-config`は存在し、schemaとcommand validationを通る必要があります。暗黙pathは`$XDG_CONFIG_HOME/chronogit/lsp.toml`、fallbackは`~/.config/chronogit/lsp.toml`です。
 
 リポジトリ検出後は、標準入力と標準出力の両方が対話型でなければなりません。stdinからコマンドを読んだり、安定した機械可読表現を出力したりはしません。

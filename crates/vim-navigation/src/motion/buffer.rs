@@ -34,6 +34,18 @@ pub(super) enum WordMotion {
     EndBackward,
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum WordStyle {
+    Word,
+    BigWord,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum ScanDirection {
+    Forward,
+    Backward,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Token {
     start: Position,
@@ -175,9 +187,9 @@ impl<'a> TextBuffer<'a> {
         cursor: Position,
         count: usize,
         motion: WordMotion,
-        big: bool,
+        style: WordStyle,
     ) -> Position {
-        let tokens = self.tokens(big);
+        let tokens = self.tokens(style);
         if tokens.is_empty() {
             return cursor;
         }
@@ -204,7 +216,7 @@ impl<'a> TextBuffer<'a> {
         }
     }
 
-    fn tokens(&self, big: bool) -> Vec<Token> {
+    fn tokens(&self, style: WordStyle) -> Vec<Token> {
         let mut tokens = Vec::new();
         for line_index in 0..self.len() {
             let line = self.line(line_index);
@@ -222,7 +234,7 @@ impl<'a> TextBuffer<'a> {
             }
             let mut active: Option<(usize, CharacterClass)> = None;
             for (column, character) in line.char_indices() {
-                let class = CharacterClass::of(character, big);
+                let class = CharacterClass::of(character, style);
                 match (active, class) {
                     (Some((start, _)), CharacterClass::Space) => {
                         tokens.push(Token {
@@ -386,8 +398,13 @@ impl<'a> TextBuffer<'a> {
         Position { line, column: 0 }
     }
 
-    pub(super) fn section(&self, cursor: Position, forward: bool, target: char) -> Position {
-        let found = if forward {
+    pub(super) fn section(
+        &self,
+        cursor: Position,
+        direction: ScanDirection,
+        target: char,
+    ) -> Position {
+        let found = if direction == ScanDirection::Forward {
             ((cursor.line + 1)..self.len()).find(|line| self.line(*line).starts_with(target))
         } else {
             (0..cursor.line)
@@ -397,11 +414,15 @@ impl<'a> TextBuffer<'a> {
         found.map_or(cursor, |line| Position { line, column: 0 })
     }
 
-    pub(super) fn matching_pair(&self, cursor: Position, backward: bool) -> Option<Position> {
+    pub(super) fn matching_pair(
+        &self,
+        cursor: Position,
+        direction: ScanDirection,
+    ) -> Option<Position> {
         let chars = self.characters();
         let in_direction = |position: Position| {
             position.line == cursor.line
-                && if backward {
+                && if direction == ScanDirection::Backward {
                     position.column <= cursor.column
                 } else {
                     position.column >= cursor.column
@@ -445,7 +466,7 @@ impl<'a> TextBuffer<'a> {
                 candidates.push((position, MatchItem::Preprocessor(directive)));
             }
         }
-        let (_, item) = if backward {
+        let (_, item) = if direction == ScanDirection::Backward {
             candidates
                 .into_iter()
                 .max_by(|(left, _), (right, _)| compare(*left, *right))
@@ -457,20 +478,24 @@ impl<'a> TextBuffer<'a> {
 
         match item {
             MatchItem::Delimiter(start) => matching_delimiter(chars, start),
-            MatchItem::CommentStart(origin) => self.comment_match(origin, true),
-            MatchItem::CommentEnd(origin) => self.comment_match(origin, false),
+            MatchItem::CommentStart(origin) => self.comment_match(origin, ScanDirection::Forward),
+            MatchItem::CommentEnd(origin) => self.comment_match(origin, ScanDirection::Backward),
             MatchItem::Preprocessor(directive) => self.preprocessor_match(cursor.line, directive),
         }
     }
 
-    fn comment_match(&self, origin: Position, forward: bool) -> Option<Position> {
-        let needle = if forward { "*/" } else { "/*" };
+    fn comment_match(&self, origin: Position, direction: ScanDirection) -> Option<Position> {
+        let needle = if direction == ScanDirection::Forward {
+            "*/"
+        } else {
+            "/*"
+        };
         let mut candidates = (0..self.len()).flat_map(|line| {
             self.line(line)
                 .match_indices(needle)
                 .map(move |(column, _)| Position { line, column })
         });
-        if forward {
+        if direction == ScanDirection::Forward {
             candidates
                 .find(|position| compare(*position, origin) == Ordering::Greater)
                 .map(|mut position| {
@@ -578,9 +603,14 @@ impl<'a> TextBuffer<'a> {
         cursor
     }
 
-    pub(super) fn brace(&self, cursor: Position, forward: bool, target: char) -> Position {
+    pub(super) fn brace(
+        &self,
+        cursor: Position,
+        direction: ScanDirection,
+        target: char,
+    ) -> Position {
         let chars = self.characters();
-        if forward {
+        if direction == ScanDirection::Forward {
             chars
                 .into_iter()
                 .find(|(position, character)| {
@@ -598,9 +628,9 @@ impl<'a> TextBuffer<'a> {
         }
     }
 
-    pub(super) fn preprocessor(&self, cursor: Position, forward: bool) -> Position {
+    pub(super) fn preprocessor(&self, cursor: Position, direction: ScanDirection) -> Position {
         let mut depth = 0usize;
-        if forward {
+        if direction == ScanDirection::Forward {
             for line in cursor.line.saturating_add(1)..self.len() {
                 let Some((column, directive)) = preprocessor_directive(self.line(line)) else {
                     continue;
@@ -638,8 +668,12 @@ impl<'a> TextBuffer<'a> {
         cursor
     }
 
-    pub(super) fn comment(&self, cursor: Position, forward: bool) -> Position {
-        let needle = if forward { "*/" } else { "/*" };
+    pub(super) fn comment(&self, cursor: Position, direction: ScanDirection) -> Position {
+        let needle = if direction == ScanDirection::Forward {
+            "*/"
+        } else {
+            "/*"
+        };
         let mut candidates = Vec::new();
         for line in 0..self.len() {
             let text = self.line(line);
@@ -647,7 +681,7 @@ impl<'a> TextBuffer<'a> {
                 candidates.push(Position { line, column });
             }
         }
-        if forward {
+        if direction == ScanDirection::Forward {
             candidates
                 .into_iter()
                 .find(|position| compare(*position, cursor) == Ordering::Greater)
@@ -665,12 +699,12 @@ impl<'a> TextBuffer<'a> {
         }
     }
 
-    pub(super) fn diff_change(&self, cursor: Position, forward: bool) -> Position {
+    pub(super) fn diff_change(&self, cursor: Position, direction: ScanDirection) -> Position {
         let mut starts = (0..self.len()).filter(|line| {
             is_diff_change_line(self.line(*line))
                 && (*line == 0 || !is_diff_change_line(self.line(line.saturating_sub(1))))
         });
-        let found = if forward {
+        let found = if direction == ScanDirection::Forward {
             starts.find(|line| *line > cursor.line)
         } else {
             starts.rfind(|line| *line < cursor.line)
@@ -718,10 +752,13 @@ enum CharacterClass {
 }
 
 impl CharacterClass {
-    fn of(character: char, big: bool) -> Self {
+    fn of(character: char, style: WordStyle) -> Self {
         if character.is_whitespace() {
             Self::Space
-        } else if big || character.is_alphanumeric() || character == '_' {
+        } else if matches!(style, WordStyle::BigWord)
+            || character.is_alphanumeric()
+            || character == '_'
+        {
             Self::Keyword
         } else {
             Self::Other

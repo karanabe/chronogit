@@ -39,7 +39,8 @@ fn next_path(tokens: &[&[u8]], index: &mut usize) -> Result<RepoPath, GitError> 
         .copied()
         .ok_or_else(|| GitError::parse("changed files", "status has no path"))?;
     *index += 1;
-    RepoPath::from_bytes(token.to_vec()).map_err(|detail| GitError::parse("changed files", detail))
+    RepoPath::from_bytes(token.to_vec())
+        .map_err(|detail| GitError::parse("changed files", detail.to_string()))
 }
 
 fn kind(code: u8) -> Result<ChangeKind, GitError> {

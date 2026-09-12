@@ -12,11 +12,24 @@ use std::time::{Duration, Instant};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use vim_navigation::{MotionResolution, MotionState};
 
-use crate::app::{Action, SearchDirection, SemanticNavigationKind, VimMotion, VimMotionKind};
+use crate::app::{
+    Action, JumpHistory, MarkJumpTarget, SearchDirection, SemanticNavigationKind, VimMotion,
+    VimMotionKind,
+};
 
 pub use config::KeyMapError;
 
 const SEQUENCE_TIMEOUT: Duration = Duration::from_millis(750);
+
+/// Input context used to interpret printable terminal keys.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum KeyInputContext {
+    /// Interpret input as normal-mode commands and configured bindings.
+    #[default]
+    Normal,
+    /// Interpret printable input as repository or document search text.
+    SearchInput,
+}
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(super) struct KeyStroke {
@@ -71,7 +84,10 @@ pub struct KeyMapper {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum MarkCommand {
     Set,
-    Jump { linewise: bool, record_jump: bool },
+    Jump {
+        target: MarkJumpTarget,
+        history: JumpHistory,
+    },
 }
 
 impl KeyMapper {
@@ -111,15 +127,15 @@ impl KeyMapper {
     /// Consumes one key event and returns a completed semantic action.
     ///
     /// `None` means the key is either unbound or is a valid prefix awaiting the
-    /// next stroke. `search_input_active` switches printable keys to query-edit
-    /// actions while retaining the reserved focus, confirmation, cancellation,
-    /// and `Ctrl-C` controls.
-    pub fn map(&mut self, key: KeyEvent, search_input_active: bool) -> Option<Action> {
+    /// next stroke. [`KeyInputContext::SearchInput`] switches printable keys to
+    /// query-edit actions while retaining the reserved focus, confirmation,
+    /// cancellation, and `Ctrl-C` controls.
+    pub fn map(&mut self, key: KeyEvent, context: KeyInputContext) -> Option<Action> {
         if matches!(key.code, KeyCode::Char('c')) && key.modifiers.contains(KeyModifiers::CONTROL) {
             self.clear_command();
             return Some(Action::Quit);
         }
-        if search_input_active {
+        if context == KeyInputContext::SearchInput {
             self.clear_command();
             return match (key.code, key.modifiers) {
                 (KeyCode::Enter, _) => Some(Action::ConfirmSearch),
@@ -156,13 +172,10 @@ impl KeyMapper {
                 {
                     Some(match command {
                         MarkCommand::Set => Action::SetVimMark(mark),
-                        MarkCommand::Jump {
-                            linewise,
-                            record_jump,
-                        } => Action::JumpToVimMark {
+                        MarkCommand::Jump { target, history } => Action::JumpToVimMark {
                             mark,
-                            linewise,
-                            record_jump,
+                            target,
+                            history,
                         },
                     })
                 }
@@ -265,14 +278,11 @@ impl KeyMapper {
             }
             Action::JumpToVimMark {
                 mark: '\0',
-                linewise,
-                record_jump,
+                target,
+                history,
             } => {
                 let _ = self.motion_state.take_count();
-                self.awaiting_mark = Some(MarkCommand::Jump {
-                    linewise,
-                    record_jump,
-                });
+                self.awaiting_mark = Some(MarkCommand::Jump { target, history });
                 return None;
             }
             _ => {}
@@ -438,25 +448,28 @@ pub(super) fn action_for_name(name: &str) -> Option<Action> {
         "set_mark" => Some(Action::SetVimMark('\0')),
         "jump_mark_line" => Some(Action::JumpToVimMark {
             mark: '\0',
-            linewise: true,
-            record_jump: true,
+            target: MarkJumpTarget::Line,
+            history: JumpHistory::Record,
         }),
         "jump_mark_exact" => Some(Action::JumpToVimMark {
             mark: '\0',
-            linewise: false,
-            record_jump: true,
+            target: MarkJumpTarget::Exact,
+            history: JumpHistory::Record,
         }),
         "jump_mark_line_without_history" => Some(Action::JumpToVimMark {
             mark: '\0',
-            linewise: true,
-            record_jump: false,
+            target: MarkJumpTarget::Line,
+            history: JumpHistory::Preserve,
         }),
         "jump_mark_exact_without_history" => Some(Action::JumpToVimMark {
             mark: '\0',
-            linewise: false,
-            record_jump: false,
+            target: MarkJumpTarget::Exact,
+            history: JumpHistory::Preserve,
         }),
         "lsp_hover" => Some(Action::ToggleLspHover),
+        "symbol_context" => Some(Action::OpenSymbolContext),
+        "open_full_file" => Some(Action::OpenFullFile),
+        "toggle_full_file_mode" => Some(Action::ToggleFullFileMode),
         "go_to_definition" => Some(Action::GoToSemanticTarget(
             SemanticNavigationKind::Definition,
         )),
@@ -494,8 +507,10 @@ mod tests {
 
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-    use super::KeyMapper;
-    use crate::app::{Action, SemanticNavigationKind, VimMotion, VimMotionKind};
+    use super::{KeyInputContext, KeyMapper};
+    use crate::app::{
+        Action, JumpHistory, MarkJumpTarget, SemanticNavigationKind, VimMotion, VimMotionKind,
+    };
 
     use super::KeyStroke;
     use super::config::parse_stroke;
@@ -508,92 +523,163 @@ mod tests {
     fn maps_navigation_sequences_graph_and_global_search() {
         let mut mapper = KeyMapper::new();
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             Some(Action::CloseOverlay)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             Some(Action::DismissSearchOrClose)
         );
         assert_eq!(
             mapper.map(
                 KeyEvent::new(KeyCode::Char('Q'), KeyModifiers::SHIFT),
-                false
+                KeyInputContext::Normal
             ),
             Some(Action::Quit)
         );
         assert_eq!(
             mapper.map(
                 KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL),
-                false
+                KeyInputContext::Normal
             ),
             Some(Action::FocusRight)
         );
         assert_eq!(
             mapper.map(
                 KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL),
-                false
+                KeyInputContext::Normal
             ),
             None
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             Some(Action::FocusLeft)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             motion(VimMotionKind::Down)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             motion(VimMotionKind::Left)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             motion(VimMotionKind::Right)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             None
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             motion(VimMotionKind::ScrollColumnRight)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             motion(VimMotionKind::LeftWrap)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             None
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             Some(Action::ShowGraph)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             None
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             Some(Action::ShowCode)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             None
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             Some(Action::OpenFileSearch)
         );
+        for (suffix, action) in [
+            ('s', Action::OpenSymbolContext),
+            ('v', Action::OpenFullFile),
+            ('d', Action::ToggleFullFileMode),
+        ] {
+            assert_eq!(
+                mapper.map(
+                    KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
+                    KeyInputContext::Normal
+                ),
+                None
+            );
+            assert_eq!(
+                mapper.map(
+                    KeyEvent::new(KeyCode::Char(suffix), KeyModifiers::NONE),
+                    KeyInputContext::Normal
+                ),
+                Some(action)
+            );
+        }
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             None
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             motion(VimMotionKind::BufferTop)
         );
         for (suffix, kind) in [
@@ -603,68 +689,95 @@ mod tests {
             ('D', SemanticNavigationKind::Declaration),
         ] {
             assert_eq!(
-                mapper.map(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE), false),
+                mapper.map(
+                    KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+                    KeyInputContext::Normal
+                ),
                 None
             );
             assert_eq!(
                 mapper.map(
                     KeyEvent::new(KeyCode::Char(suffix), KeyModifiers::NONE),
-                    false
+                    KeyInputContext::Normal
                 ),
                 Some(Action::GoToSemanticTarget(kind))
             );
         }
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             motion(VimMotionKind::Right)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Right, KeyModifiers::SHIFT), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Right, KeyModifiers::SHIFT),
+                KeyInputContext::Normal
+            ),
             motion(VimMotionKind::WordForward)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL),
+                KeyInputContext::Normal
+            ),
             motion(VimMotionKind::BigWordForward)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL),
+                KeyInputContext::Normal
+            ),
             motion(VimMotionKind::BigWordBackward)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             None
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::End, KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::End, KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             motion(VimMotionKind::ScreenLastNonBlank)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::End, KeyModifiers::CONTROL), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::End, KeyModifiers::CONTROL),
+                KeyInputContext::Normal
+            ),
             motion(VimMotionKind::BufferBottomEnd)
         );
         assert_eq!(
             mapper.map(
                 KeyEvent::new(KeyCode::Char('K'), KeyModifiers::SHIFT),
-                false
+                KeyInputContext::Normal
             ),
             Some(Action::ToggleLspHover)
         );
         assert_eq!(
             mapper.map(
                 KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL),
-                false
+                KeyInputContext::Normal
             ),
             Some(Action::JumpListBack(1))
         );
         assert_eq!(
             mapper.map(
                 KeyEvent::new(KeyCode::Char('i'), KeyModifiers::CONTROL),
-                false
+                KeyInputContext::Normal
             ),
             Some(Action::JumpListForward(1))
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             Some(Action::JumpListForward(1))
         );
     }
@@ -681,7 +794,7 @@ mod tests {
             assert_eq!(
                 mapper.map(
                     KeyEvent::new(KeyCode::Char(key), KeyModifiers::CONTROL),
-                    false
+                    KeyInputContext::Normal
                 ),
                 Some(expected),
                 "standalone Ctrl-{key}"
@@ -722,12 +835,12 @@ mod tests {
             assert_eq!(
                 mapper.map(
                     KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL),
-                    false
+                    KeyInputContext::Normal
                 ),
                 None
             );
             assert_eq!(
-                mapper.map(KeyEvent::new(code, modifiers), false),
+                mapper.map(KeyEvent::new(code, modifiers), KeyInputContext::Normal),
                 Some(expected),
                 "Ctrl-w {modifiers:?}-{code:?}"
             );
@@ -745,27 +858,33 @@ mod tests {
         ] {
             let mut mapper = KeyMapper::new();
             assert_eq!(
-                mapper.map(KeyEvent::new(code, KeyModifiers::NONE), false),
+                mapper.map(
+                    KeyEvent::new(code, KeyModifiers::NONE),
+                    KeyInputContext::Normal
+                ),
                 motion(expected),
                 "unmodified {code:?}"
             );
         }
         let mut mapper = KeyMapper::new();
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             motion(VimMotionKind::LeftWrap)
         );
         assert_eq!(
             mapper.map(
                 KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL),
-                false
+                KeyInputContext::Normal
             ),
             motion(VimMotionKind::Down)
         );
         assert_eq!(
             mapper.map(
                 KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
-                false
+                KeyInputContext::Normal
             ),
             motion(VimMotionKind::Up)
         );
@@ -786,14 +905,17 @@ mod tests {
         ] {
             let mut mapper = KeyMapper::new();
             assert_eq!(
-                mapper.map(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), false),
+                mapper.map(
+                    KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
+                    KeyInputContext::Normal
+                ),
                 None,
                 "Space must remain a prefix before {suffix:?}"
             );
             assert_eq!(
                 mapper.map(
                     KeyEvent::new(KeyCode::Char(suffix), KeyModifiers::NONE),
-                    false
+                    KeyInputContext::Normal
                 ),
                 Some(expected)
             );
@@ -801,16 +923,25 @@ mod tests {
 
         let mut mapper = KeyMapper::new();
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             None
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             motion(VimMotionKind::Right),
             "an unrelated suffix is retried as a normal key, so l remains the right-motion alternative"
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             motion(VimMotionKind::Right)
         );
     }
@@ -819,15 +950,24 @@ mod tests {
     fn search_input_accepts_q_and_reserves_control_keys() {
         let mut mapper = KeyMapper::new();
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE), true),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
+                KeyInputContext::SearchInput
+            ),
             Some(Action::InsertSearch('q'))
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('Q'), KeyModifiers::SHIFT), true),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('Q'), KeyModifiers::SHIFT),
+                KeyInputContext::SearchInput
+            ),
             Some(Action::InsertSearch('Q'))
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), true),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
+                KeyInputContext::SearchInput
+            ),
             Some(Action::InsertSearch(' ')),
             "the application leader is disabled inside a search prompt"
         );
@@ -835,31 +975,37 @@ mod tests {
             assert_eq!(
                 mapper.map(
                     KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE),
-                    true
+                    KeyInputContext::SearchInput
                 ),
                 Some(Action::InsertSearch(character)),
                 "EditableBuffer's Insert escape sequence must not leak into search input"
             );
         }
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE), true),
+            mapper.map(
+                KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+                KeyInputContext::SearchInput
+            ),
             Some(Action::DeleteSearch)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), true),
+            mapper.map(
+                KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                KeyInputContext::SearchInput
+            ),
             Some(Action::ConfirmSearch)
         );
         assert_eq!(
             mapper.map(
                 KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL),
-                true
+                KeyInputContext::SearchInput
             ),
             Some(Action::FocusRight)
         );
         assert_eq!(
             mapper.map(
                 KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL),
-                true
+                KeyInputContext::SearchInput
             ),
             Some(Action::FocusLeft)
         );
@@ -867,7 +1013,7 @@ mod tests {
             assert_eq!(
                 mapper.map(
                     KeyEvent::new(KeyCode::Char(character), KeyModifiers::CONTROL),
-                    true
+                    KeyInputContext::SearchInput
                 ),
                 None,
                 "normal-mode Ctrl-{character} must not leak into search input"
@@ -876,7 +1022,7 @@ mod tests {
         assert_eq!(
             mapper.map(
                 KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
-                true
+                KeyInputContext::SearchInput
             ),
             Some(Action::Quit)
         );
@@ -889,72 +1035,89 @@ mod tests {
             assert_eq!(
                 mapper.map(
                     KeyEvent::new(KeyCode::Char(digit), KeyModifiers::NONE),
-                    false
+                    KeyInputContext::Normal
                 ),
                 None
             );
         }
-        let Some(Action::VimMotion(word)) =
-            mapper.map(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE), false)
-        else {
+        let Some(Action::VimMotion(word)) = mapper.map(
+            KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE),
+            KeyInputContext::Normal,
+        ) else {
             panic!("expected counted word motion");
         };
         assert_eq!(word.kind(), VimMotionKind::WordForward);
         assert_eq!(word.count(), 12);
         assert!(word.has_explicit_count());
 
-        let Some(Action::VimMotion(line_start)) =
-            mapper.map(KeyEvent::new(KeyCode::Char('0'), KeyModifiers::NONE), false)
-        else {
+        let Some(Action::VimMotion(line_start)) = mapper.map(
+            KeyEvent::new(KeyCode::Char('0'), KeyModifiers::NONE),
+            KeyInputContext::Normal,
+        ) else {
             panic!("expected zero to remain a line-start motion without a count");
         };
         assert_eq!(line_start.kind(), VimMotionKind::LineStart);
 
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             None
         );
-        let Some(Action::VimMotion(percentage)) =
-            mapper.map(KeyEvent::new(KeyCode::Char('%'), KeyModifiers::NONE), false)
-        else {
+        let Some(Action::VimMotion(percentage)) = mapper.map(
+            KeyEvent::new(KeyCode::Char('%'), KeyModifiers::NONE),
+            KeyInputContext::Normal,
+        ) else {
             panic!("expected percentage motion");
         };
         assert_eq!(percentage.kind(), VimMotionKind::BufferPercentage);
         assert_eq!(percentage.count(), 5);
 
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             None
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('%'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('%'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             motion(VimMotionKind::MatchingPairBackward)
         );
 
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             None
         );
         let Some(Action::VimMotion(find)) = mapper.map(
             KeyEvent::new(KeyCode::Char('界'), KeyModifiers::NONE),
-            false,
+            KeyInputContext::Normal,
         ) else {
             panic!("expected completed character search");
         };
         assert_eq!(find.kind(), VimMotionKind::FindForward);
         assert_eq!(find.target(), Some('界'));
 
-        let Some(Action::VimMotion(repeated)) =
-            mapper.map(KeyEvent::new(KeyCode::Char(';'), KeyModifiers::NONE), false)
-        else {
+        let Some(Action::VimMotion(repeated)) = mapper.map(
+            KeyEvent::new(KeyCode::Char(';'), KeyModifiers::NONE),
+            KeyInputContext::Normal,
+        ) else {
             panic!("expected repeated character search");
         };
         assert_eq!(repeated.kind(), VimMotionKind::FindForward);
         assert_eq!(repeated.target(), Some('界'));
 
-        let Some(Action::VimMotion(reversed)) =
-            mapper.map(KeyEvent::new(KeyCode::Char(','), KeyModifiers::NONE), false)
-        else {
+        let Some(Action::VimMotion(reversed)) = mapper.map(
+            KeyEvent::new(KeyCode::Char(','), KeyModifiers::NONE),
+            KeyInputContext::Normal,
+        ) else {
             panic!("expected reversed character search");
         };
         assert_eq!(reversed.kind(), VimMotionKind::FindBackward);
@@ -968,14 +1131,14 @@ mod tests {
             assert_eq!(
                 mapper.map(
                     KeyEvent::new(KeyCode::Char(prefix), KeyModifiers::NONE),
-                    false
+                    KeyInputContext::Normal
                 ),
                 None
             );
             assert_eq!(
                 mapper.map(
                     KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL),
-                    false
+                    KeyInputContext::Normal
                 ),
                 None,
                 "Ctrl-h must only cancel the {prefix:?} character wait"
@@ -983,7 +1146,7 @@ mod tests {
             assert_eq!(
                 mapper.map(
                     KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL),
-                    false
+                    KeyInputContext::Normal
                 ),
                 Some(Action::FocusLeft),
                 "the next Ctrl-h must be a new normal-mode command"
@@ -995,78 +1158,105 @@ mod tests {
     fn vim_marks_jump_counts_and_till_repeats_keep_command_state() {
         let mut mapper = KeyMapper::new();
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             None
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             Some(Action::SetVimMark('a'))
         );
         assert_eq!(
             mapper.map(
                 KeyEvent::new(KeyCode::Char('\''), KeyModifiers::NONE),
-                false
+                KeyInputContext::Normal
             ),
             None
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             Some(Action::JumpToVimMark {
                 mark: 'a',
-                linewise: true,
-                record_jump: true,
+                target: MarkJumpTarget::Line,
+                history: JumpHistory::Record,
             })
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             None
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('`'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('`'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             None
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             Some(Action::JumpToVimMark {
                 mark: 'a',
-                linewise: false,
-                record_jump: false,
+                target: MarkJumpTarget::Exact,
+                history: JumpHistory::Preserve,
             })
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             None
         );
         assert_eq!(
             mapper.map(
                 KeyEvent::new(KeyCode::Char('\''), KeyModifiers::NONE),
-                false
+                KeyInputContext::Normal
             ),
             motion(VimMotionKind::NextMarkLine)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             None
         );
         assert_eq!(
             mapper.map(
                 KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL),
-                false
+                KeyInputContext::Normal
             ),
             Some(Action::JumpListBack(3))
         );
 
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             None
         );
         assert!(matches!(
-            mapper.map(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE), false),
+            mapper.map(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE), KeyInputContext::Normal),
             Some(Action::VimMotion(motion))
                 if motion.kind() == VimMotionKind::TillForward && motion.count() == 1
         ));
         assert!(matches!(
-            mapper.map(KeyEvent::new(KeyCode::Char(';'), KeyModifiers::NONE), false),
+            mapper.map(KeyEvent::new(KeyCode::Char(';'), KeyModifiers::NONE), KeyInputContext::Normal),
             Some(Action::VimMotion(motion))
                 if motion.kind() == VimMotionKind::TillForward && motion.count() == 1 && motion.is_repeated()
         ));
@@ -1084,45 +1274,66 @@ mod tests {
         .unwrap_or_else(|error| panic!("could not write keymap: {error}"));
         let mut mapper = KeyMapper::load(Some(&path)).unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             Some(Action::ShowGraph)
         );
         assert_eq!(
             mapper.map(
                 KeyEvent::new(KeyCode::Char('\\'), KeyModifiers::NONE),
-                false
+                KeyInputContext::Normal
             ),
             motion(VimMotionKind::RightWrap)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             None
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             Some(Action::ShowHistory),
             "replacing one leader action leaves the other default Space sequences intact"
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             None
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::ALT), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('p'), KeyModifiers::ALT),
+                KeyInputContext::Normal
+            ),
             Some(Action::OpenFileSearch)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::ALT), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('t'), KeyModifiers::ALT),
+                KeyInputContext::Normal
+            ),
             Some(Action::ToggleTree)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             Some(Action::JumpListForward(1))
         );
         assert_eq!(
             mapper.map(
                 KeyEvent::new(KeyCode::Char('i'), KeyModifiers::CONTROL),
-                false
+                KeyInputContext::Normal
             ),
             None,
             "an explicit semantic_forward binding replaces its defaults"
@@ -1171,7 +1382,10 @@ mod tests {
                 let mut mapper =
                     KeyMapper::load(Some(&path)).unwrap_or_else(|error| panic!("{error}"));
                 assert_eq!(
-                    mapper.map(KeyEvent::new(KeyCode::Char(key), modifiers), false),
+                    mapper.map(
+                        KeyEvent::new(KeyCode::Char(key), modifiers),
+                        KeyInputContext::Normal
+                    ),
                     action,
                     "{source:?}: {modifiers:?}-{key}"
                 );
@@ -1180,7 +1394,10 @@ mod tests {
                 let mut mapper =
                     KeyMapper::load(Some(&path)).unwrap_or_else(|error| panic!("{error}"));
                 assert_eq!(
-                    mapper.map(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::ALT), false),
+                    mapper.map(
+                        KeyEvent::new(KeyCode::Char('l'), KeyModifiers::ALT),
+                        KeyInputContext::Normal
+                    ),
                     Some(Action::FocusRight)
                 );
             }
@@ -1204,7 +1421,7 @@ mod tests {
             assert_eq!(
                 mapper.map(
                     KeyEvent::new(KeyCode::Char(key), KeyModifiers::CONTROL),
-                    false
+                    KeyInputContext::Normal
                 ),
                 expected,
                 "restored Ctrl-{key} mapping"
@@ -1236,17 +1453,26 @@ mod tests {
              toggle_message = alt-m\n\
              toggle_details = alt-b\n\
              toggle_tree = alt-t\n\
+             symbol_context = alt-s\n\
+             open_full_file = alt-v\n\
+             toggle_full_file_mode = alt-d\n\
              cursor_right_wrap = space\n",
         )
         .unwrap_or_else(|error| panic!("{error}"));
 
         let mut mapper = KeyMapper::load(Some(&path)).unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
+                KeyInputContext::Normal
+            ),
             motion(VimMotionKind::RightWrap)
         );
         assert_eq!(
-            mapper.map(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::ALT), false),
+            mapper.map(
+                KeyEvent::new(KeyCode::Char('1'), KeyModifiers::ALT),
+                KeyInputContext::Normal
+            ),
             Some(Action::ShowChanges)
         );
     }
@@ -1265,8 +1491,15 @@ mod tests {
             fs::write(&path, source).unwrap_or_else(|error| panic!("{error}"));
             let mut mapper = KeyMapper::load(Some(&path)).unwrap_or_else(|error| panic!("{error}"));
             let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
-            assert_eq!(mapper.map(esc, false), expected, "{source}");
-            assert_eq!(mapper.map(esc, true), Some(Action::CancelSearch));
+            assert_eq!(
+                mapper.map(esc, KeyInputContext::Normal),
+                expected,
+                "{source}"
+            );
+            assert_eq!(
+                mapper.map(esc, KeyInputContext::SearchInput),
+                Some(Action::CancelSearch)
+            );
         }
     }
 

@@ -7,14 +7,18 @@
 
 use unicode_width::UnicodeWidthChar;
 
-use super::buffer::{Position, TextBuffer, WordMotion};
+use super::buffer::{Position, ScanDirection, TextBuffer, WordMotion, WordStyle};
 use super::line::{
     byte_at_display, clamp_boundary, count_as_isize, display_column, display_with_gutter,
     find_character, first_non_blank, first_non_blank_from, last_column, last_non_blank,
     next_column, next_tabstop, previous_column, screen_end_column, screen_last_non_blank,
     visible_source_columns,
 };
-use super::{Cursor, Motion, MotionKind, Viewport};
+use super::{Cursor, FULL_PERCENT, Motion, MotionKind, Viewport};
+
+const DEFAULT_MOTION_PERCENT: usize = FULL_PERCENT / 2;
+const PERCENT_ROUNDING_OFFSET: usize = FULL_PERCENT - 1;
+const PAGE_OVERLAP_LINES: usize = 2;
 
 /// Applies one completed motion and returns the new cursor position.
 ///
@@ -115,14 +119,14 @@ pub fn apply(lines: &[&str], position: Cursor, viewport: &mut Viewport, motion: 
         }
         MotionKind::LineMiddle => {
             let percent = if motion.has_explicit_count() {
-                count.min(100)
+                count.min(FULL_PERCENT)
             } else {
-                50
+                DEFAULT_MOTION_PERCENT
             };
             let line = buffer.line(cursor.line);
             cursor.column = byte_at_display(
                 line,
-                display_column(line, line.len()).saturating_mul(percent) / 100,
+                display_column(line, line.len()).saturating_mul(percent) / FULL_PERCENT,
             );
         }
         MotionKind::Column => {
@@ -130,28 +134,29 @@ pub fn apply(lines: &[&str], position: Cursor, viewport: &mut Viewport, motion: 
         }
         MotionKind::ByteOffset => cursor = buffer.byte_offset(count),
         MotionKind::WordForward => {
-            cursor = buffer.word_motion(cursor, count, WordMotion::StartForward, false)
+            cursor = buffer.word_motion(cursor, count, WordMotion::StartForward, WordStyle::Word)
         }
         MotionKind::BigWordForward => {
-            cursor = buffer.word_motion(cursor, count, WordMotion::StartForward, true)
+            cursor = buffer.word_motion(cursor, count, WordMotion::StartForward, WordStyle::BigWord)
         }
         MotionKind::WordEndForward => {
-            cursor = buffer.word_motion(cursor, count, WordMotion::EndForward, false)
+            cursor = buffer.word_motion(cursor, count, WordMotion::EndForward, WordStyle::Word)
         }
         MotionKind::BigWordEndForward => {
-            cursor = buffer.word_motion(cursor, count, WordMotion::EndForward, true)
+            cursor = buffer.word_motion(cursor, count, WordMotion::EndForward, WordStyle::BigWord)
         }
         MotionKind::WordBackward => {
-            cursor = buffer.word_motion(cursor, count, WordMotion::StartBackward, false)
+            cursor = buffer.word_motion(cursor, count, WordMotion::StartBackward, WordStyle::Word)
         }
         MotionKind::BigWordBackward => {
-            cursor = buffer.word_motion(cursor, count, WordMotion::StartBackward, true)
+            cursor =
+                buffer.word_motion(cursor, count, WordMotion::StartBackward, WordStyle::BigWord)
         }
         MotionKind::WordEndBackward => {
-            cursor = buffer.word_motion(cursor, count, WordMotion::EndBackward, false)
+            cursor = buffer.word_motion(cursor, count, WordMotion::EndBackward, WordStyle::Word)
         }
         MotionKind::BigWordEndBackward => {
-            cursor = buffer.word_motion(cursor, count, WordMotion::EndBackward, true)
+            cursor = buffer.word_motion(cursor, count, WordMotion::EndBackward, WordStyle::BigWord)
         }
         MotionKind::FindForward
         | MotionKind::FindBackward
@@ -164,7 +169,7 @@ pub fn apply(lines: &[&str], position: Cursor, viewport: &mut Viewport, motion: 
                     target,
                     motion.kind(),
                     count,
-                    motion.is_repeated(),
+                    motion.repetition(),
                 );
             }
         }
@@ -202,10 +207,10 @@ pub fn apply(lines: &[&str], position: Cursor, viewport: &mut Viewport, motion: 
         }
         MotionKind::BufferPercentage => {
             let one_based = count
-                .min(100)
+                .min(FULL_PERCENT)
                 .saturating_mul(buffer.len())
-                .saturating_add(99)
-                / 100;
+                .saturating_add(PERCENT_ROUNDING_OFFSET)
+                / FULL_PERCENT;
             cursor.line = one_based.saturating_sub(1).min(buffer.last_line());
             cursor.column = first_non_blank(buffer.line(cursor.line));
         }
@@ -243,24 +248,32 @@ pub fn apply(lines: &[&str], position: Cursor, viewport: &mut Viewport, motion: 
             cursor = repeated_boundary(cursor, count, |at| buffer.paragraph_forward(at));
         }
         MotionKind::SectionStartBackward => {
-            cursor = repeated_boundary(cursor, count, |at| buffer.section(at, false, '{'));
+            cursor = repeated_boundary(cursor, count, |at| {
+                buffer.section(at, ScanDirection::Backward, '{')
+            });
         }
         MotionKind::SectionStartForward => {
-            cursor = repeated_boundary(cursor, count, |at| buffer.section(at, true, '{'));
+            cursor = repeated_boundary(cursor, count, |at| {
+                buffer.section(at, ScanDirection::Forward, '{')
+            });
         }
         MotionKind::SectionEndBackward => {
-            cursor = repeated_boundary(cursor, count, |at| buffer.section(at, false, '}'));
+            cursor = repeated_boundary(cursor, count, |at| {
+                buffer.section(at, ScanDirection::Backward, '}')
+            });
         }
         MotionKind::SectionEndForward => {
-            cursor = repeated_boundary(cursor, count, |at| buffer.section(at, true, '}'));
+            cursor = repeated_boundary(cursor, count, |at| {
+                buffer.section(at, ScanDirection::Forward, '}')
+            });
         }
         MotionKind::MatchingPair => {
-            if let Some(found) = buffer.matching_pair(cursor, false) {
+            if let Some(found) = buffer.matching_pair(cursor, ScanDirection::Forward) {
                 cursor = found;
             }
         }
         MotionKind::MatchingPairBackward => {
-            if let Some(found) = buffer.matching_pair(cursor, true) {
+            if let Some(found) = buffer.matching_pair(cursor, ScanDirection::Backward) {
                 cursor = found;
             }
         }
@@ -280,7 +293,9 @@ pub fn apply(lines: &[&str], position: Cursor, viewport: &mut Viewport, motion: 
             } else {
                 '{'
             };
-            cursor = repeated_boundary(cursor, count, |at| buffer.brace(at, false, target));
+            cursor = repeated_boundary(cursor, count, |at| {
+                buffer.brace(at, ScanDirection::Backward, target)
+            });
         }
         MotionKind::MethodForward => {
             let target = if motion.target() == Some('M') {
@@ -288,25 +303,39 @@ pub fn apply(lines: &[&str], position: Cursor, viewport: &mut Viewport, motion: 
             } else {
                 '{'
             };
-            cursor = repeated_boundary(cursor, count, |at| buffer.brace(at, true, target));
+            cursor = repeated_boundary(cursor, count, |at| {
+                buffer.brace(at, ScanDirection::Forward, target)
+            });
         }
         MotionKind::PreprocessorBackward => {
-            cursor = repeated_boundary(cursor, count, |at| buffer.preprocessor(at, false));
+            cursor = repeated_boundary(cursor, count, |at| {
+                buffer.preprocessor(at, ScanDirection::Backward)
+            });
         }
         MotionKind::PreprocessorForward => {
-            cursor = repeated_boundary(cursor, count, |at| buffer.preprocessor(at, true));
+            cursor = repeated_boundary(cursor, count, |at| {
+                buffer.preprocessor(at, ScanDirection::Forward)
+            });
         }
         MotionKind::CommentBackward => {
-            cursor = repeated_boundary(cursor, count, |at| buffer.comment(at, false));
+            cursor = repeated_boundary(cursor, count, |at| {
+                buffer.comment(at, ScanDirection::Backward)
+            });
         }
         MotionKind::CommentForward => {
-            cursor = repeated_boundary(cursor, count, |at| buffer.comment(at, true));
+            cursor = repeated_boundary(cursor, count, |at| {
+                buffer.comment(at, ScanDirection::Forward)
+            });
         }
         MotionKind::DiffChangeBackward => {
-            cursor = repeated_boundary(cursor, count, |at| buffer.diff_change(at, false));
+            cursor = repeated_boundary(cursor, count, |at| {
+                buffer.diff_change(at, ScanDirection::Backward)
+            });
         }
         MotionKind::DiffChangeForward => {
-            cursor = repeated_boundary(cursor, count, |at| buffer.diff_change(at, true));
+            cursor = repeated_boundary(cursor, count, |at| {
+                buffer.diff_change(at, ScanDirection::Forward)
+            });
         }
         MotionKind::HalfPageDown => {
             let distance = if motion.has_explicit_count() {
@@ -333,7 +362,7 @@ pub fn apply(lines: &[&str], position: Cursor, viewport: &mut Viewport, motion: 
             viewport.top = viewport.top.saturating_sub(distance);
         }
         MotionKind::PageDown => {
-            let page = viewport.height.saturating_sub(2).max(1);
+            let page = viewport.height.saturating_sub(PAGE_OVERLAP_LINES).max(1);
             viewport.top = viewport
                 .top
                 .saturating_add(page.saturating_mul(count))
@@ -342,7 +371,7 @@ pub fn apply(lines: &[&str], position: Cursor, viewport: &mut Viewport, motion: 
             cursor.column = first_non_blank(buffer.line(cursor.line));
         }
         MotionKind::PageUp => {
-            let page = viewport.height.saturating_sub(2).max(1);
+            let page = viewport.height.saturating_sub(PAGE_OVERLAP_LINES).max(1);
             viewport.top = viewport.top.saturating_sub(page.saturating_mul(count));
             cursor.line = viewport
                 .top

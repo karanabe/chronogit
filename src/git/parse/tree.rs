@@ -1,6 +1,6 @@
 //! Parsing direct `ls-tree` children without losing path bytes.
 
-use crate::domain::{ObjectId, RepoPath, TreeEntry, TreeKind};
+use crate::domain::{GitTreeMode, ObjectId, RepoPath, TreeEntry};
 use crate::git::GitError;
 
 pub(crate) fn parse_tree_entries(input: &[u8]) -> Result<Vec<TreeEntry>, GitError> {
@@ -31,24 +31,14 @@ fn parse_entry(record: &[u8]) -> Result<TreeEntry, GitError> {
     if fields.next().is_some() {
         return Err(GitError::parse("tree", "entry has extra metadata"));
     }
-    let kind = match (object_type, mode) {
-        ("tree", _) => TreeKind::Directory,
-        ("commit", _) => TreeKind::Submodule,
-        ("blob", "120000") => TreeKind::Symlink,
-        ("blob", _) => TreeKind::File,
-        _ => {
-            return Err(GitError::parse(
-                "tree",
-                format!("unsupported object type {object_type}"),
-            ));
-        }
-    };
+    let mode = GitTreeMode::parse(object_type, mode)
+        .map_err(|detail| GitError::parse("tree", detail.to_string()))?;
     Ok(TreeEntry::new(
-        ObjectId::parse(object_id.to_owned()).map_err(|detail| GitError::parse("tree", detail))?,
-        mode.to_owned(),
-        kind,
+        ObjectId::parse(object_id.to_owned())
+            .map_err(|detail| GitError::parse("tree", detail.to_string()))?,
+        mode,
         RepoPath::from_bytes(record[tab + 1..].to_vec())
-            .map_err(|detail| GitError::parse("tree", detail))?,
+            .map_err(|detail| GitError::parse("tree", detail.to_string()))?,
     ))
 }
 

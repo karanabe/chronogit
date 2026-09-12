@@ -75,7 +75,7 @@ pub use command::{MotionResolution, MotionState};
 pub use editor::{
     EditOutcome, EditableBuffer, EditorInput, InsertEscapeSequence, InsertEscapeSequenceError, Mode,
 };
-pub use motion::{Cursor, Motion, MotionKind, Viewport, apply, reveal};
+pub use motion::{CountSource, Cursor, Motion, MotionKind, Viewport, apply, reveal};
 
 // Keep the published README's examples executable alongside the API examples.
 #[cfg(doctest)]

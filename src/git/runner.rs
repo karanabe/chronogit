@@ -1,6 +1,7 @@
 //! The substitutable subprocess boundary and its bounded system implementation.
 
 use std::error::Error;
+use std::ffi::OsString;
 use std::fmt::{self, Display, Formatter};
 use std::io::{self, Read};
 use std::process::{Command, ExitStatus, Stdio};
@@ -10,27 +11,62 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::domain::{CommitBaseline, RepositoryRoot};
-use crate::git::GitCommand;
+use crate::git::{GitCommand, OutputCompleteness};
 
 const MAX_STDOUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_STDERR_BYTES: usize = 64 * 1024;
 const MAX_COMMAND_DURATION: Duration = Duration::from_secs(30);
-type ReaderResult = io::Result<(Vec<u8>, bool)>;
+const CHILD_POLL_INTERVAL: Duration = Duration::from_millis(2);
+const INITIAL_CAPTURE_CAPACITY: usize = 64 * 1024;
+const READ_BUFFER_BYTES: usize = 16 * 1024;
+type CapturedStream = (Vec<u8>, OutputCompleteness);
+type ReaderResult = io::Result<CapturedStream>;
 type ReaderHandle = thread::JoinHandle<ReaderResult>;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CommandStatus {
+    Succeeded(Option<i32>),
+    Failed(Option<i32>),
+}
+
+impl CommandStatus {
+    const fn for_test(success: bool, code: Option<i32>) -> Self {
+        if success {
+            Self::Succeeded(code)
+        } else {
+            Self::Failed(code)
+        }
+    }
+
+    const fn succeeded(self) -> bool {
+        matches!(self, Self::Succeeded(_))
+    }
+
+    const fn code(self) -> Option<i32> {
+        match self {
+            Self::Succeeded(code) | Self::Failed(code) => code,
+        }
+    }
+}
+
+impl From<ExitStatus> for CommandStatus {
+    fn from(status: ExitStatus) -> Self {
+        Self::for_test(status.success(), status.code())
+    }
+}
 
 /// Captured status and bounded byte streams from one Git invocation.
 ///
 /// Output is kept as bytes so machine-oriented parsers can preserve non-UTF-8
-/// repository paths. Truncation flags distinguish a complete stream from a
-/// prefix retained up to the runner limit.
+/// repository paths. Typed completeness states distinguish a complete stream
+/// from a prefix retained up to the runner limit.
 #[derive(Debug)]
 pub struct CommandOutput {
-    success: bool,
-    code: Option<i32>,
+    status: CommandStatus,
     stdout: Vec<u8>,
     stderr: Vec<u8>,
-    stdout_truncated: bool,
-    stderr_truncated: bool,
+    stdout_completeness: OutputCompleteness,
+    stderr_completeness: OutputCompleteness,
 }
 
 impl CommandOutput {
@@ -42,25 +78,24 @@ impl CommandOutput {
         stderr: Vec<u8>,
     ) -> Self {
         Self {
-            success,
-            code,
+            status: CommandStatus::for_test(success, code),
             stdout,
             stderr,
-            stdout_truncated: false,
-            stderr_truncated: false,
+            stdout_completeness: OutputCompleteness::Complete,
+            stderr_completeness: OutputCompleteness::Complete,
         }
     }
 
     /// Reports whether Git returned a successful exit status.
     #[must_use]
-    pub fn success(&self) -> bool {
-        self.success
+    pub const fn success(&self) -> bool {
+        self.status.succeeded()
     }
 
     /// Returns the numeric exit code, or `None` when the process ended by signal.
     #[must_use]
-    pub fn code(&self) -> Option<i32> {
-        self.code
+    pub const fn code(&self) -> Option<i32> {
+        self.status.code()
     }
 
     /// Returns captured standard-output bytes.
@@ -77,18 +112,19 @@ impl CommandOutput {
 
     /// Reports whether standard output crossed its configured byte limit.
     #[must_use]
-    pub fn stdout_truncated(&self) -> bool {
-        self.stdout_truncated
+    pub const fn stdout_truncated(&self) -> bool {
+        self.stdout_completeness.is_truncated()
     }
 
     /// Reports whether standard error crossed its configured byte limit.
     #[must_use]
-    pub fn stderr_truncated(&self) -> bool {
-        self.stderr_truncated
+    pub const fn stderr_truncated(&self) -> bool {
+        self.stderr_completeness.is_truncated()
     }
 }
 
 /// A failure at the repository discovery, subprocess, or parsing boundary.
+#[non_exhaustive]
 #[derive(Debug)]
 pub enum GitError {
     /// The operating system prevented a process or filesystem operation.
@@ -124,7 +160,7 @@ pub enum GitError {
         /// Specific malformed-record detail.
         detail: String,
     },
-    /// Repository or platform state falls outside ChronoGit's support boundary.
+    /// Repository or platform state falls outside `ChronoGit`'s support boundary.
     Unsupported(String),
 }
 
@@ -158,7 +194,11 @@ impl Display for GitError {
                 write!(formatter, "{operation} exceeded the output limit")
             }
             Self::TimedOut { operation } => {
-                write!(formatter, "{operation} exceeded the 30 second time limit")
+                write!(
+                    formatter,
+                    "{operation} exceeded the {} second time limit",
+                    MAX_COMMAND_DURATION.as_secs()
+                )
             }
             Self::Parse { context, detail } => {
                 write!(formatter, "could not parse {context}: {detail}")
@@ -192,6 +232,11 @@ pub trait GitRunner: Send + Sync + 'static {
     /// `root` is `None` during discovery and present for repository-local reads.
     /// A successful `Result` preserves Git's exit status in [`CommandOutput`];
     /// service methods decide which non-zero statuses have domain meaning.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GitError`] when the command cannot be prepared, spawned,
+    /// bounded, read, or waited for by the implementation.
     fn run(
         &self,
         root: Option<&RepositoryRoot>,
@@ -265,17 +310,16 @@ impl GitRunner for SystemGitRunner {
         };
 
         let status = wait_with_limit(&mut child, &exceeded, command.kind(), MAX_COMMAND_DURATION);
-        let (stdout, stdout_truncated) = join_reader(stdout_reader, command.kind())?;
-        let (stderr, stderr_truncated) = join_reader(stderr_reader, command.kind())?;
+        let (stdout, stdout_completeness) = join_reader(stdout_reader, command.kind())?;
+        let (stderr, stderr_completeness) = join_reader(stderr_reader, command.kind())?;
         let status = status?;
 
         Ok(CommandOutput {
-            success: status.success(),
-            code: status.code(),
+            status: status.into(),
             stdout,
             stderr,
-            stdout_truncated,
-            stderr_truncated,
+            stdout_completeness,
+            stderr_completeness,
         })
     }
 }
@@ -338,15 +382,15 @@ fn build_process(root: Option<&RepositoryRoot>, command: &GitCommand) -> Command
             ]);
             process.arg(path.to_os_string());
         }
-        GitCommand::Commits { skip, limit } => {
+        GitCommand::Commits { page } => {
             process
                 .arg("log")
                 .arg("-z")
                 .arg("--date=iso-strict")
                 .arg("--topo-order")
                 .arg("--format=%H%x00%P%x00%an%x00%aI%x00%s")
-                .arg(format!("--skip={skip}"))
-                .arg(format!("--max-count={limit}"));
+                .arg(format!("--skip={}", page.skip()))
+                .arg(format!("--max-count={}", page.limit()));
         }
         GitCommand::RepositoryFiles => {
             process.args([
@@ -380,6 +424,12 @@ fn build_process(root: Option<&RepositoryRoot>, command: &GitCommand) -> Command
                 .arg(format!("--max-count={limit}"))
                 .arg("--")
                 .arg(path.to_os_string());
+        }
+        GitCommand::RevisionFile { revision, path } => {
+            let mut object = OsString::from(revision.as_str());
+            object.push(":");
+            object.push(path.to_os_string());
+            process.args(["show", "--format="]).arg(object);
         }
         GitCommand::CommitMessage { commit } => {
             process.args(["show", "-s", "--format=%B", commit.as_str()]);
@@ -452,14 +502,10 @@ fn build_process(root: Option<&RepositoryRoot>, command: &GitCommand) -> Command
     process
 }
 
-fn read_limited<R: Read>(
-    mut reader: R,
-    limit: usize,
-    exceeded: &AtomicBool,
-) -> io::Result<(Vec<u8>, bool)> {
-    let mut stored = Vec::with_capacity(limit.min(64 * 1024));
-    let mut buffer = [0_u8; 16 * 1024];
-    let mut truncated = false;
+fn read_limited<R: Read>(mut reader: R, limit: usize, exceeded: &AtomicBool) -> ReaderResult {
+    let mut stored = Vec::with_capacity(limit.min(INITIAL_CAPTURE_CAPACITY));
+    let mut buffer = [0_u8; READ_BUFFER_BYTES];
+    let mut completeness = OutputCompleteness::Complete;
     loop {
         let read = reader.read(&mut buffer)?;
         if read == 0 {
@@ -469,11 +515,11 @@ fn read_limited<R: Read>(
         let keep = remaining.min(read);
         stored.extend_from_slice(&buffer[..keep]);
         if keep < read {
-            truncated = true;
+            completeness = OutputCompleteness::Truncated;
             exceeded.store(true, Ordering::Release);
         }
     }
-    Ok((stored, truncated))
+    Ok((stored, completeness))
 }
 
 fn spawn_reader<R: Read + Send + 'static>(
@@ -519,11 +565,11 @@ fn wait_with_limit(
         {
             return Ok(status);
         }
-        thread::sleep(Duration::from_millis(2));
+        thread::sleep(CHILD_POLL_INTERVAL);
     }
 }
 
-fn join_reader(handle: ReaderHandle, operation: &'static str) -> Result<(Vec<u8>, bool), GitError> {
+fn join_reader(handle: ReaderHandle, operation: &'static str) -> Result<CapturedStream, GitError> {
     handle
         .join()
         .map_err(|_| GitError::Io {
