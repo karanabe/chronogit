@@ -1,283 +1,106 @@
-<br />
 <p align="center">
   <img src="https://raw.githubusercontent.com/karanabe/chronogit/master/docs/src/assets/ChronoGitLogo.png" alt="ChronoGit" width="520" />
 </p>
+
 <h1 align="center">ChronoGit</h1>
 <h3 align="center">A read-only terminal UI for exploring Git history, diffs, and source code.</h3>
-<br />
-<br />
 
-ChronoGit is a read-only terminal UI with two complementary workflows: Git history and a working-tree code viewer. It keeps unstaged changes, commit history and graph, repository search, full commit messages, commit trees, and syntax-highlighted source in one Vim-oriented interface.
+ChronoGit brings unstaged changes, commit history and graphs, repository search,
+and syntax-highlighted source code into one Vim-oriented terminal interface. It
+only reads your repository: it never stages, restores, commits, checks out, or
+updates references.
 
-## Status
+## Quick start
 
-ChronoGit `0.5.0` is the current published release. Linux and macOS are supported. Windows, bare repositories, and non-interactive terminals are not supported yet.
+### Requirements
 
-The source is a Cargo workspace containing `chronogit` and the framework-independent `vim-navigation` library. This README describes the current checkout; a crates.io release can have different default keys. Use a checkout to try unreleased changes.
-
-The current checkout uses `Space` as the application leader; `0.5.0` uses backslash. Standalone `Ctrl-h` / `Ctrl-k` and `Ctrl-j` / `Ctrl-l` focus the previous and next panes; the existing `Ctrl-w` sequences remain available. `Enter` moves within open text documents. Review the [upgrade notes](docs/src/content/docs/guides/getting-started.md#upgrade-from-040), especially if you use a custom keymap.
-
-## Requirements
-
+- Linux or macOS
 - Rust 1.88 or newer
 - Git available on `PATH`
-- An interactive terminal of at least 80x24
-- Optional: a user-installed language server for semantic Code navigation
+- An interactive terminal at least 80 columns by 24 rows
 
-## Install
-
-Install the published crate from crates.io:
+Install the published release with Cargo:
 
 ```bash
 cargo install chronogit --locked
 ```
 
-Or install from a checkout:
+Then open a Git repository:
+
+```bash
+chronogit /path/to/repository
+```
+
+When run inside a repository, the path can be omitted:
+
+```bash
+chronogit
+```
+
+ChronoGit starts in the **Changes** view. Press `F1` for the complete key guide
+for your installed version, use `j` / `k` to move, `Enter` to open an item, `q`
+to go back, and `Q` or `Ctrl-C` to quit.
+
+To start in another view:
+
+```bash
+chronogit --view history
+chronogit --view graph
+chronogit --view code
+```
+
+To install the current checkout instead of the published release, run this from
+the repository root:
 
 ```bash
 cargo install --path . --locked
 ```
 
-The checkout command resolves `vim-navigation` inside this monorepo. It does
-not replace `cargo install chronogit --locked`, which continues to install the
-already-published release from the registry.
-
-The `chronogit` binary can then be launched from any directory:
-
-```bash
-chronogit [PATH] [--view changes|history|graph|code] [--keymap PATH] [--lsp PROFILE]...
-```
-
-`PATH` may be a repository root or any directory below it. It defaults to the current directory. `--view` defaults to `changes`, preserving the existing landing workflow; `--keymap` overrides the optional XDG keymap path.
-
-## Workflows
-
-### Read unstaged changes
-
-Start in Changes view with `chronogit`. The left pane contains tracked and untracked worktree changes. Select a file to see its `index → working tree` diff. Recognized source files use syntax highlighting; addition, removal, and hunk backgrounds continue through the available diff content width without replacing token colors or crossing pane borders.
-
-Staged-only files are intentionally hidden. A file with both staged and unstaged edits shows only the unstaged part.
-
-### Read commit history
-
-Press `Space 2`, or start with `chronogit --view history`. History uses three full-width rows—commits, changed files/tree, then diff—so commit subjects and paths retain the terminal width. Select a commit and press `Enter` to focus Changed files, select a file, then press `Enter` to open its patch in a large floating diff.
-
-From a focused or floating diff, press `Space v` to open the selected commit's
-complete new-state file at the corresponding line. Its Changes mode highlights
-added lines and inserts removed lines in red at their former positions;
-`Space d` switches to the undecorated new-state view. With an explicitly enabled language
-server, `Space s` lists document symbols that contain changed lines; choose a
-symbol to jump into the complete file, or choose the first row to open the file
-without selecting a symbol.
-
-- A root commit is compared with the empty tree.
-- A normal commit is compared with its parent.
-- A merge commit is compared with its first parent.
-
-The active comparison is shown in both the diff pane title and the footer.
-
-### Read a commit message or tree
-
-- Press `Space m` to open the selected commit's complete message in a floating overlay. Press `Space m` again, `q`, or `Esc` to close it.
-- Press `Space b` to switch History to a three-row body layout: the same commit list, commit body, and changed files. Press `Space b` again to return to the diff layout.
-- Press `Space t` to switch between changed files and the selected commit's tree.
-- Press `Enter` to expand a directory or open a selected file in the floating diff. An unchanged tree file reports that it has no change in the selected commit.
-- The floating diff supports Vim normal-mode movement: counts, `h` / `j` / `k` / `l`, word motions, line and buffer motions, character find/till, sentence/paragraph/section motions, matching pairs, viewport positioning, and `[c` / `]c` change-block jumps. The character cursor is drawn without replacing syntax colors. `/` and `?` search; `n` / `N`, `*` / `#`, and `g*` / `g#` repeat or derive searches. `Enter` acts like `+` and moves to the next line's first nonblank; use `q` to close the diff immediately. `Esc` first clears visible search highlights, then closes on the next press.
-
-Symlinks and submodules are identified in the tree. ChronoGit does not enter a submodule repository.
-
-### Follow the Git graph
-
-Press `Space 3`, or start with `chronogit --view graph`. The graph uses commit parent relationships to display active branch lanes. `Space m` opens the selected commit message. `Enter` opens a floating two-row detail window over the graph, with changed files above the selected file's diff; another `Enter` opens the complete diff. Press `q` to return one level at a time. `Esc` first dismisses active diff search highlights, then returns.
-
-### Browse the complete working tree
-
-Press `Space 4`, or start with `chronogit --view code`, to enter the Code viewer. The upper pane is an expandable tree containing tracked files and non-ignored untracked files; the lower pane previews the selected file with line numbers and syntax highlighting. Press `Enter` on a directory to expand or collapse it. Use `Ctrl-h` / `Ctrl-k` and `Ctrl-j` / `Ctrl-l` to move between the tree and code panes; the corresponding `Ctrl-w` sequences still work.
-
-Press `Enter` on a file in the tree, or from the code pane, to open the current content in a large floating view. It shares the read-only Vim movement vocabulary with diffs, including word motions, counts, character searches, marks, the jump list, and viewport commands. `Enter` moves down inside the document; `q` returns immediately. `Esc` first dismisses search highlights, then returns. `Space f` and `Space g` search from the Code viewer; selecting a result reveals the file in the tree and opens its current content at the matching line when available.
-
-`Space v` opens the selected source in the common full-file view. With LSP
-enabled, `Space s` opens its document-symbol list from either the Code or file-
-history content viewer; selecting a symbol jumps to it in the full file. The
-list always includes an explicit full-file choice, so symbol selection is never
-required.
-
-In focused Code content, Vim movements operate on a UTF-8-safe character cursor. Set a mark with `m{letter}`, jump linewise with `'{letter}`, or jump to its exact column with `` `{letter}``. With an explicitly enabled language server, `K` opens hover information; `gd`, `gi`, `gy`, and `gD` navigate to definition, implementation, type definition, and declaration. `Ctrl-o` / `Ctrl-i` traverse a shared jump list containing Vim motions, marks, searches, and LSP targets. Results outside the repository, including virtual `jdt:` documents, are reported but never passed to the file reader.
-
-### Search files or working-tree text
-
-Press `Space f` from any main view to find tracked and untracked file names. Press `Space g` for a fixed-text search across non-binary working-tree content. Results update after every inserted or deleted query character. Press `Enter` or `Ctrl-j` to focus Results, choose a result with `j` / `k`, and press `Enter` again to open it. Press `Ctrl-h`, `Ctrl-k`, or the retained `Ctrl-w k` sequence from Results to return to Search, edit the current query, and run another live search.
-
-While entering a search query, `q` and `Q` are ordinary query characters. Use `Esc` to cancel the prompt and `Ctrl-C` to quit.
-
-The file view shows its commit history above its current working-tree content. Changing the selected history commit replaces the lower pane with that commit's first-parent diff. `Enter` opens the current content or diff full-screen; `q` closes the float and then returns to the originating view; `Esc` first dismisses active diff search highlights when present.
-
-## Keys
-
-| Key | Action |
-|---|---|
-| `q` | Close the current float or go back immediately |
-| `Esc` | Cancel input; in Diff/Code/full-file views dismiss search highlights first, then close/back |
-| `Q` / `Ctrl-C` | Quit |
-| `Space 1` / `Space 2` / `Space 3` / `Space 4` | Changes / History / Graph / Code |
-| `Space f` / `Space g` | Search repository files / working-tree text |
-| `Space s` / `Space v` / `Space d` | Changed-symbol context / complete file / annotated-changes mode |
-| `Ctrl-h` / `Ctrl-k`, `Ctrl-j` / `Ctrl-l` | Focus the previous / next pane; the `Ctrl-w h/k/j/l`, `Ctrl-w W/w`, and arrow sequences still work |
-| `[count]h/j/k/l`, arrows | Character / line movement; counts apply throughout |
-| `[count]Backspace` | Move left across lines like enabling Vim's corresponding `'whichwrap'` flag |
-| `w/W/e/E`, `b/B/ge/gE` | Word / WORD movement |
-| `0`, `^`, `$`, `g_`, `gg`, `G`, `go`, `%` | Line, buffer, byte-offset, and pair movement |
-| `f/F/t/T{char}`, `;` / `,` | Find/till a character and repeat/reverse |
-| `(`/`)`, `{`/`}`, `[[`/`]]`, `[]`/`][` | Sentence, paragraph, and section movement |
-| `Ctrl-d/u`, `Ctrl-f/b`, `zt/zz/zb`, `zh/zl/zH/zL/zs/ze` | Vertical and horizontal viewport movement |
-| `m{char}`, `'{char}`, `` `{char}`` | Set and jump to a Code mark |
-| `K` | Toggle LSP hover information; `j` / `k` scroll it |
-| `gd` / `gi` | Definition / implementation |
-| `gy` / `gD` | Type definition / declaration |
-| `[count]Ctrl-o` / `[count]Ctrl-i` | Older / newer Vim or LSP jump location |
-| `r` | Refresh the current view |
-| `Space m` / `Space b` / `Space t` | Full message / History body layout / commit tree |
-| `Enter` | Select/open an item; in an open text document, move like `+` |
-| `/` / `?`, `n` / `N`, `*` / `#`, `g*` / `g#` | Search within the active text document |
-| `F1` | Toggle in-app help |
-
-Diff, Code, and full-file views highlight each matched string: the current match has a yellow background, other matches are underlined, and the cursor stays cyan. Default `Esc` removes only search decoration, keeping the query, direction, focus, cursor and scroll position. `n` / `N` or a confirmed search restores it. With no highlights, `Esc` follows the existing close/back behavior; `q` always closes/backs immediately outside input. Prompt and find/till/mark cancellation and frontmost help, hover or repository search take priority.
-
-History always stacks its three panes vertically at the supported terminal sizes. In Changes, widths below 110 columns show the focused pane at full width; use `Ctrl-h` / `Ctrl-k` and `Ctrl-j` / `Ctrl-l` to move between panes.
-
-Standalone pane-focus controls apply only in normal pane contexts. Search input, find/till and mark character waits, and single-pane overlays keep their existing priority. ChronoGit distinguishes `Ctrl-h` from Backspace only when the terminal backend reports different events; a terminal or multiplexer that sends the same byte for both physical keys cannot preserve both meanings. Use the retained `Ctrl-w` sequences or replace `focus_previous` in the keymap when needed.
-
-In document searches (`/` or `?`), Backspace deletes the last character. Deleting the last character leaves an empty prompt so you can type a replacement; press Backspace once more to cancel. Esc cancels at any point. Cancellation removes the input cursor (`█`) and keeps the document, focus, cursor, scroll position and previous confirmed search, including its direction and highlight visibility. `n` / `N` resumes that search. Enter in an empty prompt reuses the previous query. A retained search status such as `/word 1/3` is not input mode. Repository searches (`Space f` / `Space g`) keep their existing behavior.
-
-ChronoGit reserves `Space` as its leader in normal application contexts, so a
-standalone `Space` motion is not part of its default keymap. Use `l` or Right
-for ordinary right movement. The `vim-navigation` library still implements
-Vim's line-wrapping Space motion and keeps it in the 85-case oracle; users can
-bind `cursor_right_wrap` to a non-conflicting key such as `\`. A standalone
-Space can be restored only after replacing every remaining Space-prefixed
-application action. In repository-search prompts, Space and `jj` are literal
-query text; ChronoGit does not use the library's editable-buffer resolver.
-
-## Keymap configuration
-
-ChronoGit loads `$XDG_CONFIG_HOME/chronogit/keymap.conf`, falling back to `~/.config/chronogit/keymap.conf`, when that file exists. Copy [`config/keymap.conf`](config/keymap.conf) and uncomment only the actions you want to replace, or pass another file with `--keymap PATH`. For example:
-
-```ini
-[bindings]
-show_graph = x
-show_code = c
-file_search = ctrl-p
-content_search = space s
-# Replacing either focus action replaces all of its aliases; list those to keep.
-focus_previous = alt-h, ctrl-w h, ctrl-w k
-focus_next = alt-l, ctrl-w j, ctrl-w l
-# Optional: immediate close even on Esc (replaces its dismissal behavior)
-# close = q, esc
-quit = Q
-```
-
-An explicit `close` assignment replaces both default close keys. Every assigned key closes immediately, including an explicitly listed `esc`; omitting `esc` removes its default action so it can be rebound. Leave `close` unset to keep the default two-step Esc.
-
-Key sequences are space-separated and alternatives are comma-separated. Invalid, duplicate, or ambiguous bindings fail before raw terminal mode starts. `Ctrl-C` always remains available for safe exit. The complete action and key syntax is in the [keymap reference](docs/src/content/docs/reference/keymap.md).
-
-## Optional language-server navigation
-
-LSP is off unless at least one `--lsp PROFILE` is supplied. ChronoGit ships client profiles, not language-server binaries:
-
-```bash
-chronogit --view code --lsp rust-analyzer
-chronogit --view code --lsp jdtls
-chronogit --view code --lsp pyright
-chronogit --view code --lsp basedpyright
-chronogit --view code --lsp pylsp
-
-# A polyglot repository
-chronogit --view code --lsp rust-analyzer --lsp jdtls --lsp pyright
-```
-
-Install the selected executable separately using the upstream instructions for [rust-analyzer](https://rust-analyzer.github.io/book/installation.html), [Eclipse JDT LS](https://github.com/eclipse-jdtls/eclipse.jdt.ls), [Pyright](https://github.com/microsoft/pyright), [basedpyright](https://docs.basedpyright.com/latest/installation/), or [Python LSP Server](https://github.com/python-lsp/python-lsp-server), and put it on `PATH`. JDT LS uses its `jdtls` wrapper and currently needs a Java 21+ runtime. Pyright and basedpyright use their `*-langserver --stdio` commands; Python LSP Server uses `pylsp`. Do not enable multiple Python profiles together: ChronoGit refuses ambiguous routing instead of selecting one implicitly. At startup, ChronoGit only validates and selects profiles. The matching process starts lazily on the first hover, navigation, or document-symbol request, after extension and workspace-root routing, and is reused until eviction or shutdown.
-
-Built-ins can be replaced or extended only from the trusted user-level `$XDG_CONFIG_HOME/chronogit/lsp.toml` (or `~/.config/chronogit/lsp.toml`), or `--lsp-config PATH`. Start from [`config/lsp.toml`](config/lsp.toml). Repository-local command configuration is never loaded. A profile is data, so future languages do not require another client implementation:
-
-```toml
-[servers.gopls]
-language_id = "go"
-extensions = ["go"]
-command = ["gopls"]
-root_markers = ["go.mod", "go.work"]
-```
-
-Commands are direct argument arrays, not shell strings. Supported whole-argument placeholders are `{workspace_root}`, `{workspace_data}`, `{workspace_config}`, and `{cache_dir}`; partial interpolation is rejected. The workspace data/configuration placeholders require `workspace_data = true`.
-
-## Read-only and failure behavior
-
-ChronoGit only invokes an allowlisted set of Git read commands. It never stages, restores, commits, checks out, resets, or updates references. Commands are executed without a shell; pathspecs use separate arguments after `--` where Git supports them, while historical full-file reads combine a validated object ID and validated repository path into one revision expression. Optional Git locks are disabled, and external diff, textconv, pager, and fsmonitor programs are disabled. Code-viewer file reads remain rooted at the discovered worktree and do not follow symbolic links.
-
-An explicitly enabled language server is a separate trust boundary. It receives the repository workspace and the complete UTF-8 source text currently being inspected, including a selected commit's new-state file for document-symbol requests, and may execute project tooling or create caches/build artifacts according to that server and project configuration. Enable LSP only for repositories you trust. ChronoGit starts no server by default, downloads nothing, uses no repository-provided server command, and keeps JDT workspace data outside the repository.
-
-Git output is bounded. A text diff larger than 8 MiB is terminated and displayed as truncated instead of growing memory without limit; current and historical full-file reads are also capped at 8 MiB. A Git command that runs longer than 30 seconds is terminated with a recoverable error. Binary changes and files are shown as a summary.
-
-Startup errors are printed before raw terminal mode is enabled. During the TUI, recoverable Git errors are shown in the affected pane. Normal exit, errors, Ctrl-C, and panics restore the alternate screen, cursor, mouse capture, and raw mode.
-
-## Non-goals
-
-ChronoGit does not stage, restore, commit, reset, check out, or otherwise mutate a repository. It also does not provide staged-change, remote, pull-request, blame, stash, editor, plugin, or machine-readable export features. Position-based semantic navigation remains limited to complete current-working-tree text files and repository-contained `file:` URI results. Document-symbol context also supports the complete new-state text of a selected commit; dependency, standard-library, archive, and virtual-document source is not opened.
-
-## Troubleshooting
-
-- `an interactive TTY is required`: run `chronogit` directly in a terminal, not in a pipe, background task, or captured command.
-- `repository path is not a directory` or repository discovery fails: pass an existing non-bare Git repository or a directory below it.
-- `Terminal too small`: resize to at least 80 columns by 24 rows. `Q` and `Ctrl-C` still quit safely.
-- A pane shows a Git error: correct the repository or permission problem, then press `r` to retry the current view.
-- A diff is truncated or a command times out: inspect a smaller target; the 8 MiB output and 30-second process limits are intentional safety boundaries.
-- `LSP is disabled`: restart with one or more trusted `--lsp PROFILE` options.
-- A server cannot start: install the selected external binary and verify it is on `PATH`; errors remain recoverable inside the TUI.
-- Multiple Python servers match: enable exactly one of `pyright`, `basedpyright`, or `pylsp` for `.py`/`.pyi` files.
-
-## Use alongside coding agents
-
-ChronoGit can serve as a human-controlled review companion while a coding agent works. An optional command-handoff skill targets **OpenAI Codex** first, with **Claude Code** and **Grok Build** also supported. The agent resolves the repository and prepares an exact command for the user to run in a separate terminal; it does not launch, view, or operate the TUI:
-
-```bash
-chronogit /path/to/repository --view changes
-```
-
-The shared skill is in [`integrations/codex/chronogit`](integrations/codex/chronogit). Install it for Codex with:
-
-```bash
-mkdir -p ~/.agents/skills
-cp -R integrations/codex/chronogit ~/.agents/skills/
-```
-
-Use `~/.claude/skills/` for Claude Code or `~/.grok/skills/` for Grok Build. Invoke it explicitly as `$chronogit` in Codex or `/chronogit` in Claude Code and Grok Build. It also matches natural-language requests to let the user inspect current changes, commit history, or source code interactively; it does not prepare a command merely because an agent edited a file or needs to summarize a diff.
-
-Open another terminal window, tab, split, or `tmux` pane and run the command there. The agent cannot see or operate the TUI. Switch between the agent and that terminal with the terminal application's normal controls, press `Q` or `Ctrl-C` to close ChronoGit, and rerun the command to open it again. See the complete [coding-agent setup and switching guide](docs/src/content/docs/guides/agents.md).
-
-The skill grants no additional permissions and does not turn the TUI into a machine-readable protocol. The separate terminal must provide an interactive TTY.
-
-## Development
-
-```bash
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features --tests --benches -- -D warnings
-cargo test --workspace --all-features
-cargo build --workspace --release --locked
-cargo install --path . --locked
-```
-
-Before publishing ChronoGit, its required `vim-navigation` version must be
-available on crates.io. Local builds use the workspace path; registry packages
-use the version requirement. See the [release procedure](docs/src/content/docs/developer/release.md)
-and the crate's [Vim compatibility contract](crates/vim-navigation/COMPATIBILITY.md).
+See the [getting-started guide](docs/src/content/docs/guides/getting-started.md)
+for platform support, upgrade notes, and the complete first-run walkthrough.
+
+## What you can explore
+
+- **Changes:** inspect tracked and untracked unstaged work.
+- **History:** read commits, full messages, changed files, trees, and patches.
+- **Graph:** follow commit parent relationships across branch lanes.
+- **Code:** browse the working tree and read syntax-highlighted files.
+- **Search:** find repository files or fixed text, then inspect the matching
+  file and its history.
+
+Optional language-server profiles add hover, symbol, and definition navigation
+for trusted repositories. Language servers are never downloaded or started
+unless you explicitly enable them.
 
 ## Documentation
 
-- Developer documentation:
-  [`docs/src/content/docs/index.mdx`](docs/src/content/docs/index.mdx)
-- Contributor workflow and pull request expectations:
-  [`CONTRIBUTING.md`](CONTRIBUTING.md)
-- Architecture notes and module boundaries:
-  [`DEVELOPMENT.md`](DEVELOPMENT.md)
+- [Getting started](docs/src/content/docs/guides/getting-started.md)
+- [Changes](docs/src/content/docs/guides/changes.md),
+  [history](docs/src/content/docs/guides/history.md),
+  [code browsing](docs/src/content/docs/guides/code-viewer.md), and
+  [search](docs/src/content/docs/guides/search.md)
+- [Navigation and layout](docs/src/content/docs/guides/navigation.md)
+- [CLI reference](docs/src/content/docs/reference/cli.md) and
+  [keymap configuration](docs/src/content/docs/reference/keymap.md)
+- [Safety, limits, and non-goals](docs/src/content/docs/reference/safety-and-limits.md)
+- [Troubleshooting](docs/src/content/docs/troubleshooting/common-problems.md)
+- [Using ChronoGit alongside coding agents](docs/src/content/docs/guides/agents.md)
+
+Japanese documentation is available under
+[`docs/src/content/docs/ja/`](docs/src/content/docs/ja/).
+
+## `vim-navigation`
+
+This workspace also contains `vim-navigation`, a terminal-framework-independent
+Rust library for Vim-compatible motion and modal text-input state. ChronoGit
+users do not need to configure it. Library users should start with the
+[`vim-navigation` README](crates/vim-navigation/README.md) and its
+[compatibility contract](crates/vim-navigation/COMPATIBILITY.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow and
+[DEVELOPMENT.md](DEVELOPMENT.md) for architecture and module boundaries.
 
 ### License
 

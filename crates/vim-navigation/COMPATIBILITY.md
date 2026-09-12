@@ -1,6 +1,6 @@
 # Vim compatibility contract
 
-This document fixes the comparison boundary for `vim-navigation` 0.1.0. It is
+This document fixes the comparison boundary for `vim-navigation` 0.2.0. It is
 part of the source contract; a successful build alone is not compatibility
 evidence.
 

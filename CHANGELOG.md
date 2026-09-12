@@ -4,6 +4,10 @@ All notable changes to ChronoGit are documented here.
 
 ## Unreleased
 
+## 0.6.0
+
+This release pairs ChronoGit 0.6.0 with `vim-navigation` 0.2.0.
+
 ### Added
 
 - Added a diff-to-source review flow for worktree and historical commit files:

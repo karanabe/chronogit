@@ -114,7 +114,7 @@ Build each archive on its target OS. Set one supported target label explicitly:
 From the clean checkout, replace the target value as needed:
 
 ```sh title="Terminal"
-release_version=0.5.0
+release_version=0.6.0
 release_target=x86_64-unknown-linux-gnu
 release_name="chronogit-${release_version}-${release_target}"
 release_stage=$(mktemp -d)

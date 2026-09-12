@@ -19,8 +19,12 @@ Requires Rust 1.88 or newer. For a published release, add:
 
 ```toml
 [dependencies]
-vim-navigation = "0.1.0"
+vim-navigation = "0.2.0"
 ```
+
+When upgrading from `0.1.0`, replace the boolean count-origin argument to
+`Motion::counted` with `CountSource::Explicit` or `CountSource::Implicit`.
+The enum keeps the same distinction while making call sites self-describing.
 
 To try unreleased source before its version is available on crates.io, use the
 repository instead:

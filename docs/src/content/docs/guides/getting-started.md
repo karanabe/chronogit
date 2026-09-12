@@ -12,7 +12,7 @@ sidebar:
 ChronoGit is a read-only terminal interface for inspecting Git changes, history, and working-tree source code. This guide installs it with Cargo and opens a repository without changing it.
 
 :::note[Distribution status]
-This guide describes the current checkout, including unreleased changes. The `0.5.0` release uses backslash as the application leader; the checkout uses Space. Install from a checkout to follow the Space bindings below, or consult `F1` in the installed release for its keys.
+Version `0.6.0` is prepared in this checkout. Until it is available from crates.io, install from a trusted checkout to use the behavior described below.
 :::
 
 ## Requirements
@@ -23,7 +23,7 @@ This guide describes the current checkout, including unreleased changes. The `0.
 - An interactive terminal at least 80 columns by 24 rows
 - A non-bare Git repository
 
-Windows, bare repositories, pipes, captured commands, and background sessions are not supported in `0.5.0`.
+Windows, bare repositories, pipes, captured commands, and background sessions are not supported in `0.6.0`.
 
 ## Install from crates.io
 
@@ -45,18 +45,18 @@ Whichever installation method you use, confirm that the binary is available:
 
 ```sh title="Terminal"
 chronogit --version
-# chronogit 0.5.0
+# chronogit 0.6.0
 ```
 
-## Upgrade from 0.4.0
+## Upgrade from 0.5.0
 
-Version `0.5.0` expands Vim movement, reserves digits for counts, and uses `Ctrl-w` for pane focus. The current checkout additionally changes the application leader from backslash to Space and adds standalone pane controls:
+Version `0.6.0` changes the application leader from backslash to Space, adds standalone pane controls, and connects diffs to complete-file and changed-symbol views:
 
 - Use `Space 1` through `Space 4` to switch views, and `Space f` / `Space g` to search the repository. Space is the application leader; use `l` or Right for default right movement.
 - Use standalone `Ctrl-h` / `Ctrl-k` and `Ctrl-j` / `Ctrl-l` to focus the previous and next panes. The existing `Ctrl-w h/k/j/l` sequences remain available. From repository-search Results, either previous-pane control returns to query editing.
-- In an open text document, `Enter` moves to the next line's first nonblank character. Use `q` to close immediately. In Diff and Code, default `Esc` first dismisses visible search highlights, then closes or goes back on the next press.
+- From a diff, use `Space v` to open the complete new-state file and `Space d` to toggle its annotated Changes view. With an enabled language server, `Space s` opens the changed-symbol context.
 
-Review any custom keymap against the [keymap reference](/reference/keymap/). Unmodified `1` through `9` are now reserved for counts and cannot start a binding. Each configured action replaces all of its defaults, including every standalone and `Ctrl-w` alias for `focus_previous` or `focus_next`. An explicit `close` binding closes immediately even when assigned to `Esc`.
+Review any custom keymap against the [keymap reference](/reference/keymap/). Each configured action replaces all of its defaults, including every standalone and `Ctrl-w` alias for `focus_previous` or `focus_next`.
 
 ## Open a repository
 
