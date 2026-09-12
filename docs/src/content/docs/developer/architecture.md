@@ -13,6 +13,8 @@ ChronoGit is a Cargo workspace. The existing `chronogit` library and binary are 
 
 ```mermaid
 flowchart LR
+    accTitle: ChronoGit request and rendering flow
+    accDescr: Terminal input updates application state, bounded read effects return through Git or LSP services, and the resulting state is rendered in the terminal.
     Terminal["crossterm events"] --> KeyMap
     KeyMap --> VimState["vim-navigation MotionState"]
     KeyMap --> Update["AppState update"]

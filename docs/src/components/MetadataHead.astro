@@ -1,12 +1,18 @@
 ---
 import Default from '@astrojs/starlight/components/Head.astro';
 
-const { tags = [] } = Astro.locals.starlightRoute.entry.data;
+const { publishedAt, updatedAt, tags = [] } = Astro.locals.starlightRoute.entry.data;
 ---
 
 <Default />
+{publishedAt && <meta property="article:published_time" content={publishedAt.toISOString()} />}
+{updatedAt && <meta property="article:modified_time" content={updatedAt.toISOString()} />}
 {
 	tags.map((tag) => (
 		<meta name="doc:tag" content={tag} data-pagefind-filter="tag[content]" />
 	))
 }
+
+<script>
+	import '../scripts/mermaid';
+</script>

@@ -8,6 +8,8 @@ export const collections = {
 		loader: docsLoader(),
 		schema: docsSchema({
 			extend: z.object({
+				publishedAt: z.coerce.date().optional(),
+				updatedAt: z.coerce.date().optional(),
 				tags: z
 					.array(z.string().trim().min(1))
 					.refine((values) => new Set(values).size === values.length, {

@@ -1,6 +1,10 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
+import { unified } from '@astrojs/markdown-remark';
 import starlight from '@astrojs/starlight';
+import rehypeKatex from 'rehype-katex';
+import remarkMath from 'remark-math';
+import rehypeMermaid from './src/plugins/rehype-mermaid.mjs';
 
 const project = {
 	title: 'ChronoGit',
@@ -12,6 +16,12 @@ const site = process.env.PUBLIC_SITE_URL;
 // https://astro.build/config
 export default defineConfig({
 	...(site ? { site } : {}),
+	markdown: {
+		processor: unified({
+			remarkPlugins: [remarkMath],
+			rehypePlugins: [rehypeKatex, rehypeMermaid],
+		}),
+	},
 	integrations: [
 		starlight({
 			title: {
@@ -35,10 +45,17 @@ export default defineConfig({
 						editLink: { baseUrl: `${repository}/edit/master/` },
 					}
 				: {}),
-			customCss: ['./src/styles/theme.css', './src/styles/site.css'],
+			customCss: [
+				'katex/dist/katex.min.css',
+				'./src/styles/theme.css',
+				'./src/styles/site.css',
+			],
 			components: {
 				Head: './src/components/MetadataHead.astro',
+				Header: './src/components/SiteHeader.astro',
 				SiteTitle: './src/components/SiteNavigation.astro',
+				Sidebar: './src/components/SiteSidebar.astro',
+				PageTitle: './src/components/PageTitle.astro',
 			},
 			expressiveCode: {
 				// Slack Ochin is the light theme; Tokyo Night is the dark theme.
@@ -47,6 +64,7 @@ export default defineConfig({
 				styleOverrides: { borderRadius: '0.75rem' },
 			},
 			lastUpdated: false,
+			tableOfContents: { minHeadingLevel: 2, maxHeadingLevel: 4 },
 			sidebar: [
 				{
 					label: 'Use ChronoGit',

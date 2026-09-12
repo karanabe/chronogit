@@ -13,6 +13,8 @@ ChronoGitはCargo workspaceです。既存の`chronogit` library/binaryをdomain
 
 ```mermaid
 flowchart LR
+    accTitle: ChronoGitの要求と描画の流れ
+    accDescr: ターミナル入力がアプリケーション状態を更新し、上限付きの読み取り要求がGitまたはLSPサービスから返り、その状態をターミナルへ描画します。
     Terminal["crossterm events"] --> KeyMap
     KeyMap --> VimState["vim-navigation MotionState"]
     KeyMap --> Update["AppState update"]
