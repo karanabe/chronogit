@@ -9,6 +9,8 @@ template: splash
 hero:
   title: See what changed.<wbr> Never change the repository.
   tagline: ChronoGit keeps Git review and working-tree code browsing in one fast, read-only, Vim-oriented terminal interface.
+  image:
+    html: '<img src="/favicon.png" alt="" width="400" height="400" loading="eager" decoding="async">'
   actions:
     - text: Get started
       link: /guides/getting-started/
@@ -23,12 +25,7 @@ hero:
       variant: minimal
 ---
 
-import logo from '../../assets/ChronoGitLogo.png';
-
 <div class="landing-shell not-content">
-  <div class="landing-logo">
-    <img src={logo.src} alt="" width="543" height="181" loading="eager" decoding="async" />
-  </div>
   <section class="landing-intro" aria-labelledby="landing-intro-title">
     <p class="landing-eyebrow">Read-only by design</p>
     <h2 id="landing-intro-title">Review a repository without leaving your terminal.</h2>
