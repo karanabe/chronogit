@@ -99,7 +99,7 @@ Owns all communication with the installed Git executable.
 - `GitRunner` is the only substitution trait because subprocess I/O is a real slow and stateful test boundary. External implementations construct `CommandOutput` with a process exit status and `CommandStream::Complete` or `CommandStream::Truncated` for each byte stream.
 - `SystemGitRunner` executes without a shell, captures bounded byte output, records command status and stream completeness as distinct internal states, and disables optional locks, prompts, pager, color, external diff, textconv, and fsmonitor execution.
 - `GitService` exposes domain use cases: discovery, status, history, message, changed files, diff, tree children, tracked/non-ignored path listing, file/content search, per-file history, and bounded current-or-revision file content. Current-file opens stay relative to the discovered worktree descriptor and reject symbolic links in every path component; revision files use a validated object/path Git read without checking out the commit.
-- `git::parse` modules decode NUL-delimited machine output and unified patches.
+- `git::parse` modules decode NUL-delimited machine output and unified patches. The patch parser distinguishes metadata from a validated hunk with old/new remaining-line counts, so header-like source text retains its source positions. Truncated patches retain only complete lines.
 
 The repository object format is not assumed to be SHA-1. ChronoGit retains complete hexadecimal IDs returned by Git.
 

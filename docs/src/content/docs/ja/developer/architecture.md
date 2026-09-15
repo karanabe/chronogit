@@ -95,7 +95,7 @@ object、検索prompt、commit messageを編集可能にせず、`i`/`a`/`I`/`A`
 - `GitRunner`は唯一の差し替え用traitです。遅く状態を持つサブプロセスI/Oが実際のテスト境界であるためです。外部実装はプロセス終了状態と、各バイト列の`CommandStream::Complete`または`CommandStream::Truncated`から`CommandOutput`を生成します。
 - `SystemGitRunner`はシェルなしで実行し、上限付きのバイト出力を取得し、command statusとstream completenessを別々の内部状態として保持し、任意のロック、プロンプト、pager、色、外部diff、textconv、fsmonitor実行を無効にします。
 - `GitService`は検出、status、履歴、メッセージ、変更ファイル、差分、ツリー子要素、追跡済み/非ignoreパス一覧、ファイル/内容検索、ファイル単位履歴、上限付きの現在またはrevision内容というドメイン操作を提供します。現在ファイルは検出済みワークツリーのdescriptorから相対的に開き、すべてのパス要素でシンボリックリンクを拒否します。revisionファイルはcommitをcheckoutせず、検証済みobject/pathのGit readで取得します。
-- `git::parse`はNUL区切りの機械出力とunified patchを解析します。
+- `git::parse`はNUL区切りの機械出力とunified patchを解析します。patch parserはmetadataと、old/new側の残り行数を持つ検証済みhunkを区別し、headerに似たsource行にも正しい位置を付けます。切り詰めたpatchでは完全な行だけを保持します。
 
 リポジトリのobject formatをSHA-1と仮定しません。Gitが返した完全な16進object IDを保持します。
 

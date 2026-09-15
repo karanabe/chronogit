@@ -9,6 +9,11 @@ All notable changes to ChronoGit are documented here.
 - Added `CommandStream` and a public `CommandOutput` constructor so external
   `GitRunner` implementations can return complete or truncated output.
 
+### Fixed
+
+- Preserve source positions for header-like added/removed patch lines, reject
+  invalid hunk coordinates, and omit incomplete lines from truncated patches.
+
 ## 0.6.0
 
 This release pairs ChronoGit 0.6.0 with `vim-navigation` 0.2.0.
