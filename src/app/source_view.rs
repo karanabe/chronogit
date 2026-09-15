@@ -174,7 +174,12 @@ fn prepare(
         };
     }
 
-    if same_identity && matches!(state.full_file.content, LoadState::Ready(_)) {
+    // A path identifies a mutable worktree file, not a source snapshot. Only
+    // commit contents remain authoritative when reopening from a diff.
+    if same_identity
+        && matches!(source.identity.revision, FileRevision::Commit(_))
+        && matches!(state.full_file.content, LoadState::Ready(_))
+    {
         clamp_cursor(state);
         return if preparation.requests_symbols() {
             crate::app::semantic_navigation::request_document_symbols(state)
@@ -625,6 +630,35 @@ mod tests {
     }
 
     #[test]
+    fn reopening_worktree_source_reads_a_fresh_snapshot() {
+        let mut state = diff_state();
+        state.view = AppView::Changes;
+        state.diff.target = Some(DiffTarget::Worktree {
+            path: path(),
+            kind: crate::domain::WorktreeDiffKind::Tracked,
+        });
+        let effects = state.handle_app_action(Action::OpenFullFile);
+        let AppEffect::Git(GitEffect::LoadFullFile { request_id, .. }) = effects[0] else {
+            panic!("expected full-file load");
+        };
+        state.handle_app_event(Event::FullFileLoaded {
+            request_id,
+            revision: FileRevision::WorkingTree,
+            path: path(),
+            result: Ok(document()),
+        });
+        state.handle_app_action(Action::CloseOverlay);
+        let effects = state.handle_app_action(Action::OpenFullFile);
+        assert!(matches!(
+            effects.as_slice(),
+            [AppEffect::Git(GitEffect::LoadFullFile {
+                revision: FileRevision::WorkingTree,
+                ..
+            })]
+        ));
+    }
+
+    #[test]
     fn commit_diff_opens_its_new_full_file_at_the_selected_diff_line() {
         let mut state = diff_state();
         let effects = state.handle_app_action(Action::OpenFullFile);
@@ -667,6 +701,8 @@ mod tests {
         assert_eq!(state.full_file.mode, super::FullFileMode::New);
         assert!(state.handle_app_action(Action::CloseOverlay).is_empty());
         assert_eq!(state.overlay, Overlay::None);
+        assert!(state.handle_app_action(Action::OpenFullFile).is_empty());
+        assert!(matches!(state.full_file.content, LoadState::Ready(_)));
     }
 
     #[test]

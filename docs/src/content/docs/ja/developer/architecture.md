@@ -111,7 +111,7 @@ object、検索prompt、commit messageを編集可能にせず、`i`/`a`/`I`/`A`
 - 文書内検索の削除は`SearchState`が所有します。Backspaceは1文字を削除し、既に空ならpromptだけをキャンセルします。reducerは同じ操作で通常移動やcloseを重ねず、確定検索と閲覧位置を保ちます。リポジトリ検索の削除は独立したlive queryの経路を維持します。
 - `LoadState<T>`はidle、request ID付きloading、ready、failedのいずれかです。Changes、commit history、その他のview間を移動すると共有diffをリセットして再選択し、非表示の一覧への応答で表示中のdiffを置き換えません。
 - `Action`はユーザーの意図、`Event`は非同期完了、`GitEffect`は閉じたGit副作用記述です。`AppEffect`が既存`GitEffect`と常駐型`LspEffect`を、それぞれのlifecycleを混ぜずにroutingします。`SemanticNavigationState`は候補、request identity、上限付き双方向jump historyを所有し、`LspHoverState`はhover request、戻り先overlay、scroll offsetを所有します。
-- `app::source_view`はdiff cursorをnew側source行へ投影し、worktreeまたは選択commitを読み、変更されたnew側行を保持して、全文とdocument-symbol overlayを調停します。symbol選択は、その正確な読み込み済みdocument内のlocal navigationです。
+- `app::source_view`はdiff cursorをnew側source行へ投影し、worktreeまたは選択commitを読み、変更されたnew側行を保持して、全文とdocument-symbol overlayを調停します。symbol選択は、その正確な読み込み済みdocument内のlocal navigationです。worktree diffからsourceを開き直すと新しいsnapshotを読み、commit sourceは不変のidentityで再利用できます。表示済みsourceのoverlay内で移動する場合は、そのdocumentのsnapshotを維持します。
 - すべての要求に単調増加する`RequestId`を付け、source snapshotには別の`DocumentRevision`を使います。現在のリソースと選択コミットまたはdocument generationに一致する完了だけを適用します。LSP operation、JSON-RPC request、document versionのcounterはprotocol adapter内で別型のまま保持します。
 - 差分要求には75 ms、live repository searchには100 msのdebounceがあり、Gitタスクは最大2つだけ同時実行します。
 - 差分キャッシュは最大16項目、16 MiBです。更新時に消去します。

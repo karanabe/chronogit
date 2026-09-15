@@ -15,6 +15,7 @@ All notable changes to ChronoGit are documented here.
   invalid hunk coordinates, and omit incomplete lines from truncated patches.
 - Restore the selected diff when returning to a view and prevent background
   list completions from replacing another view's diff.
+- Read a fresh working-tree snapshot when reopening full source from a diff.
 - Preserve trailing CR/LF bytes when discovering a repository root.
 
 ## 0.6.0
