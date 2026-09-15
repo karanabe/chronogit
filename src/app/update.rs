@@ -217,9 +217,7 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
             Vec::new()
         }
         Action::CloseOverlay if state.view == AppView::FileHistory => {
-            state.view = state.file_view.return_view;
-            state.focus = FocusedPane::Primary;
-            Vec::new()
+            switch_view(state, state.file_view.return_view)
         }
         Action::StartSearch(_)
         | Action::InsertSearch(_)
@@ -653,14 +651,24 @@ fn next_pane(view: AppView, focus: FocusedPane) -> FocusedPane {
 }
 
 fn switch_view(state: &mut AppState, view: AppView) -> Vec<GitEffect> {
+    let previous = state.view;
     state.view = view;
     state.focus = FocusedPane::Primary;
+    if previous != view && !(previous.uses_commit_history() && view.uses_commit_history()) {
+        state.diff = crate::app::model::DiffViewState::new();
+    }
     match view {
         AppView::Changes if matches!(state.changes, LoadState::Idle) => state.request_changes(),
+        AppView::Changes if previous != view => selected_change_diff(state),
         AppView::History | AppView::CommitDetails | AppView::Graph | AppView::GraphDetails
             if matches!(state.commits, LoadState::Idle) =>
         {
             state.request_commits(crate::app::CommitLoadMode::Replace)
+        }
+        AppView::History | AppView::CommitDetails | AppView::Graph | AppView::GraphDetails
+            if !previous.uses_commit_history() && matches!(state.commits, LoadState::Ready(_)) =>
+        {
+            selected_commit_context(state)
         }
         AppView::Code if matches!(state.code_view.visible, LoadState::Idle) => {
             crate::app::code_view::request_tree(state)
@@ -1952,15 +1960,7 @@ fn refresh(state: &mut AppState) -> Vec<GitEffect> {
         AppView::Code => return crate::app::code_view::request_tree(state),
     }
     state.clear_cache();
-    state.diff = crate::app::model::DiffViewState {
-        target: None,
-        content: LoadState::Idle,
-        vertical: 0,
-        byte_column: 0,
-        desired_display_column: None,
-        viewport_vertical: 0,
-        horizontal: 0,
-    };
+    state.diff = crate::app::model::DiffViewState::new();
     match state.view {
         AppView::Changes => state.request_changes(),
         AppView::History | AppView::CommitDetails | AppView::Graph | AppView::GraphDetails => {
@@ -2110,6 +2110,9 @@ fn open_diff_overlay(state: &mut AppState) {
 }
 
 fn selected_change_diff(state: &mut AppState) -> Vec<GitEffect> {
+    if state.view != AppView::Changes {
+        return Vec::new();
+    }
     let target = match (&state.changes, state.change_selection.index()) {
         (LoadState::Ready(changes), Some(index)) => {
             changes.get(index).map(|change| DiffTarget::Worktree {
@@ -2132,6 +2135,11 @@ fn selected_commit(state: &AppState) -> Option<&CommitSummary> {
 }
 
 fn selected_commit_context(state: &mut AppState) -> Vec<GitEffect> {
+    if !state.view.uses_commit_history() {
+        state.files = LoadState::Idle;
+        state.file_selection.reset(0);
+        return Vec::new();
+    }
     let Some(commit) = selected_commit(state).cloned() else {
         state.files = LoadState::Ready(Vec::new());
         state.diff.content = LoadState::Idle;
@@ -2157,6 +2165,9 @@ fn selected_commit_context(state: &mut AppState) -> Vec<GitEffect> {
 }
 
 fn selected_file_diff(state: &mut AppState) -> Vec<GitEffect> {
+    if !state.view.uses_commit_history() {
+        return Vec::new();
+    }
     let path = match (&state.files, state.file_selection.index()) {
         (LoadState::Ready(files), Some(index)) => files.get(index).map(|file| file.path().clone()),
         _ => None,
@@ -2385,6 +2396,155 @@ mod tests {
             skip,
             NonZeroUsize::new(limit).unwrap_or_else(|| panic!("page size must be non-zero")),
         )
+    }
+
+    #[test]
+    fn switching_back_to_loaded_changes_restores_the_selected_worktree_diff() {
+        let mut state = state();
+        let path = RepoPath::from_bytes(b"working.rs".to_vec())
+            .unwrap_or_else(|error| panic!("path: {error}"));
+        state.changes = LoadState::Ready(vec![WorktreeChange::new(
+            path.clone(),
+            None,
+            ChangeKind::Modified,
+        )]);
+        state.change_selection.reset(1);
+        apply_action(&mut state, Action::ShowHistory);
+        let effects = apply_action(&mut state, Action::ShowChanges);
+        assert!(
+            matches!(effects.as_slice(), [GitEffect::LoadDiff { target: DiffTarget::Worktree { path: selected, .. }, .. }] if selected == &path)
+        );
+    }
+
+    #[test]
+    fn background_history_completion_cannot_replace_the_worktree_diff() {
+        let mut state = state();
+        let effects = apply_action(&mut state, Action::ShowHistory);
+        let GitEffect::LoadCommits {
+            request_id,
+            page,
+            mode,
+        } = effects[0]
+        else {
+            panic!("expected history request");
+        };
+        state.changes = LoadState::Ready(vec![WorktreeChange::new(
+            RepoPath::from_bytes(b"working.rs".to_vec())
+                .unwrap_or_else(|error| panic!("path: {error}")),
+            None,
+            ChangeKind::Modified,
+        )]);
+        state.change_selection.reset(1);
+        apply_action(&mut state, Action::ShowChanges);
+        let target = state.diff.target.clone();
+        let effects = apply_event(
+            &mut state,
+            Event::CommitsLoaded {
+                request_id,
+                page,
+                mode,
+                result: Ok(vec![commit('a', "history")]),
+            },
+        );
+        assert!(effects.is_empty());
+        assert_eq!(state.diff.target, target);
+        assert!(matches!(state.commits, LoadState::Ready(_)));
+        let effects = apply_action(&mut state, Action::ShowHistory);
+        assert!(
+            effects
+                .iter()
+                .any(|effect| matches!(effect, GitEffect::LoadFiles { .. }))
+        );
+        assert!(state.diff.target.is_none());
+    }
+
+    #[test]
+    fn background_worktree_completion_cannot_replace_the_history_diff() {
+        let mut state = state();
+        let effects = state.start();
+        let GitEffect::LoadChanges { request_id } = effects[0] else {
+            panic!("expected changes request");
+        };
+        apply_action(&mut state, Action::ShowHistory);
+        state.request_diff(DiffTarget::Commit {
+            commit: commit('a', "history").id().clone(),
+            baseline: crate::domain::CommitBaseline::EmptyTree,
+            path: RepoPath::from_bytes(b"historical.rs".to_vec())
+                .unwrap_or_else(|error| panic!("path: {error}")),
+        });
+        let target = state.diff.target.clone();
+        let effects = apply_event(
+            &mut state,
+            Event::ChangesLoaded {
+                request_id,
+                result: Ok(vec![WorktreeChange::new(
+                    RepoPath::from_bytes(b"working.rs".to_vec())
+                        .unwrap_or_else(|error| panic!("path: {error}")),
+                    None,
+                    ChangeKind::Modified,
+                )]),
+            },
+        );
+        assert!(effects.is_empty());
+        assert_eq!(state.diff.target, target);
+    }
+
+    #[test]
+    fn background_changed_files_cannot_replace_the_worktree_diff() {
+        let mut state = state();
+        state.commits = LoadState::Ready(vec![commit('a', "history")]);
+        state.commit_selection.reset(1);
+        let effects = apply_action(&mut state, Action::ShowHistory);
+        let GitEffect::LoadFiles {
+            request_id, commit, ..
+        } = effects[0].clone()
+        else {
+            panic!("expected changed-file request");
+        };
+        state.changes = LoadState::Ready(vec![WorktreeChange::new(
+            RepoPath::from_bytes(b"working.rs".to_vec())
+                .unwrap_or_else(|error| panic!("path: {error}")),
+            None,
+            ChangeKind::Modified,
+        )]);
+        state.change_selection.reset(1);
+        apply_action(&mut state, Action::ShowChanges);
+        let target = state.diff.target.clone();
+        let effects = apply_event(
+            &mut state,
+            Event::FilesLoaded {
+                request_id,
+                commit,
+                result: Ok(vec![ChangedFile::new(
+                    RepoPath::from_bytes(b"historical.rs".to_vec())
+                        .unwrap_or_else(|error| panic!("path: {error}")),
+                    None,
+                    ChangeKind::Modified,
+                )]),
+            },
+        );
+        assert!(effects.is_empty());
+        assert_eq!(state.diff.target, target);
+    }
+
+    #[test]
+    fn closing_file_history_restores_the_originating_views_diff() {
+        let mut state = state();
+        let path = RepoPath::from_bytes(b"working.rs".to_vec())
+            .unwrap_or_else(|error| panic!("path: {error}"));
+        state.changes = LoadState::Ready(vec![WorktreeChange::new(
+            path.clone(),
+            None,
+            ChangeKind::Modified,
+        )]);
+        state.change_selection.reset(1);
+        state.view = AppView::FileHistory;
+        state.file_view.return_view = AppView::Changes;
+        let effects = apply_action(&mut state, Action::CloseOverlay);
+        assert_eq!(state.view, AppView::Changes);
+        assert!(
+            matches!(effects.as_slice(), [GitEffect::LoadDiff { target: DiffTarget::Worktree { path: selected, .. }, .. }] if selected == &path)
+        );
     }
 
     #[test]

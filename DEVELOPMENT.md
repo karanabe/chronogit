@@ -95,7 +95,8 @@ real terminal or language server.
 - Represent exclusive UI states and load outcomes with enums instead of
   combinations of flags.
 - Attach request IDs to asynchronous work and ignore completions that no longer
-  match the selected resource.
+  match the selected resource. Reselect shared diff state when changing view
+  families; background list results must not replace another view’s diff.
 - Couple captured process bytes with their complete/truncated state through
   `CommandStream`; custom runners use the public `CommandOutput` constructor.
 - Keep process output, task concurrency, caches, history pages, debounce time,

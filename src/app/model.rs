@@ -68,6 +68,15 @@ pub enum AppView {
     Code,
 }
 
+impl AppView {
+    pub(crate) const fn uses_commit_history(self) -> bool {
+        matches!(
+            self,
+            Self::History | Self::CommitDetails | Self::Graph | Self::GraphDetails
+        )
+    }
+}
+
 /// Whether trusted language-server features are available to the application.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum LspAvailability {
@@ -379,6 +388,20 @@ pub(crate) struct DiffViewState {
     pub(crate) desired_display_column: Option<usize>,
     pub(crate) viewport_vertical: usize,
     pub(crate) horizontal: usize,
+}
+
+impl DiffViewState {
+    pub(crate) fn new() -> Self {
+        Self {
+            target: None,
+            content: LoadState::Idle,
+            vertical: 0,
+            byte_column: 0,
+            desired_display_column: None,
+            viewport_vertical: 0,
+            horizontal: 0,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -853,15 +876,7 @@ impl AppState {
             },
             files: LoadState::Idle,
             file_selection: Selection::new(),
-            diff: DiffViewState {
-                target: None,
-                content: LoadState::Idle,
-                vertical: 0,
-                byte_column: 0,
-                desired_display_column: None,
-                viewport_vertical: 0,
-                horizontal: 0,
-            },
+            diff: DiffViewState::new(),
             message: MessageState {
                 commit: None,
                 content: LoadState::Idle,
