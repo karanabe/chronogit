@@ -955,6 +955,11 @@ impl AppState {
 
     /// Applies input through the complete Git and semantic-navigation reducer.
     pub fn handle_app_action(&mut self, action: Action) -> Vec<AppEffect> {
+        // Exit is application-wide, including while an LSP modal owns input.
+        if action == Action::Quit {
+            self.should_quit = true;
+            return Vec::new();
+        }
         if let Some(effects) = crate::app::semantic_navigation::apply_action(self, action) {
             effects
         } else if let Some(effects) = crate::app::source_view::apply_action(self, action) {

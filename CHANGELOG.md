@@ -16,6 +16,7 @@ All notable changes to ChronoGit are documented here.
 - Restore the selected diff when returning to a view and prevent background
   list completions from replacing another view's diff.
 - Read a fresh working-tree snapshot when reopening full source from a diff.
+- Honor global quit from semantic overlays.
 - Preserve trailing CR/LF bytes when discovering a repository root.
 
 ## 0.6.0

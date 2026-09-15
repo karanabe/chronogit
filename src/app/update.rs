@@ -2399,6 +2399,28 @@ mod tests {
     }
 
     #[test]
+    fn quit_reaches_the_application_from_every_overlay() {
+        for overlay in [
+            Overlay::None,
+            Overlay::Help,
+            Overlay::CommitMessage,
+            Overlay::Diff,
+            Overlay::RepositorySearch,
+            Overlay::FileContent,
+            Overlay::CodeContent,
+            Overlay::SemanticTargets,
+            Overlay::LspHover,
+            Overlay::FullFile,
+            Overlay::SymbolContext,
+        ] {
+            let mut state = state();
+            state.overlay = overlay;
+            assert!(state.handle_app_action(Action::Quit).is_empty());
+            assert!(state.should_quit(), "quit was swallowed by {overlay:?}");
+        }
+    }
+
+    #[test]
     fn switching_back_to_loaded_changes_restores_the_selected_worktree_diff() {
         let mut state = state();
         let path = RepoPath::from_bytes(b"working.rs".to_vec())
