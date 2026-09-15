@@ -58,12 +58,15 @@ impl KeyStroke {
 #[derive(Clone, Debug)]
 pub(super) struct Binding {
     sequence: Vec<KeyStroke>,
-    action: Action,
+    command: BindingCommand,
 }
 
 impl Binding {
-    pub(super) fn new(sequence: Vec<KeyStroke>, action: Action) -> Self {
-        Self { sequence, action }
+    pub(super) fn new(sequence: Vec<KeyStroke>, command: impl Into<BindingCommand>) -> Self {
+        Self {
+            sequence,
+            command: command.into(),
+        }
     }
 }
 
@@ -82,7 +85,7 @@ pub struct KeyMapper {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum MarkCommand {
+pub(super) enum MarkCommand {
     Set,
     Jump {
         target: MarkJumpTarget,
@@ -250,12 +253,12 @@ impl KeyMapper {
         None
     }
 
-    fn resolve_pending(&mut self) -> Option<Action> {
+    fn resolve_pending(&mut self) -> Option<BindingCommand> {
         let action = self
             .bindings
             .iter()
             .find(|binding| binding.sequence == self.pending)
-            .map(|binding| binding.action)?;
+            .map(|binding| binding.command)?;
         let has_longer = self.bindings.iter().any(|binding| {
             binding.sequence.len() > self.pending.len()
                 && binding.sequence.starts_with(&self.pending)
@@ -269,24 +272,15 @@ impl KeyMapper {
         }
     }
 
-    fn finish_action(&mut self, action: Action) -> Option<Action> {
-        match action {
-            Action::SetVimMark('\0') => {
+    fn finish_action(&mut self, command: BindingCommand) -> Option<Action> {
+        let action = match command {
+            BindingCommand::AwaitMark(command) => {
                 let _ = self.motion_state.take_count();
-                self.awaiting_mark = Some(MarkCommand::Set);
+                self.awaiting_mark = Some(command);
                 return None;
             }
-            Action::JumpToVimMark {
-                mark: '\0',
-                target,
-                history,
-            } => {
-                let _ = self.motion_state.take_count();
-                self.awaiting_mark = Some(MarkCommand::Jump { target, history });
-                return None;
-            }
-            _ => {}
-        }
+            BindingCommand::Action(action) => action,
+        };
         if matches!(action, Action::JumpListBack(_) | Action::JumpListForward(_)) {
             let count = self.motion_state.take_count();
             return Some(match action {
@@ -323,7 +317,51 @@ impl Default for KeyMapper {
     }
 }
 
-pub(super) fn action_for_name(name: &str) -> Option<Action> {
+/// A binding may still need input; only completed commands become app actions.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum BindingCommand {
+    Action(Action),
+    AwaitMark(MarkCommand),
+}
+
+impl From<Action> for BindingCommand {
+    fn from(action: Action) -> Self {
+        Self::Action(action)
+    }
+}
+
+impl From<MarkCommand> for BindingCommand {
+    fn from(command: MarkCommand) -> Self {
+        Self::AwaitMark(command)
+    }
+}
+
+pub(super) fn command_for_name(name: &str) -> Option<BindingCommand> {
+    let mark = match name {
+        "set_mark" => Some(MarkCommand::Set),
+        "jump_mark_line" => Some(MarkCommand::Jump {
+            target: MarkJumpTarget::Line,
+            history: JumpHistory::Record,
+        }),
+        "jump_mark_exact" => Some(MarkCommand::Jump {
+            target: MarkJumpTarget::Exact,
+            history: JumpHistory::Record,
+        }),
+        "jump_mark_line_without_history" => Some(MarkCommand::Jump {
+            target: MarkJumpTarget::Line,
+            history: JumpHistory::Preserve,
+        }),
+        "jump_mark_exact_without_history" => Some(MarkCommand::Jump {
+            target: MarkJumpTarget::Exact,
+            history: JumpHistory::Preserve,
+        }),
+        _ => None,
+    };
+    mark.map(BindingCommand::AwaitMark)
+        .or_else(|| action_for_name(name).map(BindingCommand::Action))
+}
+
+fn action_for_name(name: &str) -> Option<Action> {
     let motion = |kind| Action::VimMotion(VimMotion::new(kind));
     match name {
         "quit" => Some(Action::Quit),
@@ -445,27 +483,6 @@ pub(super) fn action_for_name(name: &str) -> Option<Action> {
         "previous_mark_exact" => Some(motion(VimMotionKind::PreviousMarkExact)),
         "next_mark_line" => Some(motion(VimMotionKind::NextMarkLine)),
         "next_mark_exact" => Some(motion(VimMotionKind::NextMarkExact)),
-        "set_mark" => Some(Action::SetVimMark('\0')),
-        "jump_mark_line" => Some(Action::JumpToVimMark {
-            mark: '\0',
-            target: MarkJumpTarget::Line,
-            history: JumpHistory::Record,
-        }),
-        "jump_mark_exact" => Some(Action::JumpToVimMark {
-            mark: '\0',
-            target: MarkJumpTarget::Exact,
-            history: JumpHistory::Record,
-        }),
-        "jump_mark_line_without_history" => Some(Action::JumpToVimMark {
-            mark: '\0',
-            target: MarkJumpTarget::Line,
-            history: JumpHistory::Preserve,
-        }),
-        "jump_mark_exact_without_history" => Some(Action::JumpToVimMark {
-            mark: '\0',
-            target: MarkJumpTarget::Exact,
-            history: JumpHistory::Preserve,
-        }),
         "lsp_hover" => Some(Action::ToggleLspHover),
         "symbol_context" => Some(Action::OpenSymbolContext),
         "open_full_file" => Some(Action::OpenFullFile),
@@ -1338,6 +1355,68 @@ mod tests {
             None,
             "an explicit semantic_forward binding replaces its defaults"
         );
+    }
+
+    #[test]
+    fn configured_mark_commands_wait_for_their_argument() {
+        let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
+        let path = directory.path().join("keymap.conf");
+        for (name, expected) in [
+            ("set_mark", Action::SetVimMark('a')),
+            (
+                "jump_mark_line",
+                Action::JumpToVimMark {
+                    mark: 'a',
+                    target: MarkJumpTarget::Line,
+                    history: JumpHistory::Record,
+                },
+            ),
+            (
+                "jump_mark_exact",
+                Action::JumpToVimMark {
+                    mark: 'a',
+                    target: MarkJumpTarget::Exact,
+                    history: JumpHistory::Record,
+                },
+            ),
+            (
+                "jump_mark_line_without_history",
+                Action::JumpToVimMark {
+                    mark: 'a',
+                    target: MarkJumpTarget::Line,
+                    history: JumpHistory::Preserve,
+                },
+            ),
+            (
+                "jump_mark_exact_without_history",
+                Action::JumpToVimMark {
+                    mark: 'a',
+                    target: MarkJumpTarget::Exact,
+                    history: JumpHistory::Preserve,
+                },
+            ),
+        ] {
+            std::fs::write(&path, format!("{name} = alt-m\n"))
+                .unwrap_or_else(|error| panic!("write keymap: {error}"));
+            let mut mapper =
+                KeyMapper::load(Some(&path)).unwrap_or_else(|error| panic!("load keymap: {error}"));
+            assert_eq!(
+                mapper.map(
+                    KeyEvent::new(KeyCode::Char('m'), KeyModifiers::ALT),
+                    KeyInputContext::Normal
+                ),
+                None,
+                "{name}"
+            );
+            assert_eq!(
+                mapper.map(
+                    KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+                    KeyInputContext::Normal
+                ),
+                Some(expected),
+                "{name}"
+            );
+        }
     }
 
     #[test]

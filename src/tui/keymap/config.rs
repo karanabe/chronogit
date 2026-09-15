@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crossterm::event::{KeyCode, KeyModifiers};
 
-use super::{Binding, KeyStroke, action_for_name};
+use super::{Binding, BindingCommand, KeyStroke, MarkCommand, command_for_name};
 use crate::app::{
     Action, JumpHistory, MarkJumpTarget, SearchDirection, SemanticNavigationKind, VimMotion,
     VimMotionKind,
@@ -73,7 +73,7 @@ fn parse_bindings(path: &Path, source: &str) -> Result<Vec<Binding>, KeyMapError
             ));
         };
         let name = name.trim();
-        let Some(action) = action_for_name(name) else {
+        let Some(command) = command_for_name(name) else {
             return Err(keymap_error(
                 path,
                 format!("line {} has unknown action {name:?}", index + 1),
@@ -96,14 +96,14 @@ fn parse_bindings(path: &Path, source: &str) -> Result<Vec<Binding>, KeyMapError
                     format!("line {} has an empty key sequence", index + 1),
                 ));
             }
-            replacements.push(Binding::new(sequence, action));
+            replacements.push(Binding::new(sequence, command));
         }
         // An explicit close assignment replaces both default close keys. Its
         // keys (including Esc) keep immediate close semantics.
         bindings.retain(|binding| {
-            binding.action != action
-                && !(action == Action::CloseOverlay
-                    && binding.action == Action::DismissSearchOrClose)
+            binding.command != command
+                && !(command == BindingCommand::Action(Action::CloseOverlay)
+                    && binding.command == BindingCommand::Action(Action::DismissSearchOrClose))
         });
         bindings.extend(replacements);
     }
@@ -454,35 +454,31 @@ pub(super) fn default_bindings() -> Vec<Binding> {
             vec![character('g'), character('%')],
             motion(VimMotionKind::MatchingPairBackward),
         ),
-        single(character('m'), Action::SetVimMark('\0')),
-        single(
-            character('\''),
-            Action::JumpToVimMark {
-                mark: '\0',
+        Binding::new(vec![character('m')], MarkCommand::Set),
+        Binding::new(
+            vec![character('\'')],
+            MarkCommand::Jump {
                 target: MarkJumpTarget::Line,
                 history: JumpHistory::Record,
             },
         ),
-        single(
-            character('`'),
-            Action::JumpToVimMark {
-                mark: '\0',
+        Binding::new(
+            vec![character('`')],
+            MarkCommand::Jump {
                 target: MarkJumpTarget::Exact,
                 history: JumpHistory::Record,
             },
         ),
         Binding::new(
             vec![character('g'), character('\'')],
-            Action::JumpToVimMark {
-                mark: '\0',
+            MarkCommand::Jump {
                 target: MarkJumpTarget::Line,
                 history: JumpHistory::Preserve,
             },
         ),
         Binding::new(
             vec![character('g'), character('`')],
-            Action::JumpToVimMark {
-                mark: '\0',
+            MarkCommand::Jump {
                 target: MarkJumpTarget::Exact,
                 history: JumpHistory::Preserve,
             },

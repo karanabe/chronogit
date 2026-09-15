@@ -21,6 +21,11 @@ All notable changes to ChronoGit are documented here.
   reversal.
 - Preserve trailing CR/LF bytes when discovering a repository root.
 
+### Changed
+
+- Represent mark-argument waits as typed binding commands instead of sentinel
+  characters in completed actions.
+
 ## 0.6.0
 
 This release pairs ChronoGit 0.6.0 with `vim-navigation` 0.2.0.

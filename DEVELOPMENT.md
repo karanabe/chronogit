@@ -97,6 +97,7 @@ real terminal or language server.
 - Attach request IDs to asynchronous work and ignore completions that no longer
   match the selected resource. Reselect shared diff state when changing view
   families; background list results must not replace another view’s diff.
+- Model incomplete key commands separately from completed actions.
 - Keep global quit handling ahead of modal dispatch.
 - Couple captured process bytes with their complete/truncated state through
   `CommandStream`; custom runners use the public `CommandOutput` constructor.
