@@ -4,6 +4,11 @@ All notable changes to ChronoGit are documented here.
 
 ## Unreleased
 
+### Added
+
+- Added `CommandStream` and a public `CommandOutput` constructor so external
+  `GitRunner` implementations can return complete or truncated output.
+
 ## 0.6.0
 
 This release pairs ChronoGit 0.6.0 with `vim-navigation` 0.2.0.

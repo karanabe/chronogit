@@ -6,12 +6,16 @@ use std::process::{Command, Output};
 
 #[cfg(unix)]
 use std::os::unix::ffi::OsStringExt;
+#[cfg(unix)]
+use std::os::unix::process::ExitStatusExt;
 
 use chronogit::domain::{
     ChangeKind, CommitBaseline, CommitPage, DiffDocument, DiffTarget, FileDocument, FileRevision,
-    RepoPath, TreeKind, WorktreeDiffKind,
+    RepoPath, RepositoryRoot, TreeKind, WorktreeDiffKind,
 };
-use chronogit::git::{GitService, SystemGitRunner};
+use chronogit::git::{
+    CommandOutput, CommandStream, GitCommand, GitError, GitRunner, GitService, SystemGitRunner,
+};
 use tempfile::TempDir;
 
 fn commit_page(skip: usize, limit: usize) -> CommitPage {
@@ -84,6 +88,52 @@ impl TestRepository {
         self.git(&["add", "--all"]);
         self.git(&["commit", "-m", message]);
     }
+}
+
+#[test]
+fn custom_runners_can_report_complete_and_truncated_output() {
+    struct StatusRunner(CommandStream);
+
+    impl GitRunner for StatusRunner {
+        fn run(
+            &self,
+            root: Option<&RepositoryRoot>,
+            command: &GitCommand,
+        ) -> Result<CommandOutput, GitError> {
+            if matches!(command, GitCommand::Status) {
+                Ok(CommandOutput::new(
+                    std::process::ExitStatus::from_raw(0),
+                    self.0.clone(),
+                    CommandStream::Complete(Vec::new()),
+                ))
+            } else {
+                SystemGitRunner.run(root, command)
+            }
+        }
+    }
+
+    let repository = TestRepository::new();
+    let record = b"? virtual.txt\0".to_vec();
+    let complete = GitService::discover(
+        StatusRunner(CommandStream::Complete(record.clone())),
+        repository.path(),
+    )
+    .unwrap_or_else(|error| panic!("discover: {error}"));
+    let changes = complete
+        .changes()
+        .unwrap_or_else(|error| panic!("status: {error}"));
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].path().as_bytes(), b"virtual.txt");
+
+    let truncated = GitService::discover(
+        StatusRunner(CommandStream::Truncated(record)),
+        repository.path(),
+    )
+    .unwrap_or_else(|error| panic!("discover: {error}"));
+    assert!(matches!(
+        truncated.changes(),
+        Err(GitError::OutputLimit { .. })
+    ));
 }
 
 #[test]

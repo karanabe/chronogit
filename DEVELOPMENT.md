@@ -96,6 +96,8 @@ real terminal or language server.
   combinations of flags.
 - Attach request IDs to asynchronous work and ignore completions that no longer
   match the selected resource.
+- Couple captured process bytes with their complete/truncated state through
+  `CommandStream`; custom runners use the public `CommandOutput` constructor.
 - Keep process output, task concurrency, caches, history pages, debounce time,
   and command duration bounded.
 - Restore terminal state on every exit path before reporting an application

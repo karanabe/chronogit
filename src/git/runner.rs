@@ -19,8 +19,7 @@ const MAX_COMMAND_DURATION: Duration = Duration::from_secs(30);
 const CHILD_POLL_INTERVAL: Duration = Duration::from_millis(2);
 const INITIAL_CAPTURE_CAPACITY: usize = 64 * 1024;
 const READ_BUFFER_BYTES: usize = 16 * 1024;
-type CapturedStream = (Vec<u8>, OutputCompleteness);
-type ReaderResult = io::Result<CapturedStream>;
+type ReaderResult = io::Result<CommandStream>;
 type ReaderHandle = thread::JoinHandle<ReaderResult>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -30,7 +29,7 @@ enum CommandStatus {
 }
 
 impl CommandStatus {
-    const fn for_test(success: bool, code: Option<i32>) -> Self {
+    const fn from_parts(success: bool, code: Option<i32>) -> Self {
         if success {
             Self::Succeeded(code)
         } else {
@@ -51,7 +50,36 @@ impl CommandStatus {
 
 impl From<ExitStatus> for CommandStatus {
     fn from(status: ExitStatus) -> Self {
-        Self::for_test(status.success(), status.code())
+        Self::from_parts(status.success(), status.code())
+    }
+}
+
+/// Bytes retained from a subprocess stream, together with their completeness.
+///
+/// Custom [`GitRunner`] implementations must report a truncated capture even
+/// when the process itself completed successfully. Services reject incomplete
+/// structured records and preserve the truncation state for display documents.
+#[derive(Clone, Debug)]
+pub enum CommandStream {
+    /// All bytes produced by the stream.
+    Complete(Vec<u8>),
+    /// A prefix of the stream, retained up to the runner's capture limit.
+    Truncated(Vec<u8>),
+}
+
+impl CommandStream {
+    /// Returns the retained bytes without decoding them.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Complete(bytes) | Self::Truncated(bytes) => bytes,
+        }
+    }
+
+    /// Reports whether the retained bytes omit a suffix of the stream.
+    #[must_use]
+    pub const fn is_truncated(&self) -> bool {
+        matches!(self, Self::Truncated(_))
     }
 }
 
@@ -63,13 +91,24 @@ impl From<ExitStatus> for CommandStatus {
 #[derive(Debug)]
 pub struct CommandOutput {
     status: CommandStatus,
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
-    stdout_completeness: OutputCompleteness,
-    stderr_completeness: OutputCompleteness,
+    stdout: CommandStream,
+    stderr: CommandStream,
 }
 
 impl CommandOutput {
+    /// Creates output for a [`GitRunner`] implementation.
+    ///
+    /// Preserve the process status independently of each stream's capture
+    /// limit; a successful process may still have produced truncated output.
+    #[must_use]
+    pub fn new(status: ExitStatus, stdout: CommandStream, stderr: CommandStream) -> Self {
+        Self {
+            status: status.into(),
+            stdout,
+            stderr,
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn for_test(
         success: bool,
@@ -78,11 +117,9 @@ impl CommandOutput {
         stderr: Vec<u8>,
     ) -> Self {
         Self {
-            status: CommandStatus::for_test(success, code),
-            stdout,
-            stderr,
-            stdout_completeness: OutputCompleteness::Complete,
-            stderr_completeness: OutputCompleteness::Complete,
+            status: CommandStatus::from_parts(success, code),
+            stdout: CommandStream::Complete(stdout),
+            stderr: CommandStream::Complete(stderr),
         }
     }
 
@@ -101,25 +138,25 @@ impl CommandOutput {
     /// Returns captured standard-output bytes.
     #[must_use]
     pub fn stdout(&self) -> &[u8] {
-        &self.stdout
+        self.stdout.as_bytes()
     }
 
     /// Returns captured standard-error bytes.
     #[must_use]
     pub fn stderr(&self) -> &[u8] {
-        &self.stderr
+        self.stderr.as_bytes()
     }
 
     /// Reports whether standard output crossed its configured byte limit.
     #[must_use]
     pub const fn stdout_truncated(&self) -> bool {
-        self.stdout_completeness.is_truncated()
+        self.stdout.is_truncated()
     }
 
     /// Reports whether standard error crossed its configured byte limit.
     #[must_use]
     pub const fn stderr_truncated(&self) -> bool {
-        self.stderr_completeness.is_truncated()
+        self.stderr.is_truncated()
     }
 }
 
@@ -310,17 +347,9 @@ impl GitRunner for SystemGitRunner {
         };
 
         let status = wait_with_limit(&mut child, &exceeded, command.kind(), MAX_COMMAND_DURATION);
-        let (stdout, stdout_completeness) = join_reader(stdout_reader, command.kind())?;
-        let (stderr, stderr_completeness) = join_reader(stderr_reader, command.kind())?;
-        let status = status?;
-
-        Ok(CommandOutput {
-            status: status.into(),
-            stdout,
-            stderr,
-            stdout_completeness,
-            stderr_completeness,
-        })
+        let stdout = join_reader(stdout_reader, command.kind())?;
+        let stderr = join_reader(stderr_reader, command.kind())?;
+        Ok(CommandOutput::new(status?, stdout, stderr))
     }
 }
 
@@ -519,7 +548,10 @@ fn read_limited<R: Read>(mut reader: R, limit: usize, exceeded: &AtomicBool) -> 
             exceeded.store(true, Ordering::Release);
         }
     }
-    Ok((stored, completeness))
+    Ok(match completeness {
+        OutputCompleteness::Complete => CommandStream::Complete(stored),
+        OutputCompleteness::Truncated => CommandStream::Truncated(stored),
+    })
 }
 
 fn spawn_reader<R: Read + Send + 'static>(
@@ -569,7 +601,7 @@ fn wait_with_limit(
     }
 }
 
-fn join_reader(handle: ReaderHandle, operation: &'static str) -> Result<CapturedStream, GitError> {
+fn join_reader(handle: ReaderHandle, operation: &'static str) -> Result<CommandStream, GitError> {
     handle
         .join()
         .map_err(|_| GitError::Io {

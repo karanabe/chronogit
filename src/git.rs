@@ -31,5 +31,5 @@ impl OutputCompleteness {
 }
 
 pub use command::GitCommand;
-pub use runner::{CommandOutput, GitError, GitRunner, SystemGitRunner};
+pub use runner::{CommandOutput, CommandStream, GitError, GitRunner, SystemGitRunner};
 pub use service::GitService;
