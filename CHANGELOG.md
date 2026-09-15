@@ -19,6 +19,8 @@ All notable changes to ChronoGit are documented here.
 - Honor global quit from semantic overlays.
 - Keep very large counted list movements bounded without overflow or direction
   reversal.
+- Bound LSP header reads and queued writes, include queue waits in request
+  deadlines, and stop transport tasks when their connection is dropped.
 - Preserve trailing CR/LF bytes when discovering a repository root.
 
 ### Changed

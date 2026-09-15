@@ -177,9 +177,11 @@ LSPは新しいcrateではなく、既存`chronogit` crate内のmoduleに意図�
 
 appはRust、Java、Pythonで分岐しません。extensionは明示的に有効な1つの`ServerProfile`へ解決し、最も近いroot markerでworkspaceを決め、`(profile ID, workspace root)`をsession keyにします。rust-analyzer、JDT LS、Pyright、basedpyright、pylspも通常のprofile dataです。user-level TOMLで別languageを追加してもtransport実装は増えません。同じextensionを複数profileが担当する場合は暗黙順序を付けずrequest時に拒否します。
 
-各sessionはcapabilityとposition encodingを合意し、正確なopen documentを1つ保持し、refresh後はfull-content `didChange`、切替時は前documentの`didClose`を送ります。navigationと`textDocument/hover`は同期済みposition request経路を使い、`textDocument/documentSymbol`はcursor位置を伴わず同じdocument同期を使います。標準hover contentと階層型/flat型document symbolを、appへ渡す前に上限付きdomain値へ正規化します。reader/writer taskを分離してnotificationやserver-to-client requestがresponseをdeadlockさせないようにします。標準log/progress notificationは1つのbounded footer statusへ変換します。`workspace/configuration`とwork-progress作成だけを応答し、advertiseしていないrequestはmethod-not-foundです。新しいLSP intentは`$/cancelRequest`を送り、reducerもrequest ID/path/cursorが古いcompletionを拒否します。
+各sessionはcapabilityとposition encodingを合意し、正確なopen documentを1つ保持し、refresh後はfull-content `didChange`、切替時は前documentの`didClose`を送ります。navigationと`textDocument/hover`は同期済みposition request経路を使い、`textDocument/documentSymbol`はcursor位置を伴わず同じdocument同期を使います。標準hover contentと階層型/flat型document symbolを、appへ渡す前に上限付きdomain値へ正規化します。受信と送信は独立したreader/writer taskで扱います。標準log/progress notificationは1つのbounded footer statusへ変換します。`workspace/configuration`とwork-progress作成だけを応答し、advertiseしていないrequestはmethod-not-foundです。新しいLSP intentはblockingせずに`$/cancelRequest`の送信を試み、reducerもrequest ID/path/cursorが古いcompletionを拒否します。
 
 wireの`Location`/`LocationLink`はadapter内で正規化します。repository内`file:`結果を`RepoPath`へ変換した後、`GitService`で安全に読んだ内容を使ってwire columnを変換するため、no-follow境界を維持します。非file、`jdt:`、不正、repository外URIは表示専用です。sessionは最大4、同期documentはsessionごとに最大8 MiBです。5つ目ではLRU sessionを終了します。通常終了は`shutdown`、応答待ち、`exit`の後、猶予を超えたchildを終了し、`kill_on_drop`を最終cleanup不変条件にします。
+
+headerの読み取りは改行を待ち続ける前にバイト上限を適用します。requestの期限はwriter queueへの投入待ちと応答待ちの両方を含み、notificationとshutdownの送信にも上限を設けます。cancelはbest effortで、満杯のqueueに阻まれません。`TransportTasks`は初期化失敗を含むconnectionのdrop時にreader、writer、stderr taskをabortします。
 
 ## 変更する場所
 

@@ -20,7 +20,11 @@ where
     let mut header_bytes = 0usize;
     loop {
         let mut line = String::new();
-        let read = reader.read_line(&mut line).await.map_err(io_error)?;
+        let read = (&mut *reader)
+            .take((MAX_HEADER_BYTES - header_bytes + 1) as u64)
+            .read_line(&mut line)
+            .await
+            .map_err(io_error)?;
         if read == 0 {
             return Err(LspError::Protocol(
                 "language server closed its output unexpectedly".to_owned(),
@@ -100,7 +104,21 @@ mod tests {
     use serde_json::json;
     use tokio::io::{AsyncWriteExt, BufReader, duplex};
 
-    use super::{MAX_MESSAGE_BYTES, read_message, write_message};
+    use super::{MAX_HEADER_BYTES, MAX_MESSAGE_BYTES, read_message, write_message};
+
+    #[tokio::test]
+    async fn rejects_an_oversized_header_without_waiting_for_a_newline_or_eof() {
+        let (mut peer, client) = duplex(MAX_HEADER_BYTES + 1);
+        peer.write_all(&vec![b'x'; MAX_HEADER_BYTES + 1])
+            .await
+            .unwrap_or_else(|error| panic!("write header: {error}"));
+        let result = tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            read_message(&mut BufReader::new(client)),
+        )
+        .await;
+        assert!(matches!(result, Ok(Err(crate::lsp::LspError::Protocol(_)))));
+    }
 
     #[tokio::test]
     async fn framing_handles_partial_transport_reads() {

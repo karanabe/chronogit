@@ -330,7 +330,7 @@ impl Session {
         if let Some((app_id, protocol_id)) = active
             && app_id != current_request_id
         {
-            let _ignored = self.connection.cancel(protocol_id).await;
+            self.connection.cancel(protocol_id);
         }
     }
 
@@ -341,7 +341,13 @@ impl Session {
     async fn shutdown_with_timeout(&self, timeout: Duration) {
         let request = self.connection.request("shutdown", Value::Null, timeout);
         let _ignored = request.await;
-        let _ignored = self.connection.notify("exit", Value::Null).await;
+        let _ignored = self
+            .connection
+            .send(
+                json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+                timeout,
+            )
+            .await;
         let mut child = self.child.lock().await;
         if let Some(process) = child.as_mut()
             && tokio::time::timeout(timeout, process.wait()).await.is_err()
@@ -480,7 +486,25 @@ struct Connection {
     pending: PendingRequests,
     closed: watch::Receiver<Option<LspError>>,
     next_request: AtomicI64,
-    tasks: Mutex<Vec<JoinHandle<()>>>,
+    tasks: Mutex<TransportTasks>,
+}
+
+/// Transport tasks own clones of the writer and pending-request map. Abort
+/// them with their connection, including initialization errors and cancellation.
+struct TransportTasks(Vec<JoinHandle<()>>);
+
+impl TransportTasks {
+    fn abort(&mut self) {
+        for task in self.0.drain(..) {
+            task.abort();
+        }
+    }
+}
+
+impl Drop for TransportTasks {
+    fn drop(&mut self) {
+        self.abort();
+    }
 }
 
 impl Connection {
@@ -582,7 +606,7 @@ impl Connection {
             pending,
             closed,
             next_request: AtomicI64::new(FIRST_PROTOCOL_REQUEST_ID),
-            tasks: Mutex::new(extra_tasks),
+            tasks: Mutex::new(TransportTasks(extra_tasks)),
         }
     }
 
@@ -618,44 +642,54 @@ impl Connection {
             "method": method,
             "params": params
         });
-        if self.writer.send(message).await.is_err() {
-            self.pending.lock().await.remove(&id);
-            return Err(LspError::Process(
-                "language server request channel closed".to_owned(),
-            ));
-        }
-        match tokio::time::timeout(timeout, receiver).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(_)) => Err(LspError::Process(
-                "language server response channel closed".to_owned(),
-            )),
+        let response = async {
+            self.writer.send(message).await.map_err(|_| {
+                LspError::Process("language server request channel closed".to_owned())
+            })?;
+            receiver.await.map_err(|_| {
+                LspError::Process("language server response channel closed".to_owned())
+            })?
+        };
+        let result = match tokio::time::timeout(timeout, response).await {
+            Ok(result) => result,
             Err(_) => {
-                self.pending.lock().await.remove(&id);
-                let _ignored = self.cancel(id).await;
+                self.cancel(id);
                 Err(LspError::Timeout(format!(
                     "language server did not answer {method} before the timeout"
                 )))
             }
-        }
+        };
+        self.pending.lock().await.remove(&id);
+        result
     }
 
     async fn notify(&self, method: &str, params: Value) -> Result<(), LspError> {
-        self.writer
-            .send(json!({ "jsonrpc": "2.0", "method": method, "params": params }))
+        self.send(
+            json!({ "jsonrpc": "2.0", "method": method, "params": params }),
+            REQUEST_TIMEOUT,
+        )
+        .await
+    }
+
+    async fn send(&self, message: Value, timeout: Duration) -> Result<(), LspError> {
+        tokio::time::timeout(timeout, self.writer.send(message))
             .await
+            .map_err(|_| {
+                LspError::Timeout("language server writer queue remained full".to_owned())
+            })?
             .map_err(|_| LspError::Process("language server request channel closed".to_owned()))
     }
 
-    async fn cancel(&self, id: ProtocolRequestId) -> Result<(), LspError> {
-        self.notify("$/cancelRequest", json!({ "id": id.value() }))
-            .await
+    fn cancel(&self, id: ProtocolRequestId) {
+        // Cancellation is advisory. A blocked peer must not extend the deadline
+        // or prevent the newest user intent from making progress.
+        let _ignored = self.writer.try_send(json!({
+            "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": id.value() }
+        }));
     }
 
     async fn stop(&self) {
-        let mut tasks = self.tasks.lock().await;
-        for task in tasks.drain(..) {
-            task.abort();
-        }
+        self.tasks.lock().await.abort();
     }
 }
 
@@ -1073,6 +1107,52 @@ mod tests {
     use crate::domain::{DocumentSymbolKind, SourcePosition};
     use crate::lsp::protocol::{read_message, write_message};
     use crate::lsp::{LspConfig, LspOperationId, PositionEncoding};
+
+    #[tokio::test]
+    async fn request_deadline_includes_a_full_writer_queue() {
+        let (client, _server) = duplex(1);
+        let (client_read, client_write) = split(client);
+        let connection = Connection::from_transport(client_write, client_read, Vec::new());
+        // Occupy the writer, then fill its queue while the peer never reads.
+        connection
+            .writer
+            .send(json!({"blocked":true}))
+            .await
+            .unwrap_or_else(|error| panic!("prime writer: {error}"));
+        tokio::task::yield_now().await;
+        for _ in 0..super::WRITER_QUEUE {
+            connection
+                .writer
+                .try_send(json!({"queued":true}))
+                .unwrap_or_else(|error| panic!("fill writer: {error}"));
+        }
+        let result = tokio::time::timeout(
+            Duration::from_millis(500),
+            connection.request("blocked", json!({}), Duration::from_millis(20)),
+        )
+        .await;
+        assert!(matches!(result, Ok(Err(crate::lsp::LspError::Timeout(_)))));
+        assert!(connection.pending.lock().await.is_empty());
+        connection.stop().await;
+    }
+
+    #[tokio::test]
+    async fn dropping_a_connection_stops_its_transport_tasks() {
+        let (client, _server) = duplex(64);
+        let (client_read, client_write) = split(client);
+        let (stopped, receiver) = tokio::sync::oneshot::channel::<()>();
+        let task = tokio::spawn(async move {
+            let _stopped = stopped;
+            std::future::pending::<()>().await;
+        });
+        let connection = Connection::from_transport(client_write, client_read, vec![task]);
+        drop(connection);
+        let result = tokio::time::timeout(Duration::from_millis(200), receiver).await;
+        assert!(
+            matches!(result, Ok(Err(_))),
+            "connection tasks outlived their owner"
+        );
+    }
 
     #[test]
     fn normalizes_location_and_location_links() {
