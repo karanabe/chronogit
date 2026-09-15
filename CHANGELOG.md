@@ -13,6 +13,7 @@ All notable changes to ChronoGit are documented here.
 
 - Preserve source positions for header-like added/removed patch lines, reject
   invalid hunk coordinates, and omit incomplete lines from truncated patches.
+- Preserve trailing CR/LF bytes when discovering a repository root.
 
 ## 0.6.0
 

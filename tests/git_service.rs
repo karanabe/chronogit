@@ -137,6 +137,26 @@ fn custom_runners_can_report_complete_and_truncated_output() {
 }
 
 #[test]
+fn discovery_preserves_trailing_newlines_in_the_repository_name() {
+    let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
+    let root = directory.path().join("repository\r\n\n");
+    fs::create_dir(&root).unwrap_or_else(|error| panic!("create root: {error}"));
+    let initialized = Command::new("git")
+        .arg("init")
+        .arg(&root)
+        .output()
+        .unwrap_or_else(|error| panic!("git init: {error}"));
+    assert!(initialized.status.success());
+    let service = GitService::discover(SystemGitRunner, &root)
+        .unwrap_or_else(|error| panic!("discover: {error}"));
+    assert_eq!(
+        service.root().as_path(),
+        root.canonicalize()
+            .unwrap_or_else(|error| panic!("root: {error}"))
+    );
+}
+
+#[test]
 fn excludes_staged_only_and_shows_only_the_unstaged_part_of_mixed_changes() {
     let repository = TestRepository::new();
     repository.write("mixed.txt", b"version 1\n");

@@ -82,7 +82,12 @@ impl<R: GitRunner> GitService<R> {
         let output = runner.run(None, &GitCommand::Discover { start })?;
         ensure_complete(&output, "discover repository")?;
         ensure_success(&output, "discover repository")?;
-        let raw = trim_newline(output.stdout());
+        // rev-parse appends one LF; any preceding CR/LF bytes belong to the
+        // Unix path and must survive repository-root validation unchanged.
+        let raw = output
+            .stdout()
+            .strip_suffix(b"\n")
+            .unwrap_or(output.stdout());
         if raw.is_empty() {
             return Err(GitError::parse(
                 "repository root",
