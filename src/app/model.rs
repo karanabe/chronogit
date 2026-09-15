@@ -291,14 +291,22 @@ impl Selection {
     }
 
     pub(crate) fn move_by(&mut self, delta: isize, len: usize) -> bool {
-        let previous = self.index;
-        if len == 0 {
-            self.index = None;
-            return previous != self.index;
+        if delta < 0 {
+            self.move_up(delta.unsigned_abs(), len)
+        } else {
+            self.move_down(delta.unsigned_abs(), len)
         }
-        let current = self.index.unwrap_or(0);
-        let next = current.saturating_add_signed(delta).min(len - 1);
-        self.index = Some(next);
+    }
+
+    pub(crate) fn move_up(&mut self, count: usize, len: usize) -> bool {
+        let previous = self.index;
+        self.reset_to(len, Some(self.index.unwrap_or(0).saturating_sub(count)));
+        previous != self.index
+    }
+
+    pub(crate) fn move_down(&mut self, count: usize, len: usize) -> bool {
+        let previous = self.index;
+        self.reset_to(len, Some(self.index.unwrap_or(0).saturating_add(count)));
         previous != self.index
     }
 

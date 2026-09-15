@@ -452,16 +452,13 @@ fn symbol_context_action(state: &mut AppState, action: Action) -> Vec<AppEffect>
         }
         Action::VimMotion(motion) => match motion.kind() {
             VimMotionKind::Up | VimMotionKind::PreviousLineFirstNonBlank => {
-                state
-                    .symbol_context
-                    .selection
-                    .move_by(-(motion.count() as isize), len);
+                state.symbol_context.selection.move_up(motion.count(), len);
             }
             VimMotionKind::Down | VimMotionKind::NextLineFirstNonBlank => {
                 state
                     .symbol_context
                     .selection
-                    .move_by(motion.count() as isize, len);
+                    .move_down(motion.count(), len);
             }
             VimMotionKind::BufferTop | VimMotionKind::LineStart => {
                 state.symbol_context.selection.top(len);
@@ -521,10 +518,10 @@ fn candidate_action(state: &mut AppState, action: Action) -> Vec<AppEffect> {
                 | VimMotionKind::PreviousLineFirstNonBlank
                 | VimMotionKind::WordBackward
                 | VimMotionKind::BigWordBackward => {
-                    state.semantic_navigation.selection.move_by(
-                        -(isize::try_from(motion.count()).unwrap_or(isize::MAX)),
-                        len,
-                    );
+                    state
+                        .semantic_navigation
+                        .selection
+                        .move_up(motion.count(), len);
                 }
                 VimMotionKind::Down
                 | VimMotionKind::NextLineFirstNonBlank
@@ -533,7 +530,7 @@ fn candidate_action(state: &mut AppState, action: Action) -> Vec<AppEffect> {
                     state
                         .semantic_navigation
                         .selection
-                        .move_by(isize::try_from(motion.count()).unwrap_or(isize::MAX), len);
+                        .move_down(motion.count(), len);
                 }
                 VimMotionKind::BufferTop | VimMotionKind::LineStart => {
                     state.semantic_navigation.selection.top(len);
@@ -723,6 +720,36 @@ mod tests {
         FileDocument, NavigationTarget, RepoPath, RepositoryLocation, RepositoryRoot,
         SemanticNavigationKind, SourcePosition, SourceRange,
     };
+
+    #[test]
+    fn oversized_symbol_counts_preserve_direction_and_do_not_overflow() {
+        for count in [isize::MAX as usize + 1, usize::MAX] {
+            let mut state = AppState::new(
+                RepositoryRoot::new(PathBuf::from("/tmp/repo"))
+                    .unwrap_or_else(|error| panic!("root: {error}")),
+                AppView::Code,
+            );
+            state.overlay = Overlay::SymbolContext;
+            state.symbol_context.symbols =
+                LoadState::Ready(vec![crate::domain::DocumentSymbol::new(
+                    "symbol".to_owned(),
+                    None,
+                    crate::domain::DocumentSymbolKind::Function,
+                    SourceRange::default(),
+                    SourcePosition::default(),
+                    0,
+                )]);
+            state.symbol_context.selection.reset(2);
+            state.handle_app_action(Action::VimMotion(
+                VimMotion::new(VimMotionKind::Down).counted(count, VimCountSource::Explicit),
+            ));
+            assert_eq!(state.symbol_context.selection.index(), Some(1));
+            state.handle_app_action(Action::VimMotion(
+                VimMotion::new(VimMotionKind::Up).counted(count, VimCountSource::Explicit),
+            ));
+            assert_eq!(state.symbol_context.selection.index(), Some(0));
+        }
+    }
 
     fn state() -> AppState {
         let mut state = AppState::new(
