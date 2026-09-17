@@ -233,6 +233,7 @@ pub(super) fn default_bindings() -> Vec<Binding> {
         Binding::new(vec![character(' '), character('2')], Action::ShowHistory),
         Binding::new(vec![character(' '), character('3')], Action::ShowGraph),
         Binding::new(vec![character(' '), character('4')], Action::ShowCode),
+        Binding::new(vec![character(' '), character('b')], Action::OpenBranches),
         single(control('h'), Action::FocusLeft),
         single(control('k'), Action::FocusLeft),
         single(control('j'), Action::FocusRight),
@@ -696,7 +697,7 @@ pub(super) fn default_bindings() -> Vec<Binding> {
             Action::OpenContentSearch,
         ),
         Binding::new(vec![character(' '), character('m')], Action::ToggleMessage),
-        Binding::new(vec![character(' '), character('b')], Action::ToggleDetails),
+        Binding::new(vec![character(' '), character('B')], Action::ToggleDetails),
         Binding::new(vec![character(' '), character('t')], Action::ToggleTree),
         Binding::new(
             vec![character(' '), character('s')],

@@ -46,7 +46,7 @@ move_down = j, down, ctrl-j, ctrl-n
 Unmodified `1` through `9` are reserved for counts and cannot start a binding. Use a leader sequence such as `space 3` or a modifier such as `alt-3`. Use `comma` to bind the comma key, since a literal comma separates alternatives.
 
 The built-in application leader is Space. It prefixes `1` through `4`, `f`,
-`g`, `m`, `b`, `t`, `s`, `v`, and `d`; the default map intentionally has no standalone Space
+`g`, `m`, `b`, `B`, `t`, `s`, `v`, and `d`; the default map intentionally has no standalone Space
 action. The reusable `vim-navigation` crate still implements Vim's
 line-wrapping Space motion. To expose it without disturbing the leader, bind
 `cursor_right_wrap` to a non-conflicting key such as a raw backslash:
@@ -59,13 +59,13 @@ cursor_right_wrap = \
 Backslash is an ordinary configurable character and is not reserved. Assigning
 `cursor_right_wrap = space` is rejected while any Space-prefixed default
 remains, because a key cannot be both a complete action and a sequence prefix.
-To restore standalone Space, explicitly replace all twelve Space-prefixed actions
+To restore standalone Space, explicitly replace all thirteen Space-prefixed actions
 as well. Search prompts handle printable Space directly as query text before
 normal bindings are resolved.
 
 | Action names | Purpose |
 | --- | --- |
-| `quit`, `show_changes`, `show_history`, `show_graph`, `show_code` | Application and view selection |
+| `quit`, `show_changes`, `show_history`, `show_graph`, `show_code`, `switch_branch` | Application and view selection |
 | `focus_previous`, `focus_next` | Pane focus |
 | `move_up`, `move_down`, `move_top`, `move_bottom`, `move_bottom_end`, `cursor_left`, `cursor_right`, `cursor_left_wrap`, `cursor_right_wrap` | Basic line, list, buffer, and character movement |
 | `line_start`, `first_non_blank`, `line_end`, `last_non_blank` | Logical-line columns |

@@ -3,12 +3,13 @@
 </p>
 
 <h1 align="center">ChronoGit</h1>
-<h3 align="center">A read-only terminal UI for exploring Git history, diffs, and source code.</h3>
+<h3 align="center">A terminal UI for exploring Git history, diffs, and source code.</h3>
 
 ChronoGit brings unstaged changes, commit history and graphs, repository search,
-and syntax-highlighted source code into one Vim-oriented terminal interface. It
-only reads your repository: it never stages, restores, commits, checks out, or
-updates references.
+and syntax-highlighted source code into one Vim-oriented terminal interface. Browsing reads your repository. Use `Space b` from Changes, History, Graph, or
+Code to switch an existing local branch; this updates HEAD, the index, and the
+working tree while preserving local changes or reporting conflicts. Select with
+`j`/`k`, press `Enter` to switch, or `q`/`Esc` to cancel.
 
 ## Quick start
 

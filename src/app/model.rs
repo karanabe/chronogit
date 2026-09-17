@@ -831,6 +831,7 @@ pub struct AppState {
     pub(crate) history_panel: HistoryPanel,
     pub(crate) overlay: Overlay,
     pub(crate) should_quit: bool,
+    pub(crate) branch_picker: Option<crate::app::branches::BranchPicker>,
     pub(crate) changes: LoadState<Vec<WorktreeChange>>,
     pub(crate) change_selection: Selection,
     pub(crate) commits: LoadState<Vec<CommitSummary>>,
@@ -874,6 +875,7 @@ impl AppState {
             history_panel: HistoryPanel::ChangedFiles,
             overlay: Overlay::None,
             should_quit: false,
+            branch_picker: None,
             changes: LoadState::Idle,
             change_selection: Selection::new(),
             commits: LoadState::Idle,
@@ -963,6 +965,13 @@ impl AppState {
 
     /// Applies input through the complete Git and semantic-navigation reducer.
     pub fn handle_app_action(&mut self, action: Action) -> Vec<AppEffect> {
+        if action == Action::OpenBranches || self.branch_picker.is_some() {
+            return self
+                .handle_action(action)
+                .into_iter()
+                .map(AppEffect::from)
+                .collect();
+        }
         // Exit is application-wide, including while an LSP modal owns input.
         if action == Action::Quit {
             self.should_quit = true;
@@ -1033,6 +1042,9 @@ impl AppState {
     /// Reports whether ordinary character keys should edit a search prompt.
     #[must_use]
     pub fn is_search_input_active(&self) -> bool {
+        if self.branch_picker.is_some() {
+            return false;
+        }
         self.search.is_input_active()
             || (self.overlay == Overlay::RepositorySearch
                 && self.repository_search.prompt.is_some())
@@ -1046,6 +1058,28 @@ impl AppState {
         let id = self.next_request;
         self.next_request.advance();
         id
+    }
+
+    pub(crate) fn reload_after_branch_switch(&mut self) -> Vec<GitEffect> {
+        let file_path = self.file_view.path.clone();
+        let return_view = self.file_view.return_view;
+        let mut fresh = Self::new(self.root.clone(), self.view);
+        // Preserve application settings and monotonic IDs, but invalidate every
+        // repository cache and pending Git/LSP result from the previous branch.
+        fresh.next_request = self.next_request;
+        fresh.terminal_width = self.terminal_width;
+        fresh.terminal_height = self.terminal_height;
+        fresh.lsp_availability = self.lsp_availability;
+        fresh.should_quit = self.should_quit;
+        *self = fresh;
+        if self.view == AppView::FileHistory {
+            self.file_view.return_view = return_view;
+            file_path
+                .map(|path| crate::app::repository_search::load_file_view(self, path))
+                .unwrap_or_default()
+        } else {
+            self.start()
+        }
     }
 
     pub(crate) fn request_changes(&mut self) -> Vec<GitEffect> {

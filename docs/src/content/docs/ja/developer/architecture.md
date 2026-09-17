@@ -94,7 +94,7 @@ object、検索prompt、commit messageを編集可能にせず、`i`/`a`/`I`/`A`
 - `GitCommand`は閉じた許可リストで、呼び出し側は任意の引数を渡せません。
 - `GitRunner`は唯一の差し替え用traitです。遅く状態を持つサブプロセスI/Oが実際のテスト境界であるためです。外部実装はプロセス終了状態と、各バイト列の`CommandStream::Complete`または`CommandStream::Truncated`から`CommandOutput`を生成します。
 - `SystemGitRunner`はシェルなしで実行し、上限付きのバイト出力を取得し、command statusとstream completenessを別々の内部状態として保持し、任意のロック、プロンプト、pager、色、外部diff、textconv、fsmonitor実行を無効にします。
-- `GitService`は検出、status、履歴、メッセージ、変更ファイル、差分、ツリー子要素、追跡済み/非ignoreパス一覧、ファイル/内容検索、ファイル単位履歴、上限付きの現在またはrevision内容というドメイン操作を提供します。現在ファイルは検出済みワークツリーのdescriptorから相対的に開き、すべてのパス要素でシンボリックリンクを拒否します。revisionファイルはcommitをcheckoutせず、検証済みobject/pathのGit readで取得します。
+- `GitService`は検出、ローカルブランチ一覧/切替、status、履歴、メッセージ、変更ファイル、差分、ツリー子要素、追跡済み/非ignoreパス一覧、ファイル/内容検索、ファイル単位履歴、上限付きの現在またはrevision内容というドメイン操作を提供します。現在ファイルは検出済みワークツリーのdescriptorから相対的に開き、すべてのパス要素でシンボリックリンクを拒否します。revisionファイルはcommitをcheckoutせず、検証済みobject/pathのGit readで取得します。
 - `git::parse`はNUL区切りの機械出力とunified patchを解析します。patch parserはmetadataと、old/new側の残り行数を持つ検証済みhunkを区別し、headerに似たsource行にも正しい位置を付けます。切り詰めたpatchでは完全な行だけを保持します。discoveryはGitが付加したLFを1つだけ除き、リポジトリ名に含まれるCR/LFを保持します。
 
 リポジトリのobject formatをSHA-1と仮定しません。Gitが返した完全な16進object IDを保持します。
@@ -110,6 +110,7 @@ object、検索prompt、commit messageを編集可能にせず、`i`/`a`/`I`/`A`
 - `SearchState`は元のUTF-8一致開始・終了位置と独立した強調表示状態を保持します。Diff・Code・全文表示の描画はサニタイズ後の範囲へ変換し、syntax spanに装飾を重ね、その後にカーソル装飾とviewportの切り出しを適用します。強調解除は検索・移動状態を保ち、一致への移動で再表示します。`DismissSearchOrClose`は標準Escだけが発行し、入力キャンセルと最前面の別画面を優先します。明示的な`close`設定は標準の両キーを即時close操作へ置き換えます。
 - 文書内検索の削除は`SearchState`が所有します。Backspaceは1文字を削除し、既に空ならpromptだけをキャンセルします。reducerは同じ操作で通常移動やcloseを重ねず、確定検索と閲覧位置を保ちます。リポジトリ検索の削除は独立したlive queryの経路を維持します。
 - `LoadState<T>`はidle、request ID付きloading、ready、failedのいずれかです。Changes、commit history、その他のview間を移動すると共有diffをリセットして再選択し、非表示の一覧への応答で表示中のdiffを置き換えません。全体の終了処理はmodalへのdispatchより先に扱います。
+- `app::branches`は全画面共通のブランチ選択を所有します。既存overlayの上に表示し、キャンセルで元に戻ります。切替中は重複操作を受け付けず、executorのGit permitを2つ取得して読み取りと直列化します。成功・失敗のどちらでもrequest IDと設定を維持してリポジトリ状態を初期化し、現在画面を再読み込みします。失敗時は選択画面にエラーを残して再試行できます。
 - `Action`はユーザーの意図、`Event`は非同期完了、`GitEffect`は閉じたGit副作用記述です。`AppEffect`が既存`GitEffect`と常駐型`LspEffect`を、それぞれのlifecycleを混ぜずにroutingします。`SemanticNavigationState`は候補、request identity、上限付き双方向jump historyを所有し、`LspHoverState`はhover request、戻り先overlay、scroll offsetを所有します。
 - `app::source_view`はdiff cursorをnew側source行へ投影し、worktreeまたは選択commitを読み、変更されたnew側行を保持して、全文とdocument-symbol overlayを調停します。symbol選択は、その正確な読み込み済みdocument内のlocal navigationです。worktree diffからsourceを開き直すと新しいsnapshotを読み、commit sourceは不変のidentityで再利用できます。表示済みsourceのoverlay内で移動する場合は、そのdocumentのsnapshotを維持します。
 - すべての要求に単調増加する`RequestId`を付け、source snapshotには別の`DocumentRevision`を使います。現在のリソースと選択コミットまたはdocument generationに一致する完了だけを適用します。LSP operation、JSON-RPC request、document versionのcounterはprotocol adapter内で別型のまま保持します。
@@ -157,7 +158,7 @@ Git標準出力は8 MiB、標準エラーは64 KiB、コマンド時間は30秒�
 
 ## セキュリティと互換性の不変条件
 
-- `GitCommand`へGit変更コマンドを追加しないこと。
+- `GitCommand`の変更操作は、明示的な既存ローカルブランチ切替に限定すること。
 - リポジトリパスとpathspecは別々のプロセス引数にし、シェル文字列にしないこと。
 - object IDをrevisionとして再利用する前に16進数として検証すること。
 - リポジトリ設定からpager、diff、textconv、fsmonitorプログラムを起動させないこと。
@@ -189,7 +190,7 @@ headerの読み取りは改行を待ち続ける前にバイト上限を適用�
 | --- | --- | --- |
 | 汎用Vim motion、Normal / Insert契約 | `crates/vim-navigation` | `COMPATIBILITY.md`、oracle/unit test、ChronoGit adapter |
 | ドメイン不変条件、値型 | `src/domain` | parser、app state、integration fixture |
-| Git操作 | `src/git/command.rs`、`runner.rs`、`service.rs` | 読み取り専用方針、出力上限、parser test |
+| Git操作 | `src/git/command.rs`、`runner.rs`、`service.rs` | Git操作の契約、出力上限、parser test |
 | LSP profile/protocol/session | `src/lsp/config.rs`、`protocol.rs`、`session.rs`、`manager.rs` | trust boundary、framing上限、capability/position test、cleanup |
 | 非同期読み込み、選択 | `src/app/model.rs`、`update.rs`、`effect.rs` | request ID、古い応答、cache上限 |
 | キー、操作 | `src/tui/keymap.rs`、`keymap/config.rs` | 設定例、reducer動作、help/footer、ドキュメント |

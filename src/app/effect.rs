@@ -1,4 +1,4 @@
-//! Bounded asynchronous routing of typed Git reads and optional LSP requests.
+//! Bounded asynchronous routing of typed Git operations and optional LSP requests.
 
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -9,8 +9,8 @@ use tokio::sync::{Semaphore, mpsc, watch};
 
 use crate::app::{CommitLoadMode, DocumentRevision, Event, RequestId, VisibleTreeEntry};
 use crate::domain::{
-    CommitBaseline, CommitPage, DiffTarget, FileRevision, NavigationTarget, ObjectId, RepoPath,
-    RepositoryLocation, SemanticNavigationKind, SourcePosition, SourceRange,
+    CommitBaseline, CommitPage, DiffTarget, FileRevision, LocalBranch, NavigationTarget, ObjectId,
+    RepoPath, RepositoryLocation, SemanticNavigationKind, SourcePosition, SourceRange,
 };
 use crate::git::{GitError, GitRunner, GitService};
 use crate::lsp::{LspError, LspManager, LspOperationId, WireNavigationTarget, from_lsp_character};
@@ -23,7 +23,7 @@ const NO_REQUEST_ID: u64 = 0;
 /// Any asynchronous work requested by the complete application reducer.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AppEffect {
-    /// A bounded one-shot repository read.
+    /// A bounded one-shot repository operation.
     Git(GitEffect),
     /// Optional persistent language-server work.
     Lsp(LspEffect),
@@ -93,6 +93,18 @@ struct LspPositionRequest {
 /// Their request IDs let both the executor and reducer discard obsolete work.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GitEffect {
+    /// Enumerate existing local branches for the global picker.
+    LoadBranches {
+        /// Identifier used to reject an obsolete response.
+        request_id: RequestId,
+    },
+    /// Switch branches while holding all Git worker permits.
+    SwitchBranch {
+        /// Identifier used to associate the completion with this operation.
+        request_id: RequestId,
+        /// Exact branch chosen by the user.
+        branch: LocalBranch,
+    },
     /// Load unstaged worktree changes.
     LoadChanges {
         /// Identifier used to reject an obsolete response.
@@ -210,6 +222,8 @@ pub struct EffectExecutor<R> {
 
 #[derive(Debug, Default)]
 struct LatestRequests {
+    branches: AtomicU64,
+    branch_switch: AtomicU64,
     changes: AtomicU64,
     commits: AtomicU64,
     files: AtomicU64,
@@ -550,9 +564,15 @@ impl<R: GitRunner> EffectExecutor<R> {
             if !effect.is_current(&latest) {
                 return;
             }
+            // A checkout must not overlap worktree reads from this executor.
+            let permit_count = if matches!(effect, GitEffect::SwitchBranch { .. }) {
+                MAX_CONCURRENT_GIT_EFFECTS as u32
+            } else {
+                1
+            };
             let _permit = loop {
                 tokio::select! {
-                    permit = Arc::clone(&permits).acquire_owned() => {
+                    permit = Arc::clone(&permits).acquire_many_owned(permit_count) => {
                         let Ok(permit) = permit else {
                             return;
                         };
@@ -580,7 +600,9 @@ impl<R: GitRunner> EffectExecutor<R> {
 impl GitEffect {
     fn request_id(&self) -> RequestId {
         match self {
-            Self::LoadChanges { request_id }
+            Self::LoadBranches { request_id }
+            | Self::SwitchBranch { request_id, .. }
+            | Self::LoadChanges { request_id }
             | Self::LoadCommits { request_id, .. }
             | Self::LoadFiles { request_id, .. }
             | Self::LoadDiff { request_id, .. }
@@ -598,6 +620,8 @@ impl GitEffect {
 
     fn latest_slot<'a>(&self, latest: &'a LatestRequests) -> &'a AtomicU64 {
         match self {
+            Self::LoadBranches { .. } => &latest.branches,
+            Self::SwitchBranch { .. } => &latest.branch_switch,
             Self::LoadChanges { .. } => &latest.changes,
             Self::LoadCommits { .. } => &latest.commits,
             Self::LoadFiles { .. } => &latest.files,
@@ -620,6 +644,14 @@ impl GitEffect {
 
 async fn execute<R: GitRunner>(service: Arc<GitService<R>>, effect: GitEffect) -> Event {
     match effect {
+        GitEffect::LoadBranches { request_id } => {
+            let result = run_blocking(move || service.local_branches()).await;
+            Event::BranchesLoaded { request_id, result }
+        }
+        GitEffect::SwitchBranch { request_id, branch } => {
+            let result = run_blocking(move || service.switch_branch(&branch)).await;
+            Event::BranchSwitched { request_id, result }
+        }
         GitEffect::LoadChanges { request_id } => {
             let result = run_blocking(move || service.changes()).await;
             Event::ChangesLoaded { request_id, result }
@@ -886,6 +918,45 @@ mod tests {
                 ))),
             }
         }
+    }
+
+    #[tokio::test]
+    async fn branch_switch_waits_for_all_read_permits() {
+        let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("{error}"));
+        let runner = CountingRunner {
+            root: directory.path().to_path_buf(),
+            diff_calls: Arc::new(AtomicUsize::new(0)),
+            repository_file_calls: Arc::new(AtomicUsize::new(0)),
+        };
+        let service = Arc::new(
+            GitService::discover(runner, directory.path())
+                .unwrap_or_else(|error| panic!("{error}")),
+        );
+        let executor = EffectExecutor::new(Arc::clone(&service));
+        let mut state = AppState::new(service.root().clone(), AppView::Changes);
+        let request_id = state.request_id();
+        let branch = crate::domain::LocalBranch::from_ref(b"refs/heads/topic", false)
+            .unwrap_or_else(|| panic!("invalid test branch"));
+        let read_permit = executor
+            .permits
+            .acquire()
+            .await
+            .unwrap_or_else(|error| panic!("{error}"));
+        let (sender, mut receiver) = mpsc::channel(1);
+        executor.dispatch(GitEffect::SwitchBranch { request_id, branch }, sender);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), receiver.recv())
+                .await
+                .is_err(),
+            "switch must wait while even one reader is active"
+        );
+        drop(read_permit);
+        let event = tokio::time::timeout(std::time::Duration::from_secs(2), receiver.recv())
+            .await
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert!(
+            matches!(event, Some(Event::BranchSwitched { request_id: id, .. }) if id == request_id)
+        );
     }
 
     #[tokio::test]

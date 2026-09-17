@@ -8,7 +8,7 @@ import rehypeMermaid from './src/plugins/rehype-mermaid.mjs';
 
 const project = {
 	title: 'ChronoGit',
-	description: 'A read-only terminal UI for exploring Git history, diffs, and source code.',
+	description: 'A terminal UI for exploring Git history, diffs, and source code.',
 };
 const repository = process.env.PUBLIC_REPOSITORY_URL?.replace(/\/$/, '');
 const site = process.env.PUBLIC_SITE_URL;

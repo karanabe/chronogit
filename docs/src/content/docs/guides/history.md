@@ -52,7 +52,7 @@ Messages use logical lines without wrapping so character positions and search ma
 
 Press `Space m` to open the selected commit's complete message in a floating overlay. It supports the same text motions and search commands. Press `Space m` again, `q`, or `Esc` to close it.
 
-For a persistent body-oriented layout, press `Space b`. Its three rows are the same interactive commit list, the selected commit's body (including trailers), and changed files. Use `Ctrl-h/k/j/l` to move focus; the `Ctrl-w` forms remain available. Selecting another commit in the top row refreshes both the body and file rows. Focus the bottom row and press `Enter` to open a file diff; use Vim motions inside the diff. Press `Space b` again to return to standard History.
+For a persistent body-oriented layout, press `Space B`. Its three rows are the same interactive commit list, the selected commit's body (including trailers), and changed files. Use `Ctrl-h/k/j/l` to move focus; the `Ctrl-w` forms remain available. Selecting another commit in the top row refreshes both the body and file rows. Focus the bottom row and press `Enter` to open a file diff; use Vim motions inside the diff. Press `Space B` again to return to standard History.
 
 ## Follow parent lanes in Graph
 

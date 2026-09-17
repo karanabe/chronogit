@@ -2,8 +2,9 @@
 
 use crate::app::{CommitLoadMode, DocumentRevision, RequestId, SearchDirection, VisibleTreeEntry};
 use crate::domain::{
-    ChangedFile, CommitMessage, CommitPage, CommitSummary, DiffDocument, FileDocument, ObjectId,
-    RepoPath, SearchHit, SemanticNavigationKind, SourcePosition, TreeEntry, WorktreeChange,
+    ChangedFile, CommitMessage, CommitPage, CommitSummary, DiffDocument, FileDocument, LocalBranch,
+    ObjectId, RepoPath, SearchHit, SemanticNavigationKind, SourcePosition, TreeEntry,
+    WorktreeChange,
 };
 use crate::git::GitError;
 use crate::lsp::LspError;
@@ -55,6 +56,8 @@ pub enum Action {
     ShowGraph,
     /// Switch to the working-tree code viewer.
     ShowCode,
+    /// Open the local-branch switcher from any view or document overlay.
+    OpenBranches,
     /// Move focus to the preceding pane or search input.
     FocusLeft,
     /// Move focus to the following pane or search results.
@@ -156,6 +159,20 @@ pub enum Action {
 /// replacing a newer selection or query.
 #[derive(Debug)]
 pub enum Event {
+    /// Completed local branch enumeration.
+    BranchesLoaded {
+        /// Identifier allocated when the picker opened or refreshed.
+        request_id: RequestId,
+        /// Local branches or a recoverable boundary error.
+        result: Result<Vec<LocalBranch>, GitError>,
+    },
+    /// Completed an explicitly requested branch switch.
+    BranchSwitched {
+        /// Identifier allocated when the selected branch was activated.
+        request_id: RequestId,
+        /// Git's result; failures never trigger a forced retry.
+        result: Result<(), GitError>,
+    },
     /// Completed an unstaged-worktree status request.
     ChangesLoaded {
         /// Identifier allocated when the request began.

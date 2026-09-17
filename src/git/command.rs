@@ -1,17 +1,24 @@
-//! Closed descriptions of the Git reads `ChronoGit` is allowed to execute.
+//! Closed descriptions of the Git operations `ChronoGit` is allowed to execute.
 
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
-use crate::domain::{CommitBaseline, CommitPage, ObjectId, RepoPath};
+use crate::domain::{CommitBaseline, CommitPage, LocalBranch, ObjectId, RepoPath};
 
-/// A typed, read-only Git invocation.
+/// A typed Git invocation; branch switching is the only mutation.
 ///
 /// Callers cannot provide arbitrary arguments. [`crate::git::GitRunner`]
 /// translates only these variants and adds process-wide protections that
 /// disable prompts, pager, color, external diff, textconv, and fsmonitor.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GitCommand {
+    /// Enumerate local branch names and the current-branch marker.
+    LocalBranches,
+    /// Switch to an existing local branch without discarding local changes.
+    SwitchBranch {
+        /// Exact local branch obtained from enumeration.
+        branch: LocalBranch,
+    },
     /// Resolve the worktree root containing a candidate directory.
     Discover {
         /// Root or descendant path supplied at startup.
@@ -92,6 +99,8 @@ impl GitCommand {
     #[must_use]
     pub fn kind(&self) -> &'static str {
         match self {
+            Self::LocalBranches => "list local branches",
+            Self::SwitchBranch { .. } => "switch branch",
             Self::Discover { .. } => "discover repository",
             Self::IsBare => "check bare repository",
             Self::HasHead => "check HEAD",

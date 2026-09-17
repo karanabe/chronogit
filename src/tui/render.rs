@@ -79,6 +79,9 @@ pub fn render(frame: &mut Frame<'_>, state: &AppState) {
     render_main(frame, sections[0], state);
     render_footer(frame, sections[1], state);
     render_overlay(frame, area, state);
+    if state.branch_picker.is_some() {
+        render_branches(frame, area, state);
+    }
 }
 
 fn render_main(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
@@ -1051,11 +1054,64 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             Style::default().bg(Color::Blue).fg(Color::White),
         ),
         Span::raw(format!(
-            " {}{notice}{lsp} | {controls}{root}",
+            " Space b branches | {}{notice}{lsp} | {controls}{root}",
             sanitize_inline(&comparison),
         )),
     ]);
     frame.render_widget(Paragraph::new(line), area);
+}
+
+fn render_branches(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
+    let Some(picker) = &state.branch_picker else {
+        return;
+    };
+    let popup = centered(area, 85, 80);
+    frame.render_widget(Clear, popup);
+    let sections = Layout::vertical([Constraint::Min(5), Constraint::Length(7)]).split(popup);
+    let lines = match &picker.branches {
+        LoadState::Idle | LoadState::Loading { .. } => vec![plain("Loading local branches…")],
+        LoadState::Failed(error) => vec![error_line(error.message())],
+        LoadState::Ready(branches) if branches.is_empty() => vec![plain(
+            "No local branches. Create a commit or branch with Git first.",
+        )],
+        LoadState::Ready(branches) => branches
+            .iter()
+            .enumerate()
+            .map(|(index, branch)| {
+                selected_line(
+                    picker.selection.index() == Some(index),
+                    format!(
+                        "{} {}",
+                        if branch.is_current() { "*" } else { " " },
+                        sanitize_inline(&branch.display())
+                    ),
+                )
+            })
+            .collect(),
+    };
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title(" Local branches [* current] ")
+                    .borders(Borders::ALL),
+            )
+            .scroll((list_scroll(picker.selection.index(), sections[0]), 0)),
+        sections[0],
+    );
+    let message = match &picker.switching {
+        LoadState::Loading { .. } => "Switching branch… Please wait.".to_owned(),
+        LoadState::Failed(error) => format!("{}\n\nj/k: select  Enter: retry  r: reload  q/Esc: close", sanitize_multiline(error.message())),
+        _ => "j/k: select  Enter: switch  r: reload  q/Esc: cancel\nSwitching updates HEAD, the index, and working-tree files.\nConflicting local changes are preserved and reported as an error.".to_owned(),
+    };
+    frame.render_widget(
+        Paragraph::new(message).wrap(Wrap { trim: false }).block(
+            Block::default()
+                .title(" Switch branch ")
+                .borders(Borders::ALL),
+        ),
+        sections[1],
+    );
 }
 
 fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
@@ -1067,6 +1123,7 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             let text = vec![
                 plain("ChronoGit keys"),
                 plain("Space 1..4  Changes / History / Graph / Code"),
+                plain("Space b     Switch local branch (j/k select, Enter switch)"),
                 plain("Space f/g   Search files / repository content"),
                 plain("Ctrl-h/k/j/l Focus previous / next pane; Ctrl-w forms also work"),
                 plain("h j k l     Character / line motions; Backspace wraps left"),
@@ -1083,11 +1140,11 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                 plain("K; gd/gi/gy/gD   LSP hover and target navigation"),
                 plain("Space s/v/d  Symbols / full file / changes-new toggle"),
                 plain("Ctrl-o/i     Older / newer Vim, search, or LSP jump"),
-                plain("r; Space m/b/t  Refresh; message / layout / commit tree"),
+                plain("r; Space m/B/t  Refresh; message / layout / commit tree"),
                 plain("Space is the app leader; l/Right moves right"),
                 plain("Enter       Open selection; move down in an opened document"),
                 plain("F1 help; q close/back immediately; Q/Ctrl-C quit"),
-                plain("ChronoGit is read-only and never stages or commits changes."),
+                plain("Branch switching updates the worktree; documents are read-only."),
             ];
             frame.render_widget(
                 Paragraph::new(text)
@@ -2753,6 +2810,61 @@ mod tests {
     }
 
     #[test]
+    fn branch_picker_renders_above_all_views_and_scrolls_to_the_selection() {
+        use crate::app::{Action, Event, GitEffect};
+        use crate::domain::LocalBranch;
+        for view in [
+            AppView::Changes,
+            AppView::History,
+            AppView::Graph,
+            AppView::Code,
+        ] {
+            for (width, height) in [(80, 24), (140, 40)] {
+                let mut state = state();
+                state.view = view;
+                let effects = state.handle_action(Action::OpenBranches);
+                let [GitEffect::LoadBranches { request_id }] = effects.as_slice() else {
+                    panic!("missing load")
+                };
+                assert!(rendered_text(&state, width, height).contains("Loading local branches"));
+                let branches = (0..60)
+                    .map(|index| {
+                        LocalBranch::from_ref(
+                            format!("refs/heads/topic-{index:02}").as_bytes(),
+                            index == 0,
+                        )
+                        .unwrap_or_else(|| panic!("test branch"))
+                    })
+                    .collect();
+                state.handle_event(Event::BranchesLoaded {
+                    request_id: *request_id,
+                    result: Ok(branches),
+                });
+                let text = rendered_text(&state, width, height);
+                assert!(text.contains("* topic-00"));
+                assert!(text.contains("Enter: switch"));
+                state.handle_action(Action::MoveBottom);
+                assert!(rendered_text(&state, width, height).contains("topic-59"));
+                let effects = state.handle_action(Action::Activate);
+                let [GitEffect::SwitchBranch { request_id, .. }] = effects.as_slice() else {
+                    panic!("missing switch")
+                };
+                assert!(rendered_text(&state, width, height).contains("Switching branch"));
+                state.handle_event(Event::BranchSwitched {
+                    request_id: *request_id,
+                    result: Err(crate::git::GitError::Unsupported(
+                        "Local changes would be overwritten".into(),
+                    )),
+                });
+                assert!(
+                    rendered_text(&state, width, height)
+                        .contains("Local changes would be overwritten")
+                );
+            }
+        }
+    }
+
+    #[test]
     fn renders_help_overlay() {
         let backend = TestBackend::new(100, 30);
         let mut terminal = Terminal::new(backend)
@@ -2769,7 +2881,7 @@ mod tests {
         assert!(text.contains("Ctrl-h/k/j/l Focus previous / next pane"));
         assert!(text.contains("Backspace wraps left"));
         assert!(!text.contains("Backspace/Ctrl-H wraps left"));
-        assert!(text.contains("r; Space m/b/t"));
+        assert!(text.contains("r; Space m/B/t"));
         assert!(text.contains("Space is the app leader; l/Right moves right"));
         assert!(text.contains("F1 help; q close/back immediately; Q/Ctrl-C quit"));
         assert!(text.contains("Esc: clear text search, then close/back; q: close now"));

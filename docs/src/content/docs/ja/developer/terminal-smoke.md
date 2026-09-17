@@ -29,7 +29,7 @@ printf 'locale=%s term=%s\n' "${LC_ALL:-${LANG:-unset}}" "${TERM:-unset}"
 - バイナリファイルを変更するcommit
 - 2階層以上のディレクトリ
 
-ChronoGitは読み取り専用ですが、fixtureを安全に調整しやすい使い捨てリポジトリを推奨します。
+閲覧操作は読み取り専用ですが、ブランチ切替はワークツリーを更新します。この確認には使い捨てリポジトリを使用してください。
 
 ## Pane focus操作と入力byte
 
@@ -84,7 +84,7 @@ printf 'terminal accepts normal input after Q\n'
 7. countに加え、`w/W/e/E`、`b/B/ge/gE`、`0/^/$/g_`、`f/F/t/T`と`;` / `,`、`gg/G/%/go/H/M/L`、文・段落・section・delimiter motion、page/scroll/`z` motion、`[c` / `]c`を確認します。`/`、`?`、`n/N`、`*` / `#`、`g*` / `g#`も試します。
    - commit diffから`Space v`を押し、working treeではなく選択commitのfileが対応行で開くことを確認します。`Space d`を切り替えます。対応するtrusted LSP profileで`Space s`を使い、new側変更行を含むsymbolだけが並ぶこと、選択すると全文内のsymbolへjumpすること、symbolを選ばない全文行も使えることを確認します。
 8. `Space m`を押し、commit message全文を文字・word motionで移動し、`Space m`、`q`、`Esc`のそれぞれで閉じることを確認します。
-9. `Space b`を押し、通常と同じcommit一覧、commit body、変更ファイルの3段を確認します。単独`Ctrl-h/k/j/l`を1つずつ使い、次に従来の`Ctrl-w`形式でもfocusを移します。上段のcommit変更時に残りの段が更新されることを確認し、bodyをscrollして下段ファイルのdiffを開きます。もう一度`Space b`を押して通常のHistoryへ戻ります。
+9. `Space B`を押し、通常と同じcommit一覧、commit body、変更ファイルの3段を確認します。単独`Ctrl-h/k/j/l`を1つずつ使い、次に従来の`Ctrl-w`形式でもfocusを移します。上段のcommit変更時に残りの段が更新されることを確認し、bodyをscrollして下段ファイルのdiffを開きます。もう一度`Space B`を押して通常のHistoryへ戻ります。
 10. `Space t`を押し、2階層のdirectoryを展開・折りたたみ、blobの差分を開きます。
 11. `Ctrl-C`で終了し、`stty`比較とshell確認を繰り返します。
 

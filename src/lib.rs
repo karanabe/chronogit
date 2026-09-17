@@ -1,13 +1,13 @@
 //! Reusable layers for the `ChronoGit` terminal application.
 //!
-//! `ChronoGit` is a read-only Git history and working-tree source explorer. This crate exposes the
+//! `ChronoGit` is a Git history and working-tree source explorer with explicit local-branch switching. This crate exposes the
 //! domain model, the bounded Git adapter, the application state machine, and
 //! the terminal presentation layer used by the `chronogit` binary.
 //!
 //! The modules follow a one-way dependency flow:
 //!
 //! - [`domain`] owns validated values and has no process or terminal I/O.
-//! - [`git`] translates read-only Git output into domain values.
+//! - [`git`] translates Git output into domain values and performs explicit branch switches.
 //! - [`lsp`] owns optional language-server process and protocol boundaries.
 //! - [`app`] turns user intent into state transitions and typed Git/LSP effects.
 //! - [`tui`] maps terminal input to actions and renders application state.

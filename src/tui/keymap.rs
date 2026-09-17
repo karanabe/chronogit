@@ -369,6 +369,7 @@ fn action_for_name(name: &str) -> Option<Action> {
         "show_history" => Some(Action::ShowHistory),
         "show_graph" => Some(Action::ShowGraph),
         "show_code" => Some(Action::ShowCode),
+        "switch_branch" => Some(Action::OpenBranches),
         "focus_previous" => Some(Action::FocusLeft),
         "focus_next" => Some(Action::FocusRight),
         "move_up" => Some(motion(VimMotionKind::Up)),
@@ -917,7 +918,8 @@ mod tests {
             ('f', Action::OpenFileSearch),
             ('g', Action::OpenContentSearch),
             ('m', Action::ToggleMessage),
-            ('b', Action::ToggleDetails),
+            ('b', Action::OpenBranches),
+            ('B', Action::ToggleDetails),
             ('t', Action::ToggleTree),
         ] {
             let mut mapper = KeyMapper::new();
@@ -1527,6 +1529,7 @@ mod tests {
              show_history = alt-2\n\
              show_graph = alt-3\n\
              show_code = alt-4\n\
+             switch_branch = alt-B\n\
              file_search = alt-f\n\
              content_search = alt-g\n\
              toggle_message = alt-m\n\

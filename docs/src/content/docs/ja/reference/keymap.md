@@ -45,7 +45,7 @@ move_down = j, down, ctrl-j, ctrl-n
 
 修飾キーなしの`1`〜`9`はcount専用で、割り当ての先頭には使えません。`space 3`のようなleader連続キー、または`alt-3`のような修飾キーを使います。カンマ自体を割り当てるには、代替キーの区切りと区別できる`comma`を使います。
 
-組み込みapplication leaderはSpaceです。`1`〜`4`、`f`、`g`、`m`、`b`、`t`、`s`、`v`、`d`の
+組み込みapplication leaderはSpaceです。`1`〜`4`、`f`、`g`、`m`、`b`、`B`、`t`、`s`、`v`、`d`の
 prefixとして使い、標準mapには単独Space actionを意図的に置きません。再利用する
 `vim-navigation` crateはVimの行をまたぐSpace motionを引き続き実装しています。
 leaderを崩さず使うには、`cursor_right_wrap`をraw backslashなど競合しないキーへ
@@ -58,13 +58,13 @@ cursor_right_wrap = \
 
 Backslashは予約されていない通常の設定可能文字です。Space prefixの標準actionが1つ
 でも残る状態の`cursor_right_wrap = space`は、完結actionとsequence prefixが同じに
-なるため拒否されます。単独Spaceを復元する場合はSpace prefixの12 actionをすべて
+なるため拒否されます。単独Spaceを復元する場合はSpace prefixの13 actionをすべて
 明示的に置換してください。検索promptではnormal binding解決前に印字可能なSpaceを
 query文字として処理します。
 
 | action名 | 用途 |
 | --- | --- |
-| `quit`, `show_changes`, `show_history`, `show_graph`, `show_code` | アプリとビューの選択 |
+| `quit`, `show_changes`, `show_history`, `show_graph`, `show_code`, `switch_branch` | アプリとビューの選択 |
 | `focus_previous`, `focus_next` | ペインフォーカス |
 | `move_up`, `move_down`, `move_top`, `move_bottom`, `move_bottom_end`, `cursor_left`, `cursor_right`, `cursor_left_wrap`, `cursor_right_wrap` | 基本的な行・list・buffer・文字移動 |
 | `line_start`, `first_non_blank`, `line_end`, `last_non_blank` | 論理行内の列移動 |

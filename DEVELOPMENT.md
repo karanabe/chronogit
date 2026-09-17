@@ -33,7 +33,7 @@ The current implementation covers the `0.6.0` scope described in
 | --- | --- | --- |
 | [`crates/vim-navigation`](crates/vim-navigation) | Reusable text navigation | Public `command`, `motion`, and `editor` modules own incomplete Normal command state, pure cursor/viewport motion, and an explicitly mutable Normal/Insert buffer with configurable Insert escape input (`jj` by default). Private motion children separate semantic buffer scans, motion/viewport policy, Unicode display calculations, and tests. The crate has no Git, LSP, ratatui, or crossterm dependencies. |
 | [`src/domain.rs`](src/domain.rs) + [`src/domain/`](src/domain) | Domain model | Owns validated repository paths, object IDs, changes, commits, diffs, search hits, file revisions/documents, document symbols, and tree entries without Git or terminal I/O. |
-| [`src/git.rs`](src/git.rs) + [`src/git/`](src/git) | Repository adapter | Owns the read-only Git command allowlist, bounded process/current/revision-file reads, machine-output parsing, and domain-level repository operations. |
+| [`src/git.rs`](src/git.rs) + [`src/git/`](src/git) | Repository adapter | Owns the Git read and explicit branch-switch command allowlist, bounded process/current/revision-file reads, machine-output parsing, and domain-level repository operations. |
 | [`src/lsp.rs`](src/lsp.rs) + [`src/lsp/`](src/lsp) | Language-server adapter | Owns trusted profiles, bounded JSON-RPC transport, document synchronization, capability/position negotiation, and profile/workspace session lifecycle. |
 | [`src/app.rs`](src/app.rs) + [`src/app/`](src/app) | Application state | Owns actions, events, effects, asynchronous load state, Git and Code workflow selection, diff-to-source projection, symbol/full-file overlays, caching, and stale-response rejection. |
 | [`src/tui.rs`](src/tui.rs) + [`src/tui/`](src/tui) | Terminal presentation | Owns configurable key mapping, graph lanes, bounded syntax highlighting, terminal lifecycle, layout, rendering, and the interactive event loop. |
@@ -76,8 +76,10 @@ real terminal or language server.
 
 ## Design Boundaries
 
-- Preserve the read-only contract. Add Git operations through `GitCommand` and
-  never bypass its closed allowlist.
+- Browsing remains read-only; explicit local-branch switching is the only mutation.
+  Add Git operations through `GitCommand` and never bypass its closed allowlist.
+  Switches acquire both Git worker permits. After completion, invalidate all
+  repository state while preserving request IDs, then reload the active view.
 - Keep `EditableBuffer` opt-in and outside ChronoGit's application state.
   ChronoGit search prompts retain their existing single-line
   confirm/cancel behavior, accept Space and `jj` literally, and are not generic

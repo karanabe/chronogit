@@ -9,7 +9,7 @@ sidebar:
   order: 1
 ---
 
-ChronoGitは、Gitの変更、履歴、ワークツリーのソースコードを調べる読み取り専用のターミナルUIです。このガイドでは、Cargoでインストールし、リポジトリを変更せずに開きます。
+ChronoGitは、Gitの変更、履歴、ワークツリーのソースコードを調べ、必要に応じてローカルブランチを切り替えられるターミナルUIです。このガイドでは、Cargoでインストールし、リポジトリを変更せずに開きます。
 
 :::note[配布状況]
 このチェックアウトでは`0.6.0`を準備しています。crates.ioから取得できるようになるまでは、以下の動作を使う場合は信頼できるチェックアウトからインストールしてください。
@@ -94,6 +94,6 @@ chronogit /path/to/repository --view code
 - [ワークツリーのソースコードを閲覧する](/ja/guides/code-viewer/)
 - [ファイル、内容、ファイル単位の履歴を検索する](/ja/guides/search/)
 - [キー操作と画面レイアウトを覚える](/ja/guides/navigation/)
-- [読み取り専用の保証とリソース上限を確認する](/ja/reference/safety-and-limits/)
+- [Git操作の保証とリソース上限を確認する](/ja/reference/safety-and-limits/)
 
 起動できない場合は[トラブルシューティング](/ja/troubleshooting/common-problems/)を参照してください。

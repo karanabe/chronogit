@@ -6,6 +6,10 @@ All notable changes to ChronoGit are documented here.
 
 ### Added
 
+- Switch existing local branches from any view with `Space b`, with conflict
+  protection and automatic history, diff, and code refresh. The History body
+  layout toggle uses `Space B`.
+
 - Added `CommandStream` and a public `CommandOutput` constructor so external
   `GitRunner` implementations can return complete or truncated output.
 

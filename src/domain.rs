@@ -4,6 +4,7 @@
 //! distinguish commit baselines explicitly, and represent diff/file outcomes
 //! as enums so callers cannot confuse text, binary, empty, and truncated data.
 
+mod branch;
 mod change;
 mod commit;
 mod diff;
@@ -12,6 +13,7 @@ mod search;
 mod source;
 mod tree;
 
+pub use branch::LocalBranch;
 pub use change::{ChangeKind, ChangedFile, WorktreeChange};
 pub use commit::{
     CommitBaseline, CommitMessage, CommitPage, CommitSummary, ObjectId, ObjectIdError,

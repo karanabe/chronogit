@@ -26,4 +26,4 @@ The file view places up to 200 commits affecting the path in the upper pane and 
 
 Move the history selection with `j` / `k`; after the selection changes, the lower pane shows that commit's diff against its first parent, or against the empty tree for a root commit. Use `Ctrl-h/k/j/l` to move between panes; the `Ctrl-w` forms remain available. Press `Enter` to open whichever current content or diff is shown in a large floating view. Use Vim motions there, and press `q` once to close the float and again to return to the view where search began. `Esc` first dismisses any active diff search highlights, then follows the same close/back path. While a search prompt is active, `q` and `Q` are query text, normal `Ctrl-h/l` bindings do not apply, `Esc` cancels the prompt, and `Ctrl-C` quits.
 
-All searches and file reads retain ChronoGit's read-only behavior, 8 MiB output/content bound, 30-second Git timeout, and two-read concurrency limit.
+All searches and file reads remain read-only and retain ChronoGit's 8 MiB output/content bound, 30-second Git timeout, and two-read concurrency limit.

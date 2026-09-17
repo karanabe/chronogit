@@ -28,6 +28,9 @@ use crate::layout::{
 };
 
 pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffect> {
+    if action == Action::OpenBranches || state.branch_picker.is_some() {
+        return crate::app::branches::apply_action(state, action);
+    }
     let action = if action == Action::DismissSearchOrClose {
         if state.has_active_search_highlights() {
             state.search.dismiss_highlights();
@@ -232,6 +235,7 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
         | Action::Quit
         | Action::OpenFileSearch
         | Action::OpenContentSearch
+        | Action::OpenBranches
         | Action::ToggleLspHover
         | Action::OpenSymbolContext
         | Action::OpenFullFile
@@ -249,6 +253,12 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
 
 pub(crate) fn apply_event(state: &mut AppState, event: Event) -> Vec<GitEffect> {
     match event {
+        Event::BranchesLoaded { request_id, result } => {
+            crate::app::branches::loaded(state, request_id, result)
+        }
+        Event::BranchSwitched { request_id, result } => {
+            crate::app::branches::switched(state, request_id, result)
+        }
         Event::ChangesLoaded { request_id, result }
             if state.changes.loading_request() == Some(request_id) =>
         {

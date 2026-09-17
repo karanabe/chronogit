@@ -11,7 +11,7 @@ sidebar:
   order: 5
 ---
 
-ChronoGit gives a human an interactive, read-only view of the repository while a coding agent handles the implementation work. The agent resolves the repository and gives the user an exact command, but it does not launch, view, or operate the TUI. Run ChronoGit in a separate terminal that you control.
+ChronoGit gives a human an interactive repository view of the repository while a coding agent handles the implementation work. The agent resolves the repository and gives the user an exact command, but it does not launch, view, or operate the TUI. Run ChronoGit in a separate terminal that you control.
 
 ## Command-handoff support
 
@@ -126,7 +126,7 @@ If you closed the agent as well, resume its conversation first:
 ## Safety and unsuitable tasks
 
 :::caution[No implied write permission]
-A request to open ChronoGit authorizes only this read-only interface. It does not authorize a separate stage, restore, commit, checkout, reset, branch, or other Git mutation.
+A request to open ChronoGit authorizes opening the interface for browsing. The human may explicitly choose a local branch switch with `Space b`. It does not authorize a separate stage, restore, commit, checkout, reset, branch, or other Git mutation.
 :::
 
 Do not ask the agent to launch ChronoGit in an output-capture pipeline, non-interactive runner, backend PTY, or background task. Those environments cannot hand keyboard control to the user and may receive `an interactive TTY is required`. Use ordinary Git plumbing or another structured tool when an agent must parse output, compare many revisions automatically, or return a textual diff. ChronoGit has no JSON, export, batch, or non-interactive mode.

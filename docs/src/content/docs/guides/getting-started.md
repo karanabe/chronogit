@@ -9,7 +9,7 @@ sidebar:
   order: 1
 ---
 
-ChronoGit is a read-only terminal interface for inspecting Git changes, history, and working-tree source code. This guide installs it with Cargo and opens a repository without changing it.
+ChronoGit is a terminal interface for inspecting Git changes, history, and working-tree source code, with optional local-branch switching. This guide installs it with Cargo and opens a repository without changing it.
 
 :::note[Distribution status]
 Version `0.6.0` is prepared in this checkout. Until it is available from crates.io, install from a trusted checkout to use the behavior described below.
@@ -94,6 +94,6 @@ Press `Space 1` for Changes, `Space 2` for History, `Space 3` for Graph, or `Spa
 - [Browse the working-tree source code](/guides/code-viewer/)
 - [Search files, content, and per-file history](/guides/search/)
 - [Learn the keyboard and responsive layout](/guides/navigation/)
-- [Review the read-only contract and resource limits](/reference/safety-and-limits/)
+- [Review the Git operation contract and resource limits](/reference/safety-and-limits/)
 
 If startup fails, use the [troubleshooting guide](/troubleshooting/common-problems/).

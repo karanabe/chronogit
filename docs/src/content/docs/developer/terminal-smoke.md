@@ -29,7 +29,7 @@ Choose a non-bare test repository containing:
 - a commit that changes a binary file;
 - a directory nested at least two levels deep.
 
-ChronoGit is read-only, but a disposable repository makes it easier to adjust fixtures safely.
+Browsing is read-only; branch switching updates the working tree. Use a disposable repository for these checks.
 
 ## Pane-focus controls and input bytes
 
@@ -84,7 +84,7 @@ Confirm typed input echoes normally, the cursor is visible, mouse selection work
 7. Exercise counts plus `w/W/e/E`, `b/B/ge/gE`, `0/^/$/g_`, `f/F/t/T` with `;` / `,`, `gg/G/%/go/H/M/L`, sentence/paragraph/section and delimiter motions, page/scroll/`z` motions, and `[c` / `]c`. Search with `/`, `?`, `n/N`, `*` / `#`, and `g*` / `g#`.
    - From a commit diff, press `Space v`; confirm the file is read from the selected commit rather than the working tree and opens at the corresponding line. Toggle `Space d`. With a matching trusted LSP profile, use `Space s`, confirm only symbols containing changed new-side lines appear, select one and verify the complete file jumps to it, then use the explicit full-file row without selecting a symbol.
 8. Press `Space m`, move through the complete commit message with character and word motions, and close it separately with `Space m`, `q`, and `Esc`.
-9. Press `Space b` and confirm the rows are the same commit list, commit body, and changed files. Use each standalone `Ctrl-h/k/j/l`, then the retained `Ctrl-w` forms, to move focus. Change the top-row commit and confirm the other rows update, scroll the body, and open a bottom-row file diff. Press `Space b` again to return to standard History.
+9. Press `Space B` and confirm the rows are the same commit list, commit body, and changed files. Use each standalone `Ctrl-h/k/j/l`, then the retained `Ctrl-w` forms, to move focus. Change the top-row commit and confirm the other rows update, scroll the body, and open a bottom-row file diff. Press `Space B` again to return to standard History.
 10. Press `Space t`, expand and collapse two directory levels, and open a blob diff.
 11. Exit with `Ctrl-C`, then repeat the `stty` comparison and shell checks.
 

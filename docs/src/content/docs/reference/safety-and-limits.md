@@ -1,6 +1,6 @@
 ---
 title: Safety, limits, and non-goals
-description: Understand ChronoGit's read-only guarantees, resource bounds, and unsupported operations.
+description: Understand ChronoGit's browsing and branch-switch guarantees, resource bounds, and unsupported operations.
 tags:
   - safety
   - limits
@@ -11,9 +11,9 @@ sidebar:
 
 ChronoGit treats repository contents and configuration as untrusted input. Its Git boundary is closed, shell-free, and bounded.
 
-## Read-only contract
+## Browsing and branch-switch contract
 
-The application can only request typed operations for repository discovery, bare/`HEAD` checks, worktree status, history, messages, changed files, diffs, tree entries, repository file lists, and fixed-text grep. It contains no generic “run Git arguments” path.
+The application can only request typed operations for repository discovery, bare/`HEAD` checks, worktree status, history, messages, changed files, diffs, tree entries, repository file lists, fixed-text grep, local branch enumeration, and explicit local-branch switching. It contains no generic “run Git arguments” path.
 
 - Git runs directly without a shell.
 - Repository paths and pathspecs are separate process arguments placed after `--` where applicable. Historical full-file reads use one `object:path` argument assembled only from an already validated hexadecimal object ID and validated relative repository path.
@@ -24,7 +24,7 @@ The application can only request typed operations for repository discovery, bare
 - Historical full-file reads use Git's object database, never check out the revision, and share the 8 MiB output bound.
 - Keymap files accept only documented action and key names; they cannot run commands.
 
-ChronoGit never stages, restores, commits, resets, checks out, creates branches, or updates references.
+The only repository mutation is an explicit switch to an existing local branch chosen with `Space b`. It uses normal Git conflict checks without force, merge, automatic stash, or automatic remote tracking branch creation. Hooks and recursive submodule updates are disabled. Git-configured checkout filters may still execute, so switch branches only in trusted repositories. There are no stage, restore, commit, reset, or branch-creation actions.
 
 ## Explicit LSP trust boundary
 
@@ -33,7 +33,7 @@ Language-server support does not weaken ChronoGit's Git guarantees, but the exte
 ChronoGit does not bundle or download servers. It starts a validated trusted user-level argument array directly, never reads a server command from repository configuration, and performs no implicit shell interpolation. JDT workspace data and writable OSGi configuration use one unique temporary tree outside the repository for each process. Only complete UTF-8 displayed files are synchronized: current working-tree text for positional requests, plus selected-commit new-state text for document-symbol context. Returned locations are opened only when a `file:` path remains inside the repository and passes the existing no-follow reader; external and virtual URIs are notices only.
 
 :::note[Concurrent external changes]
-Read-only means ChronoGit does not mutate the repository. Editors, hooks started elsewhere, and other Git processes can still change it while the TUI is open. Press `r` to refresh after such a change.
+Browsing is read-only; explicit branch switching changes the repository. Editors, hooks started elsewhere, and other Git processes can still change it while the TUI is open. Press `r` to refresh after such a change.
 :::
 
 ## Resource bounds
@@ -76,7 +76,7 @@ Version `0.6.0` supports Linux and macOS, non-bare repositories, and interactive
 ChronoGit does not provide:
 
 - staged-change inspection;
-- repository mutation of any kind;
+- repository mutations other than switching existing local branches;
 - remotes, pull requests, blame, or stash workflows;
 - an editor or plugin runtime;
 - combined or selectable-parent merge diffs;

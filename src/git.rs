@@ -1,4 +1,4 @@
-//! Read-only access to an installed Git executable.
+//! Bounded repository access, including explicit local-branch switching.
 //!
 //! [`GitCommand`] is the closed command allowlist, [`GitRunner`] is the process
 //! boundary, and [`GitService`] exposes domain-level repository operations.

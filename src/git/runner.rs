@@ -261,12 +261,12 @@ impl Error for GitError {
 /// Executes typed [`GitCommand`] values for a [`crate::git::GitService`].
 ///
 /// The trait is the application's deliberate test and substitution boundary for
-/// slow, stateful subprocess I/O. Implementations must not reinterpret commands
-/// as mutating operations or concatenate repository paths into shell text.
+/// slow, stateful subprocess I/O. Implementations must preserve each command
+/// contract and never concatenate repository paths or branch names into shell text.
 pub trait GitRunner: Send + Sync + 'static {
     /// Executes one command, optionally within a discovered repository root.
     ///
-    /// `root` is `None` during discovery and present for repository-local reads.
+    /// `root` is `None` during discovery and present for repository-local operations.
     /// A successful `Result` preserves Git's exit status in [`CommandOutput`];
     /// service methods decide which non-zero statuses have domain meaning.
     ///
@@ -374,6 +374,26 @@ fn build_process(root: Option<&RepositoryRoot>, command: &GitCommand) -> Command
     }
 
     match command {
+        GitCommand::LocalBranches => {
+            process.args([
+                "for-each-ref",
+                "--sort=refname",
+                "--format=%(HEAD)%00%(refname)",
+                "refs/heads/",
+            ]);
+        }
+        GitCommand::SwitchBranch { branch } => {
+            process
+                .args([
+                    "-c",
+                    "core.hooksPath=/dev/null",
+                    "switch",
+                    "--no-guess",
+                    "--no-recurse-submodules",
+                    "--",
+                ])
+                .arg(branch.as_os_str());
+        }
         GitCommand::Discover { start } => {
             process
                 .arg("-C")

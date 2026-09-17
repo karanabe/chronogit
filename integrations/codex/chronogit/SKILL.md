@@ -1,6 +1,6 @@
 ---
 name: chronogit
-description: Prepare an exact ChronoGit command for the user to run in a separate interactive terminal when they want to inspect working-tree changes, commit history, messages, trees, or source code personally in a read-only TUI. Use for explicit ChronoGit requests or a clear request for human-controlled visual review; do not use merely because changes exist, for machine-readable output, or for Git mutations.
+description: Prepare an exact ChronoGit command for the user to run in a separate interactive terminal when they want to inspect working-tree changes, commit history, messages, trees, or source code personally in a TUI. Use for explicit ChronoGit requests or a clear request for human-controlled visual review; do not use merely because changes exist, for machine-readable output, or for Git mutations.
 ---
 
 # ChronoGit
@@ -40,7 +40,8 @@ There is no suspended ChronoGit session to resume after exit; the user reruns th
 - `Space f` / `Space g`: repository file / content search; `Ctrl-w k` edits the query from Results
 - `/` / `?`, `n/N`, `*/#`: search the active text document
 - `Space m`: full commit-message overlay
-- `Space b`: history diff / body layout
+- `Space b`: switch an existing local branch
+- `Space B`: history diff / body layout
 - `Space t`: changed files / commit tree
 - `Enter`: expand a directory or open a document; inside a text overlay, move to the next line's first nonblank
 - `m{char}`, `'{char}`, `` `{char}``: set a Code mark and jump linewise / exactly
@@ -50,4 +51,4 @@ There is no suspended ChronoGit session to resume after exit; the user reruns th
 - `q` / `Esc`: close or go back
 - `Q` / `Ctrl-C`: exit
 
-ChronoGit is read-only. It has no stage, restore, commit, checkout, reset, or branch action. Do not infer authorization for any separate Git mutation from a request to launch it.
+ChronoGit browsing is read-only. The human can explicitly switch an existing local branch with `Space b`, which updates HEAD, the index, and the working tree. It has no stage, restore, commit, reset, or branch-creation action. Do not infer authorization for any separate Git mutation from a request to launch it.

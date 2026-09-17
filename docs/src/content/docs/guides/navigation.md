@@ -11,6 +11,12 @@ sidebar:
 
 ChronoGit is operated entirely from the keyboard. Press `F1` inside the application for a compact reminder.
 
+## Switch branches
+
+From Changes (1), History (2), Graph (3), or Code (4), press `Space` then lowercase `b` to list existing local branches. `*` marks the current branch. Select with `j`/`k` or the arrow keys, press `Enter` to switch, or `q`/`Esc` to cancel. Press `r` to reload the list. If a search prompt is accepting text, cancel input with `Esc` first.
+
+Switching updates HEAD, the index, and the working tree, then reloads the same view. Git rejects conflicting uncommitted changes and branches already checked out in another worktree; the picker displays the error for retry. It never forces away changes or automatically stashes them. Once a switch starts, wait for completion before another action. Remote tracking branches are not created automatically; an empty repository may have no selectable local branches. Uppercase `Space B` toggles the History body layout.
+
 ## Key reference
 
 | Key | Action |
@@ -36,7 +42,7 @@ ChronoGit is operated entirely from the keyboard. Press `F1` inside the applicat
 | `m{char}`, `'{char}`, `` `{char}``, `g'{char}`, `` g`{char}`` | Set a Code mark; jump linewise / exactly, with `g` variants preserving the jump list |
 | `['` / `` [` ``, `]'` / `` ]` `` | Previous / next lowercase Code mark, linewise / exactly |
 | `r` | Refresh the current view |
-| `Space m` / `Space b` / `Space t` | Toggle complete message / History body layout / commit tree |
+| `Space m` / `Space B` / `Space t` | Toggle complete message / History body layout / commit tree |
 | `Enter` | Confirm/open a selection; in an open text document, move like `+` |
 | `/` / `?`, `n` / `N`, `*` / `#`, `g*` / `g#` | Search the active text document |
 | `K` | Toggle LSP hover at the Code cursor |
@@ -53,7 +59,7 @@ line-wrapping Space motion and tests it against the fixed Vim oracle; bind
 `cursor_right_wrap` to a non-conflicting key such as `\` if that exact motion
 is needed. Search prompts treat Space as text, not as the leader.
 
-ChronoGit itself remains a Normal-mode, read-only viewer. Its workspace
+ChronoGit document input remains a Normal-mode, read-only viewer. Its workspace
 `vim-navigation` crate also defines an explicit Normal/Insert contract for
 opt-in editable buffers. Its default `jj` sequence and retained Esc input leave
 Insert mode; callers can disable or replace `jj`. ChronoGit never connects
@@ -65,7 +71,7 @@ in `crates/vim-navigation/COMPATIBILITY.md` in the source repository.
 
 ## Pane behavior
 
-Changes contains a file pane and a diff pane. Standard History stacks three full-width rows: commits, changed files/tree, and diff. Press `Space b` for the alternative History layout, which stacks the same interactive commit list, commit body, and changed files. Graph is a full-height parent-lane list; its two-row commit details float over that list. Code always stacks an expandable working-tree file tree above the selected file content. File search results outside Code use two rows for history above content or diff.
+Changes contains a file pane and a diff pane. Standard History stacks three full-width rows: commits, changed files/tree, and diff. Press `Space B` for the alternative History layout, which stacks the same interactive commit list, commit body, and changed files. Graph is a full-height parent-lane list; its two-row commit details float over that list. Code always stacks an expandable working-tree file tree above the selected file content. File search results outside Code use two rows for history above content or diff.
 
 - At 110 columns or wider, Changes shows its two panes together.
 - From 80 through 109 columns, Changes gives the available width to its focused pane. History retains its three-row layout.

@@ -6,7 +6,7 @@ use clap::{Parser, ValueEnum};
 
 use crate::app::AppView;
 
-/// A read-only terminal Git history, diff, and source-code explorer.
+/// A terminal Git history, diff, and source-code explorer.
 #[derive(Debug, Parser)]
 #[command(name = "chronogit", version, about)]
 pub struct Cli {

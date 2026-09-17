@@ -1,4 +1,4 @@
-//! Domain-level repository reads built on the typed Git runner boundary.
+//! Domain-level repository operations built on the typed Git runner boundary.
 
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
@@ -17,8 +17,8 @@ use rustix::io::Errno;
 
 use crate::domain::{
     ChangedFile, CommitBaseline, CommitMessage, CommitPage, CommitSummary, DiffDocument,
-    DiffTarget, FileDocument, FileRevision, ObjectId, RepoPath, RepositoryRoot, SearchHit,
-    TextFileDocument, TreeEntry, WorktreeChange, WorktreeDiffKind,
+    DiffTarget, FileDocument, FileRevision, LocalBranch, ObjectId, RepoPath, RepositoryRoot,
+    SearchHit, TextFileDocument, TreeEntry, WorktreeChange, WorktreeDiffKind,
 };
 use crate::git::parse::{
     parse_changed_files, parse_commits, parse_file_paths, parse_grep_matches, parse_patch,
@@ -49,7 +49,7 @@ impl SourceRetention {
 ///
 /// The service owns the absolute worktree root and is the only component that
 /// combines typed commands, bounded output, parsers, and domain comparison
-/// policy. It exposes no operation that mutates the repository.
+/// policy. Explicit local-branch switching is its only repository mutation.
 #[derive(Debug)]
 pub struct GitService<R> {
     runner: R,
@@ -129,6 +129,60 @@ impl<R: GitRunner> GitService<R> {
     #[must_use]
     pub fn root(&self) -> &RepositoryRoot {
         &self.root
+    }
+
+    /// Lists existing local branches in name order, marking the current branch.
+    ///
+    /// Detached HEAD has no current marker; an empty repository has no branches.
+    ///
+    /// # Errors
+    /// Returns an error for unsuccessful, truncated, or malformed Git output.
+    pub fn local_branches(&self) -> Result<Vec<LocalBranch>, GitError> {
+        let output = self
+            .runner
+            .run(Some(&self.root), &GitCommand::LocalBranches)?;
+        ensure_complete(&output, "list local branches")?;
+        ensure_success(&output, "list local branches")?;
+        if output.stdout().is_empty() {
+            return Ok(Vec::new());
+        }
+        let records = output
+            .stdout()
+            .strip_suffix(b"\n")
+            .ok_or_else(|| GitError::parse("local branches", "missing record terminator"))?;
+        records
+            .split(|byte| *byte == b'\n')
+            .map(|record| {
+                let (marker, reference) = record
+                    .split_once_str(b"\0")
+                    .ok_or_else(|| GitError::parse("local branches", "missing branch name"))?;
+                if !matches!(marker, b"*" | b" ") {
+                    return Err(GitError::parse("local branches", "invalid current marker"));
+                }
+                LocalBranch::from_ref(reference, marker == b"*")
+                    .ok_or_else(|| GitError::parse("local branches", "invalid local reference"))
+            })
+            .collect()
+    }
+
+    /// Switches HEAD, index, and worktree to a listed local branch.
+    ///
+    /// Git preserves compatible local changes and refuses conflicts. This never
+    /// forces a checkout, creates a branch, runs hooks, or recurses into submodules.
+    ///
+    /// # Errors
+    /// Returns Git's error for conflicting changes, missing branches, branches
+    /// checked out elsewhere, or process failure. Reload repository state after
+    /// a timeout because the process may have changed files before it stopped.
+    pub fn switch_branch(&self, branch: &LocalBranch) -> Result<(), GitError> {
+        let output = self.runner.run(
+            Some(&self.root),
+            &GitCommand::SwitchBranch {
+                branch: branch.clone(),
+            },
+        )?;
+        ensure_success(&output, "switch branch")?;
+        ensure_complete(&output, "switch branch")
     }
 
     /// Reads unstaged tracked and untracked worktree changes.

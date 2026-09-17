@@ -29,6 +29,301 @@ fn commit_limit(limit: usize) -> NonZeroUsize {
     NonZeroUsize::new(limit).unwrap_or_else(|| panic!("commit limit must be non-zero"))
 }
 
+#[test]
+fn local_branches_handle_empty_detached_and_non_utf8_names() {
+    let repository = TestRepository::new();
+    let service = repository.service();
+    assert!(
+        service
+            .local_branches()
+            .unwrap_or_else(|e| panic!("{e}"))
+            .is_empty()
+    );
+    repository.write("file", b"main\n");
+    repository.git(&["add", "."]);
+    repository.git(&["commit", "-m", "main"]);
+    repository.git(&["branch", "feature/topic"]);
+    repository.git(&["tag", "not-a-branch"]);
+    let odd_name = OsString::from_vec(b"topic-\xff".to_vec());
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repository.path())
+        .arg("branch")
+        .arg(&odd_name)
+        .output()
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(output.status.success());
+    let branches = service.local_branches().unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(branches.len(), 3);
+    assert_eq!(
+        branches
+            .iter()
+            .find(|branch| branch.is_current())
+            .map(|branch| branch.display()),
+        Some("main".into())
+    );
+    let odd = branches
+        .iter()
+        .find(|branch| branch.display().contains('\u{fffd}'))
+        .unwrap_or_else(|| panic!("missing byte branch"));
+    service.switch_branch(odd).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        repository.git(&["symbolic-ref", "--short", "HEAD"]).stdout,
+        b"topic-\xff\n"
+    );
+    repository.git(&["switch", "--detach"]);
+    let branches = service.local_branches().unwrap_or_else(|e| panic!("{e}"));
+    assert!(branches.iter().all(|branch| !branch.is_current()));
+    let main = branches
+        .iter()
+        .find(|branch| branch.display() == "main")
+        .unwrap_or_else(|| panic!("missing main"));
+    service
+        .switch_branch(main)
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        repository.git(&["symbolic-ref", "--short", "HEAD"]).stdout,
+        b"main\n"
+    );
+}
+
+fn repository_with_branches() -> TestRepository {
+    let repository = TestRepository::new();
+    repository.write("file", b"main\n");
+    repository.write("unchanged", b"base\n");
+    repository.git(&["add", "."]);
+    repository.git(&["commit", "-m", "main"]);
+    repository.git(&["switch", "-c", "topic"]);
+    repository.write("file", b"topic\n");
+    repository.write("topic-only", b"new file\n");
+    repository.git(&["add", "."]);
+    repository.git(&["commit", "-m", "topic"]);
+    repository.git(&["switch", "main"]);
+    repository
+}
+
+#[test]
+fn branch_switch_preserves_conflicting_staged_unstaged_and_untracked_changes() {
+    for kind in ["unstaged", "staged", "untracked"] {
+        let repository = repository_with_branches();
+        let service = repository.service();
+        let topic = service
+            .local_branches()
+            .unwrap_or_else(|e| panic!("{e}"))
+            .into_iter()
+            .find(|branch| branch.display() == "topic")
+            .unwrap_or_else(|| panic!("missing topic"));
+        let path = if kind == "untracked" {
+            "topic-only"
+        } else {
+            "file"
+        };
+        repository.write(path, b"keep my changes\n");
+        if kind == "staged" {
+            repository.git(&["add", path]);
+        }
+        let before = repository.git(&["status", "--porcelain=v2", "-z"]).stdout;
+        assert!(service.switch_branch(&topic).is_err(), "{kind}");
+        assert_eq!(
+            repository.git(&["symbolic-ref", "--short", "HEAD"]).stdout,
+            b"main\n"
+        );
+        assert_eq!(
+            repository.git(&["status", "--porcelain=v2", "-z"]).stdout,
+            before
+        );
+        assert_eq!(
+            fs::read(repository.path().join(path)).unwrap_or_else(|e| panic!("{e}")),
+            b"keep my changes\n"
+        );
+    }
+}
+
+#[test]
+fn branch_switch_keeps_compatible_changes_and_does_not_run_hooks() {
+    use std::os::unix::fs::PermissionsExt;
+    let repository = repository_with_branches();
+    let service = repository.service();
+    let topic = service
+        .local_branches()
+        .unwrap_or_else(|e| panic!("{e}"))
+        .into_iter()
+        .find(|branch| branch.display() == "topic")
+        .unwrap_or_else(|| panic!("missing topic"));
+    repository.write("unchanged", b"keep edits\n");
+    repository.write(".git/hooks/post-checkout", b"#!/bin/sh\ntouch hook-ran\n");
+    fs::set_permissions(
+        repository.path().join(".git/hooks/post-checkout"),
+        fs::Permissions::from_mode(0o755),
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    service
+        .switch_branch(&topic)
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        fs::read(repository.path().join("file")).unwrap_or_else(|e| panic!("{e}")),
+        b"topic\n"
+    );
+    assert_eq!(
+        fs::read(repository.path().join("unchanged")).unwrap_or_else(|e| panic!("{e}")),
+        b"keep edits\n"
+    );
+    assert!(!repository.path().join("hook-ran").exists());
+}
+
+#[test]
+fn branch_switch_refuses_missing_and_other_worktree_branches() {
+    let repository = repository_with_branches();
+    let service = repository.service();
+    let topic = service
+        .local_branches()
+        .unwrap_or_else(|e| panic!("{e}"))
+        .into_iter()
+        .find(|branch| branch.display() == "topic")
+        .unwrap_or_else(|| panic!("missing topic"));
+    let worktree = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+    repository.git(&[
+        "worktree",
+        "add",
+        worktree
+            .path()
+            .to_str()
+            .unwrap_or_else(|| panic!("UTF-8 temp path")),
+        "topic",
+    ]);
+    assert!(service.switch_branch(&topic).is_err());
+    repository.git(&[
+        "worktree",
+        "remove",
+        worktree
+            .path()
+            .to_str()
+            .unwrap_or_else(|| panic!("UTF-8 temp path")),
+    ]);
+    repository.git(&["branch", "-D", "topic"]);
+    repository.git(&["update-ref", "refs/remotes/origin/topic", "HEAD"]);
+    assert!(
+        service.switch_branch(&topic).is_err(),
+        "must not guess/create a tracking branch"
+    );
+    assert_eq!(
+        repository.git(&["symbolic-ref", "--short", "HEAD"]).stdout,
+        b"main\n"
+    );
+}
+
+#[tokio::test]
+async fn branch_switch_effect_refreshes_each_view_against_the_new_head() {
+    use chronogit::app::{Action, AppEffect, AppState, AppView, EffectExecutor, Event, GitEffect};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::mpsc;
+
+    for view in [
+        AppView::Changes,
+        AppView::History,
+        AppView::Graph,
+        AppView::Code,
+    ] {
+        let repository = repository_with_branches();
+        let service = Arc::new(repository.service());
+        let mut state = AppState::new(service.root().clone(), view);
+        let executor = EffectExecutor::new(Arc::clone(&service));
+        let (sender, mut receiver) = mpsc::channel(20);
+        for effect in state.handle_app_action(Action::OpenBranches) {
+            executor.dispatch_app(effect, sender.clone());
+        }
+        let event = tokio::time::timeout(Duration::from_secs(5), receiver.recv())
+            .await
+            .unwrap_or_else(|e| panic!("{e}"))
+            .unwrap_or_else(|| panic!("no branch event"));
+        assert!(matches!(
+            &event,
+            Event::BranchesLoaded { result: Ok(_), .. }
+        ));
+        state.handle_app_event(event);
+        state.handle_app_action(Action::MoveDown);
+        for effect in state.handle_app_action(Action::Activate) {
+            executor.dispatch_app(effect, sender.clone());
+        }
+        let event = tokio::time::timeout(Duration::from_secs(5), receiver.recv())
+            .await
+            .unwrap_or_else(|e| panic!("{e}"))
+            .unwrap_or_else(|| panic!("no switch event"));
+        assert!(matches!(
+            &event,
+            Event::BranchSwitched { result: Ok(()), .. }
+        ));
+        let effects = state.handle_app_event(event);
+        assert_eq!(state.view(), view);
+        assert_eq!(effects.len(), 1);
+        for effect in effects {
+            executor.dispatch_app(effect, sender.clone());
+        }
+        let event = tokio::time::timeout(Duration::from_secs(5), receiver.recv())
+            .await
+            .unwrap_or_else(|e| panic!("{e}"))
+            .unwrap_or_else(|| panic!("no refresh event"));
+        match (&event, view) {
+            (
+                Event::ChangesLoaded {
+                    result: Ok(changes),
+                    ..
+                },
+                AppView::Changes,
+            ) => assert!(changes.is_empty()),
+            (
+                Event::CommitsLoaded {
+                    result: Ok(commits),
+                    ..
+                },
+                AppView::History | AppView::Graph,
+            ) => assert_eq!(
+                commits[0].id().to_string().as_bytes(),
+                repository
+                    .git(&["rev-parse", "HEAD"])
+                    .stdout
+                    .strip_suffix(b"\n")
+                    .unwrap_or_default()
+            ),
+            (
+                Event::CodeTreeLoaded {
+                    result: Ok(files), ..
+                },
+                AppView::Code,
+            ) => assert!(files.iter().any(|path| path.display() == "topic-only")),
+            _ => panic!("unexpected refresh: {event:?}"),
+        }
+        assert_eq!(
+            repository.git(&["symbolic-ref", "--short", "HEAD"]).stdout,
+            b"topic\n"
+        );
+        // Feed completion back so follow-up document requests also reflect topic.
+        let effects = state.handle_app_event(event);
+        if view == AppView::Code {
+            assert!(matches!(
+                effects.as_slice(),
+                [AppEffect::Git(GitEffect::LoadCodeFile { .. })]
+            ));
+            for effect in effects {
+                executor.dispatch_app(effect, sender.clone());
+            }
+            let event = tokio::time::timeout(Duration::from_secs(5), receiver.recv())
+                .await
+                .unwrap_or_else(|e| panic!("{e}"))
+                .unwrap_or_else(|| panic!("no file event"));
+            let Event::CodeFileLoaded {
+                result: Ok(document),
+                ..
+            } = event
+            else {
+                panic!("missing code document")
+            };
+            assert!(format!("{document:?}").contains("topic"));
+        }
+    }
+}
+
 struct TestRepository {
     directory: TempDir,
 }

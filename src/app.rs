@@ -5,6 +5,7 @@
 //! returns typed [`AppEffect`] values for repository and optional LSP work.
 
 mod action;
+mod branches;
 mod code_view;
 mod effect;
 mod model;
