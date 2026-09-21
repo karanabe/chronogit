@@ -54,7 +54,7 @@ impl CursorColumnPolicy {
 pub enum AppView {
     /// Unstaged worktree paths and an index-to-worktree diff.
     Changes,
-    /// Commit list, changed files or tree, and selected diff.
+    /// Commit list, changed files or tree, and a message or diff preview.
     History,
     /// Commit list, full message body, and changed files.
     CommitDetails,
@@ -111,6 +111,13 @@ pub enum HistoryPanel {
     ChangedFiles,
     /// Lazily expandable entries from the selected commit tree.
     Tree,
+}
+
+/// Content displayed in the bottom section of the history view.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum HistoryPreview {
+    Message,
+    Diff,
 }
 
 /// A modal surface drawn above a main [`AppView`].
@@ -829,6 +836,7 @@ pub struct AppState {
     pub(crate) view: AppView,
     pub(crate) focus: FocusedPane,
     pub(crate) history_panel: HistoryPanel,
+    pub(crate) history_preview: HistoryPreview,
     pub(crate) overlay: Overlay,
     pub(crate) should_quit: bool,
     pub(crate) branch_picker: Option<crate::app::branches::BranchPicker>,
@@ -862,6 +870,12 @@ pub struct AppState {
 }
 
 impl AppState {
+    pub(crate) fn history_message_focused(&self) -> bool {
+        self.view == AppView::History
+            && self.focus == FocusedPane::Diff
+            && self.history_preview == HistoryPreview::Message
+    }
+
     /// Creates an idle application rooted at a discovered repository.
     ///
     /// Call [`AppState::start`] after constructing the matching effect executor
@@ -873,6 +887,7 @@ impl AppState {
             view,
             focus: FocusedPane::Primary,
             history_panel: HistoryPanel::ChangedFiles,
+            history_preview: HistoryPreview::Message,
             overlay: Overlay::None,
             should_quit: false,
             branch_picker: None,

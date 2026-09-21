@@ -42,7 +42,7 @@ Switching updates HEAD, the index, and the working tree, then reloads the same v
 | `m{char}`, `'{char}`, `` `{char}``, `g'{char}`, `` g`{char}`` | Set a Code mark; jump linewise / exactly, with `g` variants preserving the jump list |
 | `['` / `` [` ``, `]'` / `` ]` `` | Previous / next lowercase Code mark, linewise / exactly |
 | `r` | Refresh the current view |
-| `Space m` / `Space B` / `Space t` | Toggle complete message / History body layout / commit tree |
+| `Space m` / `Space B` / `Space t` | Toggle History message/diff (message overlay elsewhere) / History body layout / commit tree |
 | `Enter` | Confirm/open a selection; in an open text document, move like `+` |
 | `/` / `?`, `n` / `N`, `*` / `#`, `g*` / `g#` | Search the active text document |
 | `K` | Toggle LSP hover at the Code cursor |
@@ -71,14 +71,14 @@ in `crates/vim-navigation/COMPATIBILITY.md` in the source repository.
 
 ## Pane behavior
 
-Changes contains a file pane and a diff pane. Standard History stacks three full-width rows: commits, changed files/tree, and diff. Press `Space B` for the alternative History layout, which stacks the same interactive commit list, commit body, and changed files. Graph is a full-height parent-lane list; its two-row commit details float over that list. Code always stacks an expandable working-tree file tree above the selected file content. File search results outside Code use two rows for history above content or diff.
+Changes contains a file pane and a diff pane. Standard History stacks three full-width rows: commits, changed files/tree, and a complete message by default. `Space m` switches the bottom row between message and diff. Press `Space B` for the alternative History layout, which stacks the same interactive commit list, commit body, and changed files. Graph is a full-height parent-lane list; its two-row commit details float over that list. Code always stacks an expandable working-tree file tree above the selected file content. File search results outside Code use two rows for history above content or diff.
 
 - At 110 columns or wider, Changes shows its two panes together.
 - From 80 through 109 columns, Changes gives the available width to its focused pane. History retains its three-row layout.
 - Below 80 columns or 24 rows, the regular interface is replaced by a minimum-size message. `Q` and `Ctrl-C` remain available.
 - At very wide sizes, the footer also includes the resolved repository root.
 
-The highlighted border identifies the focused pane. Selection and scrolling commands apply to that pane. `h` / `l` are true Vim character motions in a text pane and select the adjacent pane in list-only contexts. In normal pane contexts, standalone `Ctrl-h` / `Ctrl-k` move to the previous pane and `Ctrl-j` / `Ctrl-l` move to the next; all existing `Ctrl-w` focus sequences remain available. The order follows each view rather than screen coordinates: Changes, File history, and Code have two steps; History and Commit details have three; Graph details has two; Graph itself has only one. Focus stops at each edge without cycling. In History's Commits pane, `Enter` confirms the selected commit and moves focus directly to Changed files.
+The highlighted border identifies the focused pane. Selection and scrolling commands apply to that pane. `h` / `l` are true Vim character motions in a text pane and select the adjacent pane in list-only contexts. In normal pane contexts, standalone `Ctrl-h` / `Ctrl-k` move to the previous pane and `Ctrl-j` / `Ctrl-l` move to the next; all existing `Ctrl-w` focus sequences remain available. The order follows each view rather than screen coordinates: Changes, File history, and Code have two steps; History and Commit details have three; Graph details has two; Graph itself has only one. Focus stops at each edge without cycling. In History's Commits pane, `Enter` confirms the selected commit, switches the bottom row to diff, and moves focus directly to Changed files. Returning from the middle row to Commits restores the message. Other pane focus commands preserve the selected message/diff mode.
 
 ## Overlays
 

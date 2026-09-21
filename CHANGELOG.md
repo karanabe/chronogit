@@ -6,6 +6,11 @@ All notable changes to ChronoGit are documented here.
 
 ### Added
 
+- History starts with the complete commit message in its bottom pane. `Space m`
+  toggles message/diff, and Enter on a commit selects the diff preview. Pane
+  focus commands preserve the selected preview except when returning to Commits,
+  which restores the message.
+
 - Switch existing local branches from any view with `Space b`, with conflict
   protection and automatic history, diff, and code refresh. The History body
   layout toggle uses `Space B`.

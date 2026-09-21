@@ -64,6 +64,8 @@ for platform support, upgrade notes, and the complete first-run walkthrough.
 
 - **Changes:** inspect tracked and untracked unstaged work.
 - **History:** read commits, full messages, changed files, trees, and patches.
+  The bottom pane starts with the commit message; `Space m` toggles message/diff,
+  and `Enter` on a commit shows its diff. Returning to Commits restores the message; other pane moves preserve the preview.
 - **Graph:** follow commit parent relationships across branch lanes.
 - **Code:** browse the working tree and read syntax-highlighted files.
 - **Search:** find repository files or fixed text, then inspect the matching

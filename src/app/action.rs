@@ -115,7 +115,7 @@ pub enum Action {
     JumpListForward(usize),
     /// Reload data owned by the current view.
     Refresh,
-    /// Open or close the selected commit's complete message.
+    /// Toggle History's message/diff preview, or open/close the message elsewhere.
     ToggleMessage,
     /// Toggle between history summary and commit-detail layouts.
     ToggleDetails,

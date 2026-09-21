@@ -10,9 +10,9 @@ use crate::app::repository_search::{
 };
 use crate::app::{
     Action, AppState, AppView, ErrorNotice, Event, FALLBACK_HALF_PAGE_LINES, FocusedPane,
-    GitEffect, HORIZONTAL_SCROLL_COLUMNS, HistoryContinuation, HistoryPanel, JumpHistory,
-    LoadState, MarkJumpTarget, Overlay, PAGE_OVERLAP_LINES, RepositorySearchKind, SearchScope,
-    VerticalEdge, VimMotion, VimMotionKind, VisibleTreeEntry,
+    GitEffect, HORIZONTAL_SCROLL_COLUMNS, HistoryContinuation, HistoryPanel, HistoryPreview,
+    JumpHistory, LoadState, MarkJumpTarget, Overlay, PAGE_OVERLAP_LINES, RepositorySearchKind,
+    SearchScope, VerticalEdge, VimMotion, VimMotionKind, VisibleTreeEntry,
 };
 use crate::domain::{CommitSummary, DiffTarget, SourcePosition, TreeKind};
 use crate::layout::{
@@ -136,16 +136,9 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
         Action::ShowHistory => switch_view(state, AppView::History),
         Action::ShowGraph => switch_view(state, AppView::Graph),
         Action::ShowCode => switch_view(state, AppView::Code),
-        Action::FocusLeft => {
-            state.focus = previous_pane(state.view, state.focus);
-            Vec::new()
-        }
+        Action::FocusLeft | Action::MoveCursorLeft => focus_previous_pane(state),
         Action::FocusRight => {
             state.focus = next_pane(state.view, state.focus);
-            Vec::new()
-        }
-        Action::MoveCursorLeft => {
-            state.focus = previous_pane(state.view, state.focus);
             Vec::new()
         }
         Action::MoveCursorRight => {
@@ -159,7 +152,12 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
         Action::HalfPageUp => move_half_page(state, -FALLBACK_HALF_PAGE_LINES),
         Action::HalfPageDown => move_half_page(state, FALLBACK_HALF_PAGE_LINES),
         Action::ScrollLeft => {
-            if state.view == AppView::Code {
+            if state.history_message_focused() {
+                state.message.horizontal = state
+                    .message
+                    .horizontal
+                    .saturating_sub(HORIZONTAL_SCROLL_COLUMNS);
+            } else if state.view == AppView::Code {
                 state.code_view.viewport_horizontal = state
                     .code_view
                     .viewport_horizontal
@@ -180,7 +178,12 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffec
             Vec::new()
         }
         Action::ScrollRight => {
-            if state.view == AppView::Code {
+            if state.history_message_focused() {
+                state.message.horizontal = state
+                    .message
+                    .horizontal
+                    .saturating_add(HORIZONTAL_SCROLL_COLUMNS);
+            } else if state.view == AppView::Code {
                 state.code_view.viewport_horizontal = state
                     .code_view
                     .viewport_horizontal
@@ -624,6 +627,20 @@ fn full_message_last_line(state: &AppState) -> usize {
     }
 }
 
+fn focus_previous_pane(state: &mut AppState) -> Vec<GitEffect> {
+    let previous = state.focus;
+    state.focus = previous_pane(state.view, previous);
+    if state.overlay == Overlay::None
+        && state.view == AppView::History
+        && previous == FocusedPane::Secondary
+        && state.focus == FocusedPane::Primary
+        && state.history_preview == HistoryPreview::Diff
+    {
+        return toggle_message(state);
+    }
+    Vec::new()
+}
+
 fn previous_pane(view: AppView, focus: FocusedPane) -> FocusedPane {
     match (view, focus) {
         (AppView::Changes, FocusedPane::Primary | FocusedPane::Secondary) => FocusedPane::Primary,
@@ -683,6 +700,10 @@ fn switch_view(state: &mut AppState, view: AppView) -> Vec<GitEffect> {
         AppView::Code if matches!(state.code_view.visible, LoadState::Idle) => {
             crate::app::code_view::request_tree(state)
         }
+        AppView::History => selected_commit(state)
+            .map(|commit| commit.id().clone())
+            .map(|commit| request_message(state, commit))
+            .unwrap_or_default(),
         _ => Vec::new(),
     }
 }
@@ -750,6 +771,10 @@ fn apply_vim_motion(state: &mut AppState, motion: VimMotion) -> Vec<GitEffect> {
     }
     if state.view == AppView::CommitDetails && state.focus == FocusedPane::Secondary {
         apply_message_vim_motion(state, motion, height, width, MessageExtent::Body);
+        return Vec::new();
+    }
+    if state.history_message_focused() {
+        apply_message_vim_motion(state, motion, height, width, MessageExtent::Complete);
         return Vec::new();
     }
     if state.focus == FocusedPane::Diff
@@ -868,6 +893,9 @@ fn active_text_document(state: &AppState) -> Option<TextDocument> {
         (AppView::FileHistory, FocusedPane::Diff) => Some(TextDocument::File),
         (AppView::CommitDetails, FocusedPane::Secondary) => {
             Some(TextDocument::Message(MessageExtent::Body))
+        }
+        (AppView::History, FocusedPane::Diff) if state.history_message_focused() => {
+            Some(TextDocument::Message(MessageExtent::Complete))
         }
         (AppView::Changes | AppView::History | AppView::GraphDetails, FocusedPane::Diff) => {
             Some(TextDocument::Diff)
@@ -1384,8 +1412,7 @@ fn apply_list_vim_motion(
         motion.kind(),
         VimMotionKind::Left | VimMotionKind::LeftWrap | VimMotionKind::ScreenLineStart
     ) {
-        state.focus = previous_pane(state.view, state.focus);
-        return Vec::new();
+        return focus_previous_pane(state);
     }
     if matches!(
         motion.kind(),
@@ -1687,6 +1714,10 @@ fn loading_vertical_delta(motion: VimMotion, viewport_height: usize) -> Option<i
 }
 
 fn move_selection(state: &mut AppState, delta: isize) -> Vec<GitEffect> {
+    if state.history_message_focused() {
+        move_full_message_cursor(state, delta);
+        return Vec::new();
+    }
     if state.view == AppView::Code {
         return if state.focus == FocusedPane::Diff {
             crate::app::code_view::move_content_cursor(state, delta);
@@ -1795,6 +1826,14 @@ fn move_selection(state: &mut AppState, delta: isize) -> Vec<GitEffect> {
 }
 
 fn move_to_edge(state: &mut AppState, edge: VerticalEdge) -> Vec<GitEffect> {
+    if state.history_message_focused() {
+        state.message.scroll = if edge.is_bottom() {
+            full_message_last_line(state)
+        } else {
+            0
+        };
+        return Vec::new();
+    }
     if state.view == AppView::Code {
         return if state.focus == FocusedPane::Diff {
             let target = if edge.is_bottom() {
@@ -1922,7 +1961,10 @@ fn select_edge(
 }
 
 fn move_half_page(state: &mut AppState, delta: isize) -> Vec<GitEffect> {
-    if state.view == AppView::Code && state.focus == FocusedPane::Diff {
+    if state.history_message_focused() {
+        move_full_message_cursor(state, delta);
+        Vec::new()
+    } else if state.view == AppView::Code && state.focus == FocusedPane::Diff {
         crate::app::code_view::move_content_cursor(state, delta);
         Vec::new()
     } else if state.view == AppView::CommitDetails && state.focus == FocusedPane::Secondary {
@@ -2008,6 +2050,21 @@ fn toggle_details(state: &mut AppState) -> Vec<GitEffect> {
 }
 
 fn toggle_message(state: &mut AppState) -> Vec<GitEffect> {
+    if state.view == AppView::History {
+        state.history_preview = match state.history_preview {
+            HistoryPreview::Message => HistoryPreview::Diff,
+            HistoryPreview::Diff => HistoryPreview::Message,
+        };
+        state.search.clear();
+        return if state.history_preview == HistoryPreview::Message {
+            selected_commit(state)
+                .map(|commit| commit.id().clone())
+                .map(|commit| request_message(state, commit))
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+    }
     if !matches!(
         state.view,
         AppView::History | AppView::CommitDetails | AppView::Graph | AppView::GraphDetails
@@ -2028,7 +2085,10 @@ fn toggle_message(state: &mut AppState) -> Vec<GitEffect> {
 
 fn request_message(state: &mut AppState, commit: crate::domain::ObjectId) -> Vec<GitEffect> {
     if state.message.commit.as_ref() == Some(&commit)
-        && matches!(state.message.content, LoadState::Ready(_))
+        && matches!(
+            state.message.content,
+            LoadState::Ready(_) | LoadState::Loading { .. }
+        )
     {
         return Vec::new();
     }
@@ -2061,6 +2121,9 @@ fn toggle_tree(state: &mut AppState) -> Vec<GitEffect> {
 }
 
 fn activate(state: &mut AppState) -> Vec<GitEffect> {
+    if state.history_message_focused() {
+        return apply_vim_motion(state, VimMotion::new(VimMotionKind::NextLineFirstNonBlank));
+    }
     if state.view == AppView::Code {
         return if state.focus == FocusedPane::Diff {
             crate::app::code_view::open_content(state);
@@ -2072,6 +2135,8 @@ fn activate(state: &mut AppState) -> Vec<GitEffect> {
     match (state.view, state.focus, state.history_panel) {
         (AppView::History, FocusedPane::Primary, _) => {
             state.history_panel = HistoryPanel::ChangedFiles;
+            state.history_preview = HistoryPreview::Diff;
+            state.search.clear();
             state.focus = FocusedPane::Secondary;
             Vec::new()
         }
@@ -2153,6 +2218,8 @@ fn selected_commit_context(state: &mut AppState) -> Vec<GitEffect> {
     let Some(commit) = selected_commit(state).cloned() else {
         state.files = LoadState::Ready(Vec::new());
         state.diff.content = LoadState::Idle;
+        state.message.commit = None;
+        state.message.content = LoadState::Idle;
         return Vec::new();
     };
     let request_id = state.request_id();
@@ -2168,7 +2235,10 @@ fn selected_commit_context(state: &mut AppState) -> Vec<GitEffect> {
     if state.view == AppView::History && state.history_panel == HistoryPanel::Tree {
         effects.extend(reset_and_load_tree(state, &commit));
     }
-    if matches!(state.view, AppView::CommitDetails | AppView::GraphDetails) {
+    if matches!(
+        state.view,
+        AppView::History | AppView::CommitDetails | AppView::GraphDetails
+    ) {
         effects.extend(request_message(state, commit.id().clone()));
     }
     effects
@@ -2976,6 +3046,161 @@ mod tests {
     }
 
     #[test]
+    fn history_loads_selected_messages_and_ignores_stale_completions() {
+        let mut state = state();
+        let first = commit('a', "first");
+        let second = commit('b', "second");
+        let effects = apply_action(&mut state, Action::ShowHistory);
+        let request_id = match effects[0] {
+            GitEffect::LoadCommits { request_id, .. } => request_id,
+            _ => panic!("expected history request"),
+        };
+        let effects = apply_event(
+            &mut state,
+            Event::CommitsLoaded {
+                request_id,
+                mode: crate::app::CommitLoadMode::Replace,
+                page: commit_page(0, 200),
+                result: Ok(vec![first.clone(), second.clone()]),
+            },
+        );
+        assert!(effects.iter().any(|effect| matches!(effect,
+            GitEffect::LoadMessage { commit, .. } if commit == first.id())));
+        assert_eq!(state.history_preview, crate::app::HistoryPreview::Message);
+        let first_request = state
+            .message
+            .content
+            .loading_request()
+            .unwrap_or_else(|| panic!("message loading"));
+        let effects = apply_action(&mut state, Action::MoveDown);
+        assert!(effects.iter().any(|effect| matches!(effect,
+            GitEffect::LoadMessage { commit, .. } if commit == second.id())));
+        let second_request = state
+            .message
+            .content
+            .loading_request()
+            .unwrap_or_else(|| panic!("message loading"));
+        apply_event(
+            &mut state,
+            Event::MessageLoaded {
+                request_id: first_request,
+                commit: first.id().clone(),
+                result: Ok(CommitMessage::new("stale message".to_owned())),
+            },
+        );
+        assert_eq!(
+            state.message.content.loading_request(),
+            Some(second_request)
+        );
+        apply_event(
+            &mut state,
+            Event::MessageLoaded {
+                request_id: second_request,
+                commit: second.id().clone(),
+                result: Ok(CommitMessage::new("second\n\ncomplete body".to_owned())),
+            },
+        );
+        assert!(
+            matches!(&state.message.content, LoadState::Ready(message) if message.as_str().contains("complete body"))
+        );
+        // Empty history must not leave the previous commit's message visible.
+        let effects = apply_action(&mut state, Action::Refresh);
+        let request_id = match effects[0] {
+            GitEffect::LoadCommits { request_id, .. } => request_id,
+            _ => panic!("expected history refresh"),
+        };
+        apply_event(
+            &mut state,
+            Event::CommitsLoaded {
+                request_id,
+                mode: crate::app::CommitLoadMode::Replace,
+                page: commit_page(0, 200),
+                result: Ok(Vec::new()),
+            },
+        );
+        assert!(matches!(state.message.content, LoadState::Idle));
+    }
+
+    #[test]
+    fn history_message_keys_navigate_search_and_toggle_without_touching_diff() {
+        let mut state = state();
+        state.view = AppView::History;
+        let selected = commit('a', "subject");
+        state.commits = LoadState::Ready(vec![selected.clone()]);
+        state.commit_selection.reset(1);
+        state.message.commit = Some(selected.id().clone());
+        state.message.content = LoadState::Ready(CommitMessage::new(
+            "subject\n\n  body needle\nlast line".to_owned(),
+        ));
+        state.diff.vertical = 17;
+        state.diff.horizontal = 9;
+        let mut mapper = crate::tui::keymap::KeyMapper::new();
+        assert_eq!(apply_control_key(&mut state, 'l'), Some(Action::FocusRight));
+        assert_eq!(state.focus, FocusedPane::Secondary);
+        assert_eq!(state.history_preview, crate::app::HistoryPreview::Message);
+        apply_control_key(&mut state, 'j');
+        assert!(state.history_message_focused());
+        search_keys(&mut state, &mut mapper, "j\n");
+        assert_eq!(state.message.scroll, 2);
+        assert_eq!(state.message.byte_column, 2);
+        search_keys(&mut state, &mut mapper, "/needle\n");
+        assert_eq!(state.message.scroll, 2);
+        assert_eq!(state.message.byte_column, 7);
+        search_keys(&mut state, &mut mapper, "G");
+        assert_eq!(state.message.scroll, 3);
+        assert_eq!(state.diff.vertical, 17);
+        assert_eq!(state.diff.horizontal, 9);
+        search_keys(&mut state, &mut mapper, " m");
+        assert_eq!(state.history_preview, crate::app::HistoryPreview::Diff);
+        assert_eq!(state.overlay, Overlay::None);
+        assert!(state.search.query().is_empty());
+        search_keys(&mut state, &mut mapper, " m");
+        assert!(state.history_message_focused());
+        apply_control_key(&mut state, 'k');
+        apply_control_key(&mut state, 'h');
+        assert_eq!(state.focus, FocusedPane::Primary);
+        search_keys(&mut state, &mut mapper, "\n");
+        assert_eq!(state.focus, FocusedPane::Secondary);
+        assert_eq!(state.history_preview, crate::app::HistoryPreview::Diff);
+        apply_control_key(&mut state, 'k');
+        assert_eq!(state.focus, FocusedPane::Primary);
+        assert_eq!(state.history_preview, crate::app::HistoryPreview::Message);
+        assert_eq!(state.message.scroll, 3);
+        apply_control_key(&mut state, 'l');
+        assert_eq!(state.focus, FocusedPane::Secondary);
+        assert_eq!(state.history_preview, crate::app::HistoryPreview::Message);
+    }
+
+    #[test]
+    fn returning_to_commits_restores_message_only_when_focus_moves_back() {
+        for action in [
+            Action::FocusLeft,
+            Action::MoveCursorLeft,
+            Action::VimMotion(VimMotion::new(VimMotionKind::Left)),
+        ] {
+            let mut state = state();
+            state.view = AppView::History;
+            apply_action(&mut state, Action::Activate);
+            assert_eq!(state.history_preview, crate::app::HistoryPreview::Diff);
+
+            apply_action(&mut state, Action::FocusRight);
+            apply_action(&mut state, Action::FocusLeft);
+            assert_eq!(state.focus, FocusedPane::Secondary);
+            assert_eq!(state.history_preview, crate::app::HistoryPreview::Diff);
+
+            apply_action(&mut state, action);
+            assert_eq!(state.focus, FocusedPane::Primary);
+            assert_eq!(state.history_preview, crate::app::HistoryPreview::Message);
+
+            // A focus command at the top edge preserves an explicitly chosen diff.
+            apply_action(&mut state, Action::ToggleMessage);
+            apply_action(&mut state, action);
+            assert_eq!(state.focus, FocusedPane::Primary);
+            assert_eq!(state.history_preview, crate::app::HistoryPreview::Diff);
+        }
+    }
+
+    #[test]
     fn enter_on_a_history_commit_focuses_changed_files() {
         let mut state = state();
         state.view = AppView::History;
@@ -2985,6 +3210,7 @@ mod tests {
         let effects = apply_action(&mut state, Action::Activate);
         assert!(effects.is_empty());
         assert_eq!(state.history_panel, HistoryPanel::ChangedFiles);
+        assert_eq!(state.history_preview, crate::app::HistoryPreview::Diff);
         assert_eq!(state.focus, FocusedPane::Secondary);
 
         state.view = AppView::CommitDetails;
@@ -3219,7 +3445,7 @@ mod tests {
     #[test]
     fn commit_message_overlay_retries_errors_and_scrolls_the_full_message() {
         let mut state = state();
-        state.view = AppView::History;
+        state.view = AppView::Graph;
         let selected = commit('a', "message");
         state.commits = LoadState::Ready(vec![selected.clone()]);
         state.commit_selection.reset(1);
@@ -3398,13 +3624,12 @@ mod tests {
         let _none = apply_action(&mut state, Action::CloseOverlay);
         assert_eq!(state.view, AppView::Graph);
 
+        let pending = state.message.content.loading_request();
+        assert!(pending.is_some());
         let message = apply_action(&mut state, Action::ToggleMessage);
         assert_eq!(state.overlay, Overlay::CommitMessage);
-        assert!(
-            message
-                .iter()
-                .any(|effect| matches!(effect, GitEffect::LoadMessage { .. }))
-        );
+        assert!(message.is_empty());
+        assert_eq!(state.message.content.loading_request(), pending);
     }
 
     #[test]

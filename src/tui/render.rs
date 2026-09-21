@@ -15,7 +15,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::app::{
     AppState, AppView, CodeEntryKind, FocusedPane, FullFileDeletion, FullFileMode, HistoryPanel,
-    LoadState, Overlay, RepositorySearchKind, VisibleCodeEntry, VisibleTreeEntry,
+    HistoryPreview, LoadState, Overlay, RepositorySearchKind, VisibleCodeEntry, VisibleTreeEntry,
 };
 use crate::domain::{DiffDocument, DiffLine, DiffLineKind, DiffTarget, FileDocument, TreeKind};
 use crate::layout::{
@@ -112,7 +112,18 @@ fn render_main(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                 .split(area);
             render_commits(frame, rows[0], state);
             render_history_middle(frame, rows[1], state);
-            render_diff(frame, rows[2], state);
+            match state.history_preview {
+                HistoryPreview::Message => render_commit_message(
+                    frame,
+                    rows[2],
+                    state,
+                    pane_block(
+                        "Commit message [Space m: diff]",
+                        state.focus == FocusedPane::Diff,
+                    ),
+                ),
+                HistoryPreview::Diff => render_diff(frame, rows[2], state),
+            }
         }
         AppView::CommitDetails => {
             let rows = Layout::default()
@@ -381,6 +392,29 @@ fn render_commits(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     );
 }
 
+fn render_commit_message(frame: &mut Frame<'_>, area: Rect, state: &AppState, block: Block<'_>) {
+    let text = match &state.message.content {
+        LoadState::Idle => "Select a commit.".to_owned(),
+        LoadState::Loading { .. } => "Loading commit message…".to_owned(),
+        LoadState::Failed(error) => format!("Error: {}", sanitize_inline(error.message())),
+        LoadState::Ready(message) => message.as_str().to_owned(),
+    };
+    let visible = usize::from(area.height.saturating_sub(PANE_BORDER_CELLS)).max(1);
+    let cursor = state
+        .message
+        .scroll
+        .min(text.lines().count().saturating_sub(1));
+    let vertical = followed_scroll(cursor, state.message.viewport_vertical, visible);
+    let lines = message_cursor_lines(&text, cursor, state.message.byte_column);
+    frame.render_widget(
+        Paragraph::new(lines).block(block).scroll((
+            vertical,
+            state.message.horizontal.min(usize::from(u16::MAX)) as u16,
+        )),
+        area,
+    );
+}
+
 fn render_commit_body(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let block = pane_block("Commit body", state.focus == FocusedPane::Secondary);
     let text = match &state.message.content {
@@ -517,7 +551,10 @@ fn tree_line(entry: &VisibleTreeEntry, selected: bool) -> Line<'static> {
 
 fn render_diff(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let baseline = selected_baseline(state);
-    let title = baseline.map_or_else(|| "Diff".to_owned(), |value| format!("Diff — {value}"));
+    let mut title = baseline.map_or_else(|| "Diff".to_owned(), |value| format!("Diff — {value}"));
+    if state.view == AppView::History {
+        title.push_str(" [Space m: message]");
+    }
     render_diff_pane(frame, area, state, &title, state.focus == FocusedPane::Diff);
 }
 
@@ -1022,6 +1059,10 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     };
     let comparison = selected_baseline(state).unwrap_or_else(|| "comparison pending".to_owned());
     let controls = match (state.view, area.width >= WIDE_LAYOUT_WIDTH) {
+        (AppView::History, true) => {
+            "Space m message/diff  Enter open diff  ^h/j/k/l pane  Space B layout  Space t tree  F1 help  Q quit"
+        }
+        (AppView::History, false) => "Q quit  Space m message/diff  Enter open  ^h/j/k/l pane",
         (AppView::CommitDetails, true) => {
             "q/Esc History  Space m message  ^w h/j pane  j/k move  Enter diff  Q quit"
         }
@@ -1140,7 +1181,7 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                 plain("K; gd/gi/gy/gD   LSP hover and target navigation"),
                 plain("Space s/v/d  Symbols / full file / changes-new toggle"),
                 plain("Ctrl-o/i     Older / newer Vim, search, or LSP jump"),
-                plain("r; Space m/B/t  Refresh; message / layout / commit tree"),
+                plain("r; Space m/B/t  Refresh; message/diff / layout / commit tree"),
                 plain("Space is the app leader; l/Right moves right"),
                 plain("Enter       Open selection; move down in an opened document"),
                 plain("F1 help; q close/back immediately; Q/Ctrl-C quit"),
@@ -1163,31 +1204,13 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                     Constraint::Length(SEARCH_BAR_ROWS),
                 ])
                 .split(popup);
-            let text = match &state.message.content {
-                LoadState::Idle => "Select a commit.".to_owned(),
-                LoadState::Loading { .. } => "Loading commit message…".to_owned(),
-                LoadState::Failed(error) => {
-                    format!("Error: {}", sanitize_inline(error.message()))
-                }
-                LoadState::Ready(message) => message.as_str().to_owned(),
-            };
-            let visible = usize::from(sections[0].height.saturating_sub(PANE_BORDER_CELLS)).max(1);
-            let last = text.lines().count().saturating_sub(1);
-            let cursor = state.message.scroll.min(last);
-            let vertical = followed_scroll(cursor, state.message.viewport_vertical, visible);
-            let lines = message_cursor_lines(&text, cursor, state.message.byte_column);
-            frame.render_widget(
-                Paragraph::new(lines)
-                    .block(
-                        Block::default()
-                            .title(" Commit message [q/Esc: close, Enter: next line] ")
-                            .borders(Borders::ALL),
-                    )
-                    .scroll((
-                        vertical,
-                        state.message.horizontal.min(usize::from(u16::MAX)) as u16,
-                    )),
+            render_commit_message(
+                frame,
                 sections[0],
+                state,
+                Block::default()
+                    .title(" Commit message [q/Esc: close, Enter: next line] ")
+                    .borders(Borders::ALL),
             );
             render_search_bar(frame, sections[1], state);
         }
@@ -2564,16 +2587,32 @@ mod tests {
 
     #[test]
     fn message_motion_cursor_stays_visible_after_tabs_and_long_lines() {
-        for overlay in [Overlay::CommitMessage, Overlay::None] {
+        for (view, focus, overlay) in [
+            (
+                AppView::CommitDetails,
+                FocusedPane::Secondary,
+                Overlay::CommitMessage,
+            ),
+            (
+                AppView::CommitDetails,
+                FocusedPane::Secondary,
+                Overlay::None,
+            ),
+            (AppView::History, FocusedPane::Diff, Overlay::None),
+        ] {
             let mut state = state();
-            state.view = AppView::CommitDetails;
-            state.focus = FocusedPane::Secondary;
+            state.view = view;
+            state.focus = focus;
             state.overlay = overlay;
             state.set_terminal_size(80, 24);
             let body = format!("\t{}界\nnext", "x".repeat(120));
             state.message.content =
                 LoadState::Ready(CommitMessage::new(format!("subject\n\n{body}")));
-            state.message.scroll = if overlay == Overlay::None { 0 } else { 2 };
+            state.message.scroll = if view == AppView::CommitDetails && overlay == Overlay::None {
+                0
+            } else {
+                2
+            };
             let _none = state.handle_action(Action::VimMotion(crate::app::VimMotion::new(
                 crate::app::VimMotionKind::LineEnd,
             )));
@@ -3008,10 +3047,35 @@ mod tests {
             bytes: 22,
         });
 
+        state.message.commit = Some(commit.id().clone());
+        state.message.content = LoadState::Ready(CommitMessage::new(
+            "a readable commit subject\n\ncomplete commit body\nSigned-off-by: Author".to_owned(),
+        ));
+        for width in [80, 140] {
+            let text = rendered_text(&state, width, 24);
+            assert!(text.contains("Commit message [Space m: diff]"));
+            assert!(text.contains("complete commit body"));
+            assert!(text.contains("Signed-off-by: Author"));
+            assert!(!text.contains("readable diff content"));
+            assert!(text.contains("src/readable_file_name.rs"));
+        }
+        state.handle_action(Action::Activate);
         let text = rendered_text(&state, 80, 24);
         assert!(text.contains("a readable commit subject"));
         assert!(text.contains("src/readable_file_name.rs"));
+        assert!(!text.contains("complete commit body"));
         assert!(text.contains("readable diff content"));
+        state.handle_action(Action::ToggleMessage);
+        let text = rendered_text(&state, 80, 24);
+        assert!(text.contains("complete commit body"));
+        assert!(!text.contains("readable diff content"));
+
+        state.handle_action(Action::ToggleMessage);
+        state.handle_action(Action::FocusLeft);
+        assert_eq!(state.focus, FocusedPane::Primary);
+        let text = rendered_text(&state, 80, 24);
+        assert!(text.contains("complete commit body"));
+        assert!(!text.contains("readable diff content"));
     }
 
     #[test]

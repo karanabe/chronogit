@@ -76,14 +76,14 @@ printf 'terminal accepts normal input after Q\n'
 ## Historyワークフロー
 
 1. `chronogit /absolute/path/to/test-repository --view history`を実行します。
-2. 140×40と80×24の両方で、commit、変更ファイル/ツリー、diffが全幅の3段として表示され、長い件名とpathを読めることを確認します。
+2. 140×40と80×24の両方で、commit、変更ファイル/ツリー、メッセージ全文が全幅の3段として表示され、長い件名とpathを読めることを確認します。
 3. root、normal、merge commitを訪れ、footerとdiff titleが状況に応じて`empty tree`、`parent`、`first parent`を示すことを確認します。
-4. commitペインにフォーカスした状態で`Enter`を押し、選択中commitの変更ファイルへ直接フォーカスが移ることを確認します。
+4. commitペインにフォーカスした状態で`Enter`を押し、最下段がdiffへ切り替わり、選択中commitの変更ファイルへ直接フォーカスが移ることを確認します。`Ctrl-k`でCommitsへ戻ると、最下段も自動的にメッセージへ戻ることを確認します。続けて`Ctrl-l`または`Ctrl-w l`でペインを移動し、メッセージのままであることを確認します。
 5. 変更されたtext/binary fileを選んで`Enter`を押し、大きなフロートでpatchまたはbinary summaryが開くことを確認します。textでは`Enter`が次行の最初の非空白へ移動することを確認し、`q`で閉じ、検索強調がない場合は`Esc`でも閉じます。
 6. 種別を判別できるソースファイルを通常paneとfloating diffの両方で開きます。コードのトークンがシンタックスハイライトされ、追加・削除・hunkの背景がcontent右端まで続き、現在行のガターマーカーがコードの色を塗り替えないことを確認します。tab、wide character、長い行を含め、横スクロール後も本文が背景と独立して従来どおりclip・scrollすることを確認します。cacheされていない長いtext diffを開くと同時に`Ctrl-d`を押し、表示された直後にマーカーが半ページ移動していることを確認します。`j` / `k`でマーカーが1行ずつ目に見えて移動し、`Ctrl-u`も遅延なく上へ移動することを確認します。
 7. countに加え、`w/W/e/E`、`b/B/ge/gE`、`0/^/$/g_`、`f/F/t/T`と`;` / `,`、`gg/G/%/go/H/M/L`、文・段落・section・delimiter motion、page/scroll/`z` motion、`[c` / `]c`を確認します。`/`、`?`、`n/N`、`*` / `#`、`g*` / `g#`も試します。
    - commit diffから`Space v`を押し、working treeではなく選択commitのfileが対応行で開くことを確認します。`Space d`を切り替えます。対応するtrusted LSP profileで`Space s`を使い、new側変更行を含むsymbolだけが並ぶこと、選択すると全文内のsymbolへjumpすること、symbolを選ばない全文行も使えることを確認します。
-8. `Space m`を押し、commit message全文を文字・word motionで移動し、`Space m`、`q`、`Esc`のそれぞれで閉じることを確認します。
+8. 差分オーバーレイを閉じ、`Space m`で最下段をメッセージ全文にしてフォーカスし、文字・word移動、スクロール、検索を確認します。`Space m`を2回押し、オーバーレイを開かず、フォーカスも変えずに差分とメッセージを切り替えられることを確認します。
 9. `Space B`を押し、通常と同じcommit一覧、commit body、変更ファイルの3段を確認します。単独`Ctrl-h/k/j/l`を1つずつ使い、次に従来の`Ctrl-w`形式でもfocusを移します。上段のcommit変更時に残りの段が更新されることを確認し、bodyをscrollして下段ファイルのdiffを開きます。もう一度`Space B`を押して通常のHistoryへ戻ります。
 10. `Space t`を押し、2階層のdirectoryを展開・折りたたみ、blobの差分を開きます。
 11. `Ctrl-C`で終了し、`stty`比較とshell確認を繰り返します。

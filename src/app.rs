@@ -29,7 +29,7 @@ pub use model::{
 };
 pub(crate) use model::{
     CodeEntryKind, CursorColumnPolicy, FullFileDeletion, FullFileMode, HistoryContinuation,
-    HorizontalDirection, SourceDiffContext, VerticalEdge, VisibleCodeEntry,
+    HistoryPreview, HorizontalDirection, SourceDiffContext, VerticalEdge, VisibleCodeEntry,
 };
 pub use search::SearchDirection;
 pub(crate) use search::{SearchScope, SearchState};

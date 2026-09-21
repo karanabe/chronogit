@@ -230,6 +230,7 @@ fn active_source(state: &AppState) -> Option<ActiveSource> {
     if state.overlay == Overlay::Diff
         || (state.overlay == Overlay::None
             && state.focus == FocusedPane::Diff
+            && !state.history_message_focused()
             && state.view != AppView::Code
             && (state.view != AppView::FileHistory || state.file_view.mode.shows_history_diff()))
     {
@@ -587,10 +588,20 @@ mod tests {
             .unwrap_or_else(|error| panic!("commit: {error}"))
     }
 
+    #[test]
+    fn history_message_does_not_expose_the_hidden_diff_as_source() {
+        let mut state = diff_state();
+        state.history_preview = crate::app::HistoryPreview::Message;
+        assert!(super::active_source(&state).is_none());
+        state.overlay = Overlay::Diff;
+        assert!(super::active_source(&state).is_some());
+    }
+
     fn diff_state() -> AppState {
         let root = RepositoryRoot::new(PathBuf::from("/tmp/repo"))
             .unwrap_or_else(|error| panic!("root: {error}"));
         let mut state = AppState::new(root, AppView::History);
+        state.history_preview = crate::app::HistoryPreview::Diff;
         state.focus = FocusedPane::Diff;
         state.diff.target = Some(DiffTarget::Commit {
             commit: commit(),

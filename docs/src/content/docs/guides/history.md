@@ -15,10 +15,10 @@ Open it with `chronogit --view history` or press `Space 2`.
 
 ## Select a commit and file
 
-History displays commits, changed files/tree, and the diff preview as three full-width rows from top to bottom.
+History displays commits, changed files/tree, and the complete commit message as three full-width rows from top to bottom. The bottom row starts with the message; `Space m` switches it between message and diff without moving focus.
 
 1. Select a commit in the top row with `j` and `k`.
-2. Press `Enter` to confirm the commit and focus Changed files. You can also move there with `Ctrl-j` / `Ctrl-l` or their retained `Ctrl-w` sequences.
+2. Press `Enter` to confirm the commit, switch the bottom row to diff, and focus Changed files. Moving there with `Ctrl-j` / `Ctrl-l` or their retained `Ctrl-w` sequences keeps the current bottom-row content, so the message stays visible when you only change panes.
 3. Press `Enter` to open the complete patch in a large floating diff.
 4. Use count-aware Vim character, word, line, buffer, structural, search, and viewport motions. `[c` / `]c` jumps between diff change blocks; the cursor remains visible without recoloring syntax-highlighted code. Vertical commands entered while the diff is loading still take effect.
 5. `Enter` moves to the next line's first nonblank. Use `q` or `Esc` to close the diff.
@@ -50,7 +50,9 @@ Merge commits are not shown as a combined or per-parent diff in `0.6.0`. When an
 
 Messages use logical lines without wrapping so character positions and search matches stay aligned. The viewport follows the cursor horizontally; `zh` / `zl` also scroll it.
 
-Press `Space m` to open the selected commit's complete message in a floating overlay. It supports the same text motions and search commands. Press `Space m` again, `q`, or `Esc` to close it.
+History shows the selected commit's complete message, including its subject, body, and trailers, in the bottom row by default. Selecting another commit refreshes the message. Focus that row with pane controls to use text motions, scrolling, and search; `Enter` moves to the next line's first nonblank. `Space m` switches the bottom row between message and diff. Returning from the middle row to Commits with `Ctrl-k`, `Ctrl-h`, or another previous-pane command restores the message. Selecting commits and other pane moves retain the chosen mode.
+
+In Graph and the alternative commit-details layout, `Space m` opens the complete message in a floating overlay. Press `Space m` again, `q`, or `Esc` to close that overlay.
 
 For a persistent body-oriented layout, press `Space B`. Its three rows are the same interactive commit list, the selected commit's body (including trailers), and changed files. Use `Ctrl-h/k/j/l` to move focus; the `Ctrl-w` forms remain available. Selecting another commit in the top row refreshes both the body and file rows. Focus the bottom row and press `Enter` to open a file diff; use Vim motions inside the diff. Press `Space B` again to return to standard History.
 

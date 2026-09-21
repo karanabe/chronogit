@@ -76,14 +76,14 @@ Confirm typed input echoes normally, the cursor is visible, mouse selection work
 ## History workflow
 
 1. Run `chronogit /absolute/path/to/test-repository --view history`.
-2. At both 140×40 and 80×24, confirm commits, changed files/tree, and diff are visible as three full-width rows and long subjects/paths remain readable.
+2. At both 140×40 and 80×24, confirm commits, changed files/tree, and the complete message are visible as three full-width rows and long subjects/paths remain readable.
 3. Visit root, normal, and merge commits. Confirm the footer and diff title describe `empty tree`, `parent`, or `first parent` as appropriate.
-4. With Commits focused, press `Enter` and confirm focus moves directly to Changed files for the selected commit.
+4. With Commits focused, press `Enter` and confirm the bottom row switches to diff and focus moves directly to Changed files for the selected commit. Press `Ctrl-k` to return to Commits and confirm the bottom row automatically restores the message. Use `Ctrl-l` or `Ctrl-w l` to change panes again; confirm the message stays visible.
 5. Select changed text and binary files, press `Enter`, and confirm a large floating patch or binary summary opens. In text, confirm `Enter` moves to the next line's first nonblank. Close it with `q` and, when no search highlights are present, `Esc`.
 6. Open a recognized source file in both the regular pane and floating diff. Confirm code tokens are syntax-highlighted, addition/removal/hunk backgrounds reach the content edge, and the current-line gutter marker does not recolor the code. Include a tab, a wide character, and a long line; scroll horizontally and confirm the text still clips and scrolls independently of the background. While opening an uncached long text diff, immediately press `Ctrl-d` and confirm the marker moves half a page as soon as the diff appears. Confirm `j` / `k` visibly move it one line and `Ctrl-u` moves it up without a delay.
 7. Exercise counts plus `w/W/e/E`, `b/B/ge/gE`, `0/^/$/g_`, `f/F/t/T` with `;` / `,`, `gg/G/%/go/H/M/L`, sentence/paragraph/section and delimiter motions, page/scroll/`z` motions, and `[c` / `]c`. Search with `/`, `?`, `n/N`, `*` / `#`, and `g*` / `g#`.
    - From a commit diff, press `Space v`; confirm the file is read from the selected commit rather than the working tree and opens at the corresponding line. Toggle `Space d`. With a matching trusted LSP profile, use `Space s`, confirm only symbols containing changed new-side lines appear, select one and verify the complete file jumps to it, then use the explicit full-file row without selecting a symbol.
-8. Press `Space m`, move through the complete commit message with character and word motions, and close it separately with `Space m`, `q`, and `Esc`.
+8. Close any diff overlay, press `Space m` to show the complete message in the bottom pane, focus it, and exercise character/word motions, scrolling, and search. Toggle `Space m` twice and confirm diff/message content changes without opening an overlay or moving focus.
 9. Press `Space B` and confirm the rows are the same commit list, commit body, and changed files. Use each standalone `Ctrl-h/k/j/l`, then the retained `Ctrl-w` forms, to move focus. Change the top-row commit and confirm the other rows update, scroll the body, and open a bottom-row file diff. Press `Space B` again to return to standard History.
 10. Press `Space t`, expand and collapse two directory levels, and open a blob diff.
 11. Exit with `Ctrl-C`, then repeat the `stty` comparison and shell checks.
