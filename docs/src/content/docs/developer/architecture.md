@@ -173,7 +173,7 @@ No new effects are dispatched during exit. Dropping the Tokio runtime completes 
 - Keep ChronoGit document input read-only. Never route it through
   `vim_navigation::EditableBuffer`; repository/document search prompts retain
   their existing confirmation, Backspace, and Escape contracts.
-- Linux and macOS are the `0.6.0` support boundary. A Windows port must redesign the Unix byte-path boundary rather than adding unchecked conversion.
+- Linux and macOS are the `0.7.0` support boundary. A Windows port must redesign the Unix byte-path boundary rather than adding unchecked conversion.
 - Reject bare repositories and non-interactive terminals during startup.
 
 Future features should add a domain variant and a typed command/effect path instead of bypassing these boundaries.

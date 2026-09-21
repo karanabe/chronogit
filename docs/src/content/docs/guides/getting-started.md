@@ -12,7 +12,7 @@ sidebar:
 ChronoGit is a terminal interface for inspecting Git changes, history, and working-tree source code, with optional local-branch switching. This guide installs it with Cargo and opens a repository without changing it.
 
 :::note[Distribution status]
-Version `0.6.0` is prepared in this checkout. Until it is available from crates.io, install from a trusted checkout to use the behavior described below.
+Version `0.7.0` is prepared in this checkout. Until it is available from crates.io, install from a trusted checkout to use the behavior described below.
 :::
 
 ## Requirements
@@ -23,7 +23,7 @@ Version `0.6.0` is prepared in this checkout. Until it is available from crates.
 - An interactive terminal at least 80 columns by 24 rows
 - A non-bare Git repository
 
-Windows, bare repositories, pipes, captured commands, and background sessions are not supported in `0.6.0`.
+Windows, bare repositories, pipes, captured commands, and background sessions are not supported in `0.7.0`.
 
 ## Install from crates.io
 
@@ -45,8 +45,14 @@ Whichever installation method you use, confirm that the binary is available:
 
 ```sh title="Terminal"
 chronogit --version
-# chronogit 0.6.0
+# chronogit 0.7.0
 ```
+
+## Upgrade from 0.6.0
+
+Version `0.7.0` assigns `Space b` to the local-branch picker in every view. The History diff/body layout toggle moves to `Space B`. Review custom keymaps if you used the old layout binding.
+
+History now starts with the complete commit message in the bottom pane. Use `Space m` to toggle the message and diff, or `Enter` on a commit to show its diff. Returning to Commits restores the message; other pane moves preserve the preview.
 
 ## Upgrade from 0.5.0
 

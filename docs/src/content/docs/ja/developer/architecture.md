@@ -165,7 +165,7 @@ Git標準出力は8 MiB、標準エラーは64 KiB、コマンド時間は30秒�
 - 現在ファイルはdescriptorから相対的に読み、すべてのパス要素でシンボリックリンクを拒否すること。revision readは型付き・検証済み・shell-free・上限付きに保つこと。
 - 全読み取り操作の前後で`HEAD`、porcelain status、ワークツリーのバイト列を比較するintegration testを維持すること。
 - ChronoGitの文書入力をread-onlyに保つこと。`vim_navigation::EditableBuffer`へ流さず、repository/document search promptの既存の確定、Backspace、Esc契約を維持すること。
-- LinuxとmacOSが`0.6.0`のサポート境界です。Windows対応では未検証変換を加えず、Unixバイトパス境界を再設計すること。
+- LinuxとmacOSが`0.7.0`のサポート境界です。Windows対応では未検証変換を加えず、Unixバイトパス境界を再設計すること。
 - bareリポジトリと非対話ターミナルは起動時に拒否すること。
 
 将来の機能は、この境界を迂回せずdomain variantと型付きcommand/effect経路を追加してください。

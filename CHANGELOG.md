@@ -2,7 +2,9 @@
 
 All notable changes to ChronoGit are documented here.
 
-## Unreleased
+## 0.7.0
+
+This release pairs ChronoGit 0.7.0 with the unchanged `vim-navigation` 0.2.0.
 
 ### Added
 
