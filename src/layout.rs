@@ -44,4 +44,5 @@ pub(crate) const REPOSITORY_SEARCH_WIDTH_PERCENT: u16 = 86;
 pub(crate) const REPOSITORY_SEARCH_HEIGHT_PERCENT: u16 = 82;
 
 pub(crate) const SOURCE_GUTTER_COLUMNS: usize = 8;
-pub(crate) const DIFF_GUTTER_COLUMNS: usize = 14;
+// Navigation marker, two five-column line numbers, and two separating spaces.
+pub(crate) const DIFF_GUTTER_COLUMNS: usize = 13;

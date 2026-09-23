@@ -981,11 +981,7 @@ fn set_document_position(
             state.code_view.viewport_horizontal,
             SOURCE_GUTTER_COLUMNS,
         ),
-        TextDocument::Diff => (
-            state.diff.viewport_vertical,
-            state.diff.horizontal,
-            DIFF_GUTTER_COLUMNS,
-        ),
+        TextDocument::Diff => (state.diff.viewport_vertical, state.diff.horizontal, 0),
         TextDocument::File => (
             state.file_view.viewport_vertical,
             state.file_view.horizontal,
@@ -1004,6 +1000,11 @@ fn set_document_position(
         TextDocument::File => state.file_view.desired_display_column,
         TextDocument::FullFile => state.full_file.desired_display_column,
         TextDocument::Message(_) => state.message.desired_display_column,
+    };
+    let width = if matches!(document, TextDocument::Diff) {
+        width.saturating_sub(DIFF_GUTTER_COLUMNS)
+    } else {
+        width
     };
     let mut viewport = crate::app::vim::Viewport::new(top, left, height, width, gutter)
         .with_desired_column(desired);
@@ -1283,8 +1284,8 @@ fn apply_diff_vim_motion(state: &mut AppState, motion: VimMotion, height: usize,
             state.diff.viewport_vertical,
             state.diff.horizontal,
             height,
-            width,
-            DIFF_GUTTER_COLUMNS,
+            width.saturating_sub(DIFF_GUTTER_COLUMNS),
+            0,
         )
         .with_desired_column(state.diff.desired_display_column);
         let position = crate::app::vim::apply(

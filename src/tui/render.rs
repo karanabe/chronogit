@@ -21,15 +21,15 @@ use crate::domain::{DiffDocument, DiffLine, DiffLineKind, DiffTarget, FileDocume
 use crate::layout::{
     CHANGES_DIFF_PERCENT, CHANGES_LIST_PERCENT, CODE_CONTENT_PERCENT, CODE_TREE_PERCENT,
     COMMIT_DETAILS_BODY_PERCENT, COMMIT_DETAILS_FILES_PERCENT, COMMIT_DETAILS_LIST_PERCENT,
-    DOCUMENT_OVERLAY_INSET, DOCUMENT_OVERLAY_MARGIN, FILE_HISTORY_CONTENT_PERCENT,
-    FILE_HISTORY_LIST_PERCENT, FOOTER_ROWS, FULL_PERCENT, GRAPH_DETAILS_DIFF_PERCENT,
-    GRAPH_DETAILS_FILES_PERCENT, GRAPH_DETAILS_HEIGHT_PERCENT, GRAPH_DETAILS_WIDTH_PERCENT,
-    HELP_HEIGHT_PERCENT, HELP_WIDTH_PERCENT, HISTORY_DIFF_PERCENT, HISTORY_LIST_PERCENT,
-    HISTORY_MIDDLE_PERCENT, HOVER_HEIGHT_PERCENT, HOVER_WIDTH_PERCENT, MESSAGE_HEIGHT_PERCENT,
-    MESSAGE_WIDTH_PERCENT, MIN_CONTENT_ROWS, MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH,
-    PANE_BORDER_CELLS, REPOSITORY_SEARCH_HEIGHT_PERCENT, REPOSITORY_SEARCH_WIDTH_PERCENT,
-    ROOT_DISPLAY_WIDTH, SEARCH_BAR_ROWS, SEARCH_INPUT_ROWS, SOURCE_GUTTER_COLUMNS,
-    SYMBOL_HEIGHT_PERCENT, SYMBOL_WIDTH_PERCENT, WIDE_LAYOUT_WIDTH,
+    DIFF_GUTTER_COLUMNS, DOCUMENT_OVERLAY_INSET, DOCUMENT_OVERLAY_MARGIN,
+    FILE_HISTORY_CONTENT_PERCENT, FILE_HISTORY_LIST_PERCENT, FOOTER_ROWS, FULL_PERCENT,
+    GRAPH_DETAILS_DIFF_PERCENT, GRAPH_DETAILS_FILES_PERCENT, GRAPH_DETAILS_HEIGHT_PERCENT,
+    GRAPH_DETAILS_WIDTH_PERCENT, HELP_HEIGHT_PERCENT, HELP_WIDTH_PERCENT, HISTORY_DIFF_PERCENT,
+    HISTORY_LIST_PERCENT, HISTORY_MIDDLE_PERCENT, HOVER_HEIGHT_PERCENT, HOVER_WIDTH_PERCENT,
+    MESSAGE_HEIGHT_PERCENT, MESSAGE_WIDTH_PERCENT, MIN_CONTENT_ROWS, MIN_TERMINAL_HEIGHT,
+    MIN_TERMINAL_WIDTH, PANE_BORDER_CELLS, REPOSITORY_SEARCH_HEIGHT_PERCENT,
+    REPOSITORY_SEARCH_WIDTH_PERCENT, ROOT_DISPLAY_WIDTH, SEARCH_BAR_ROWS, SEARCH_INPUT_ROWS,
+    SOURCE_GUTTER_COLUMNS, SYMBOL_HEIGHT_PERCENT, SYMBOL_WIDTH_PERCENT, WIDE_LAYOUT_WIDTH,
 };
 use crate::tui::graph::graph_prefixes;
 use crate::tui::highlight::{highlight_code, source_is_too_large};
@@ -578,12 +578,35 @@ fn render_diff_pane(
     let vertical = followed_scroll(cursor, state.diff.viewport_vertical, visible);
     let horizontal = state.diff.horizontal.min(u16::MAX as usize) as u16;
     render_diff_line_backgrounds(frame, content_area, &lines, vertical);
-    frame.render_widget(
-        Paragraph::new(lines)
-            .block(block)
-            .scroll((vertical, horizontal)),
-        area,
-    );
+    frame.render_widget(block, area);
+    let LoadState::Ready(document) = &state.diff.content else {
+        frame.render_widget(Paragraph::new(lines), content_area);
+        return;
+    };
+
+    // Only source text scrolls horizontally; navigation and line numbers stay
+    // fixed. The motion adapter uses the same reduced text width and no gutter.
+    for (row, (index, mut line)) in content_area
+        .rows()
+        .zip(lines.into_iter().enumerate().skip(usize::from(vertical)))
+    {
+        let prefix = if index < document.lines().len() {
+            PrefixSpanCount::NAVIGATION_AND_LINE_NUMBER
+        } else {
+            PrefixSpanCount::NAVIGATION
+        };
+        let text = Line::from(line.spans.split_off(prefix.value())).style(line.style);
+        let gutter_width = (DIFF_GUTTER_COLUMNS as u16).min(row.width);
+        let gutter = Rect::new(row.x, row.y, gutter_width, row.height);
+        let content = Rect::new(
+            row.x + gutter_width,
+            row.y,
+            row.width - gutter_width,
+            row.height,
+        );
+        frame.render_widget(Paragraph::new(line), gutter);
+        frame.render_widget(Paragraph::new(text).scroll((0, horizontal)), content);
+    }
 }
 
 /// Extends row-level diff backgrounds through cells that contain no text.
@@ -3333,6 +3356,116 @@ mod tests {
             .filter_map(|span| span.style.fg)
             .collect::<std::collections::HashSet<_>>();
         assert!(colors.len() > 3, "diff code should retain token colors");
+    }
+
+    #[test]
+    fn diff_horizontal_motions_keep_the_cursor_and_line_numbers_visible() {
+        use crate::tui::keymap::{KeyInputContext, KeyMapper};
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        for width in [80, 120] {
+            for overlay in [Overlay::None, Overlay::Diff] {
+                for (kind, marker, old, new) in [
+                    (DiffLineKind::Added, '+', None, LineNumber::new(42)),
+                    (DiffLineKind::Removed, '-', LineNumber::new(42), None),
+                    (
+                        DiffLineKind::Context,
+                        ' ',
+                        LineNumber::new(42),
+                        LineNumber::new(43),
+                    ),
+                ] {
+                    let mut state = state();
+                    state.focus = FocusedPane::Diff;
+                    state.overlay = overlay;
+                    state.set_terminal_size(width, 24);
+                    let source = format!("{marker}{}界", "x".repeat(160));
+                    state.diff.content = LoadState::Ready(DiffDocument::Text {
+                        lines: vec![DiffLine::new(kind, old, new, source.clone())],
+                        bytes: source.len(),
+                    });
+                    let initial = rendered_buffer(&state, width, 24);
+                    let gutter = initial
+                        .content()
+                        .iter()
+                        .position(|cell| cell.symbol() == "▌")
+                        .unwrap_or_else(|| panic!("missing current-line marker"));
+                    let mut mapper = KeyMapper::new();
+
+                    for key in ['$', '0', '$', '0'] {
+                        let action = mapper
+                            .map(
+                                KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE),
+                                KeyInputContext::Normal,
+                            )
+                            .unwrap_or_else(|| panic!("expected motion for {key}"));
+                        assert!(state.handle_app_action(action).is_empty());
+                        let buffer = rendered_buffer(&state, width, 24);
+                        let expected = if key == '$' {
+                            "界".to_owned()
+                        } else {
+                            marker.to_string()
+                        };
+                        assert!(
+                            buffer.content().iter().any(|cell| {
+                                cell.symbol() == expected && cell.bg == Color::LightCyan
+                            }),
+                            "cursor disappeared after {key}, width={width}, overlay={overlay:?}"
+                        );
+                        if key == '0' {
+                            assert_eq!(state.diff.horizontal, 0);
+                        }
+                        assert_eq!(
+                            &buffer.content()[gutter..gutter + 13],
+                            &initial.content()[gutter..gutter + 13],
+                            "line numbers moved after {key}, width={width}, overlay={overlay:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn diff_search_reveals_matches_within_the_scrolling_text_area() {
+        for width in [80, 120] {
+            for overlay in [Overlay::None, Overlay::Diff] {
+                let mut state = state();
+                state.focus = FocusedPane::Diff;
+                state.overlay = overlay;
+                state.set_terminal_size(width, 24);
+                let source = format!("+start {}end", "x".repeat(160));
+                state.diff.content = LoadState::Ready(DiffDocument::Text {
+                    lines: vec![DiffLine::new(
+                        DiffLineKind::Added,
+                        None,
+                        LineNumber::new(42),
+                        source.clone(),
+                    )],
+                    bytes: source.len(),
+                });
+
+                for query in ["end", "start"] {
+                    state.handle_app_action(Action::StartSearch(SearchDirection::Forward));
+                    for character in query.chars() {
+                        state.handle_app_action(Action::InsertSearch(character));
+                    }
+                    state.handle_app_action(Action::ConfirmSearch);
+                    let buffer = rendered_buffer(&state, width, 24);
+                    let expected = &query[..1];
+                    assert!(
+                        buffer.content().iter().any(|cell| {
+                            cell.symbol() == expected && cell.bg == Color::LightCyan
+                        }),
+                        "search cursor hidden for {query}, width={width}, overlay={overlay:?}"
+                    );
+                    assert_eq!(
+                        state.diff.byte_column,
+                        source.find(query).unwrap_or_else(|| unreachable!())
+                    );
+                }
+            }
+        }
     }
 
     #[test]

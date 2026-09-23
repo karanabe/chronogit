@@ -2,6 +2,13 @@
 
 All notable changes to ChronoGit are documented here.
 
+## Unreleased
+
+### Fixed
+
+- Keep diff line numbers fixed during horizontal scrolling and keep the cursor
+  visible when returning from `$` to `0` in regular and floating diff panes.
+
 ## 0.7.0
 
 This release pairs ChronoGit 0.7.0 with the unchanged `vim-navigation` 0.2.0.

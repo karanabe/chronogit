@@ -402,6 +402,7 @@ pub(crate) struct DiffViewState {
     pub(crate) byte_column: usize,
     pub(crate) desired_display_column: Option<usize>,
     pub(crate) viewport_vertical: usize,
+    /// Display-cell offset into the diff text, excluding the fixed gutter.
     pub(crate) horizontal: usize,
 }
 
