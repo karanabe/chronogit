@@ -1,6 +1,41 @@
 use std::process::Command;
 
 #[test]
+fn display_config_uses_xdg_or_explicit_path_and_fails_before_terminal_setup() {
+    let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("{error}"));
+    let config_dir = directory.path().join("chronogit");
+    std::fs::create_dir(&config_dir).unwrap_or_else(|error| panic!("{error}"));
+    let path = config_dir.join("config.toml");
+    for explicit in [false, true] {
+        for source in ["scrolloff = 3", "scrolloff = -1"] {
+            std::fs::write(&path, source).unwrap_or_else(|error| panic!("{error}"));
+            let mut command = Command::new(env!("CARGO_BIN_EXE_chronogit"));
+            command
+                .arg(env!("CARGO_MANIFEST_DIR"))
+                .env("XDG_CONFIG_HOME", directory.path());
+            if explicit {
+                command.arg("--config").arg(&path);
+            }
+            let output = command.output().unwrap_or_else(|error| panic!("{error}"));
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if source.ends_with("-1") {
+                assert!(stderr.contains("display configuration failed"), "{stderr}");
+                assert!(stderr.contains(&path.display().to_string()));
+            } else {
+                assert!(stderr.contains("interactive TTY"), "{stderr}");
+            }
+        }
+    }
+    std::fs::remove_file(&path).unwrap_or_else(|error| panic!("{error}"));
+    let output = Command::new(env!("CARGO_BIN_EXE_chronogit"))
+        .arg(env!("CARGO_MANIFEST_DIR"))
+        .env("XDG_CONFIG_HOME", directory.path())
+        .output()
+        .unwrap_or_else(|error| panic!("{error}"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("interactive TTY"));
+}
+
+#[test]
 fn help_and_version_do_not_require_a_tty() {
     for argument in ["--help", "--version"] {
         let output = Command::new(env!("CARGO_BIN_EXE_chronogit"))

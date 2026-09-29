@@ -1,0 +1,4 @@
+# Copy to $XDG_CONFIG_HOME/chronogit/config.toml (or ~/.config/chronogit/config.toml).
+# Context rows above and below the cursor in lists and text panes.
+# Reduced automatically in short panes. Set to 0 to disable the margin.
+scrolloff = 2

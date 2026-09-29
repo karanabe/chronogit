@@ -46,3 +46,96 @@ pub(crate) const REPOSITORY_SEARCH_HEIGHT_PERCENT: u16 = 82;
 pub(crate) const SOURCE_GUTTER_COLUMNS: usize = 8;
 // Navigation marker, two five-column line numbers, and two separating spaces.
 pub(crate) const DIFF_GUTTER_COLUMNS: usize = 13;
+
+use crate::app::{AppView, FocusedPane};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+
+pub(crate) fn centered(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((FULL_PERCENT - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((FULL_PERCENT - percent_y) / 2),
+        ])
+        .split(area);
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((FULL_PERCENT - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((FULL_PERCENT - percent_x) / 2),
+        ])
+        .split(vertical[1])[1]
+}
+
+/// Outer rectangles in primary, secondary, diff order. Code and file-history
+/// layouts leave the unused secondary slot empty.
+pub(crate) fn main_panes(area: Rect, view: AppView, focus: FocusedPane) -> [Rect; 3] {
+    let empty = Rect::default();
+    match view {
+        AppView::Changes if area.width < WIDE_LAYOUT_WIDTH => {
+            if focus == FocusedPane::Diff {
+                [empty, empty, area]
+            } else {
+                [area, empty, empty]
+            }
+        }
+        AppView::Changes => {
+            let rows = Layout::horizontal([
+                Constraint::Percentage(CHANGES_LIST_PERCENT),
+                Constraint::Percentage(CHANGES_DIFF_PERCENT),
+            ])
+            .split(area);
+            [rows[0], empty, rows[1]]
+        }
+        AppView::History | AppView::CommitDetails => {
+            let percentages = if view == AppView::History {
+                [
+                    HISTORY_LIST_PERCENT,
+                    HISTORY_MIDDLE_PERCENT,
+                    HISTORY_DIFF_PERCENT,
+                ]
+            } else {
+                [
+                    COMMIT_DETAILS_LIST_PERCENT,
+                    COMMIT_DETAILS_BODY_PERCENT,
+                    COMMIT_DETAILS_FILES_PERCENT,
+                ]
+            };
+            let rows = Layout::vertical(percentages.map(Constraint::Percentage)).split(area);
+            [rows[0], rows[1], rows[2]]
+        }
+        AppView::Graph => [area, empty, empty],
+        AppView::GraphDetails => {
+            let popup = centered(
+                area,
+                GRAPH_DETAILS_WIDTH_PERCENT,
+                GRAPH_DETAILS_HEIGHT_PERCENT,
+            );
+            let rows = Layout::vertical([
+                Constraint::Percentage(GRAPH_DETAILS_FILES_PERCENT),
+                Constraint::Percentage(GRAPH_DETAILS_DIFF_PERCENT),
+            ])
+            .split(popup);
+            [area, rows[0], rows[1]]
+        }
+        AppView::FileHistory | AppView::Code => {
+            let percentages = if view == AppView::Code {
+                [CODE_TREE_PERCENT, CODE_CONTENT_PERCENT]
+            } else {
+                [FILE_HISTORY_LIST_PERCENT, FILE_HISTORY_CONTENT_PERCENT]
+            };
+            let rows = Layout::vertical(percentages.map(Constraint::Percentage)).split(area);
+            [rows[0], empty, rows[1]]
+        }
+    }
+}
+
+pub(crate) fn main_area(area: Rect) -> Rect {
+    Layout::vertical([
+        Constraint::Min(MIN_CONTENT_ROWS),
+        Constraint::Length(FOOTER_ROWS),
+    ])
+    .split(area)[0]
+}

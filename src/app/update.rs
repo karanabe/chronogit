@@ -16,15 +16,10 @@ use crate::app::{
 };
 use crate::domain::{CommitSummary, DiffTarget, SourcePosition, TreeKind};
 use crate::layout::{
-    CHANGES_DIFF_PERCENT, CODE_CONTENT_PERCENT, CODE_TREE_PERCENT, COMMIT_DETAILS_BODY_PERCENT,
-    COMMIT_DETAILS_FILES_PERCENT, COMMIT_DETAILS_LIST_PERCENT, DIFF_GUTTER_COLUMNS,
-    DOCUMENT_OVERLAY_INSET, DOCUMENT_OVERLAY_RESERVED_ROWS, FILE_HISTORY_CONTENT_PERCENT,
-    FILE_HISTORY_LIST_PERCENT, FOOTER_ROWS, FULL_PERCENT, GRAPH_DETAILS_DIFF_PERCENT,
-    GRAPH_DETAILS_FILES_PERCENT, GRAPH_DETAILS_HEIGHT_PERCENT, GRAPH_DETAILS_WIDTH_PERCENT,
-    HISTORY_DIFF_PERCENT, HISTORY_LIST_PERCENT, HISTORY_MIDDLE_PERCENT, MESSAGE_HEIGHT_PERCENT,
-    MESSAGE_WIDTH_PERCENT, PANE_BORDER_CELLS, REPOSITORY_SEARCH_HEIGHT_PERCENT,
-    REPOSITORY_SEARCH_WIDTH_PERCENT, SEARCH_BAR_ROWS, SEARCH_INPUT_ROWS, SOURCE_GUTTER_COLUMNS,
-    WIDE_LAYOUT_WIDTH,
+    DIFF_GUTTER_COLUMNS, DOCUMENT_OVERLAY_INSET, DOCUMENT_OVERLAY_RESERVED_ROWS, FULL_PERCENT,
+    MESSAGE_HEIGHT_PERCENT, MESSAGE_WIDTH_PERCENT, PANE_BORDER_CELLS,
+    REPOSITORY_SEARCH_HEIGHT_PERCENT, REPOSITORY_SEARCH_WIDTH_PERCENT, SEARCH_BAR_ROWS,
+    SEARCH_INPUT_ROWS, SOURCE_GUTTER_COLUMNS,
 };
 
 pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Vec<GitEffect> {
@@ -988,7 +983,7 @@ fn set_document_position(
             SOURCE_GUTTER_COLUMNS,
         ),
         TextDocument::FullFile => (
-            state.full_file.viewport_vertical,
+            crate::app::source_view::source_viewport_top(state),
             state.full_file.viewport_horizontal,
             SOURCE_GUTTER_COLUMNS,
         ),
@@ -1007,6 +1002,7 @@ fn set_document_position(
         width
     };
     let mut viewport = crate::app::vim::Viewport::new(top, left, height, width, gutter)
+        .with_scrolloff(state.scrolloff)
         .with_desired_column(desired);
     crate::app::vim::reveal(lines, position, &mut viewport);
     let desired = lines
@@ -1036,8 +1032,8 @@ fn set_document_position(
         TextDocument::FullFile => {
             state.full_file.cursor = position;
             state.full_file.desired_display_column = desired;
-            state.full_file.viewport_vertical = viewport.top;
             state.full_file.viewport_horizontal = viewport.left;
+            crate::app::source_view::reveal_viewport(state, height);
         }
         TextDocument::Message(_) => {
             state.message.scroll = usize::try_from(position.line()).unwrap_or(usize::MAX);
@@ -1287,6 +1283,7 @@ fn apply_diff_vim_motion(state: &mut AppState, motion: VimMotion, height: usize,
             width.saturating_sub(DIFF_GUTTER_COLUMNS),
             0,
         )
+        .with_scrolloff(state.scrolloff)
         .with_desired_column(state.diff.desired_display_column);
         let position = crate::app::vim::apply(
             &lines,
@@ -1337,6 +1334,7 @@ fn apply_file_vim_motion(state: &mut AppState, motion: VimMotion, height: usize,
             width,
             SOURCE_GUTTER_COLUMNS,
         )
+        .with_scrolloff(state.scrolloff)
         .with_desired_column(state.file_view.desired_display_column);
         let position = crate::app::vim::apply(
             &lines,
@@ -1385,6 +1383,7 @@ fn apply_message_vim_motion(
             width,
             0,
         )
+        .with_scrolloff(state.scrolloff)
         .with_desired_column(state.message.desired_display_column);
         let position = crate::app::vim::apply(
             &lines,
@@ -1402,6 +1401,123 @@ fn apply_message_vim_motion(
     state.message.desired_display_column = viewport.desired_column;
     state.message.viewport_vertical = viewport.top;
     state.message.horizontal = viewport.left;
+}
+
+/// Persist the displayed origin after navigation, loads, and resizes. Rendering
+/// uses the same follow rule as a fallback for immutable snapshots.
+pub(super) fn sync_viewport(state: &mut AppState) {
+    use crate::app::vim::scroll_top;
+    use ratatui::layout::{Constraint, Layout, Rect};
+    let scrolloff = state.scrolloff;
+    if let Some(picker) = &mut state.branch_picker {
+        let area = crate::layout::centered(
+            Rect::new(0, 0, state.terminal_width, state.terminal_height),
+            85,
+            80,
+        );
+        let area = Layout::vertical([Constraint::Min(5), Constraint::Length(7)]).split(area)[0];
+        let len = match &picker.branches {
+            LoadState::Ready(items) => items.len(),
+            _ => return,
+        };
+        picker.selection.viewport_top = scroll_top(
+            picker.selection.index().unwrap_or(0),
+            picker.selection.viewport_top,
+            usize::from(area.height.saturating_sub(PANE_BORDER_CELLS)),
+            len,
+            scrolloff,
+        );
+        return;
+    }
+    let (height, _) = focused_viewport_dimensions(state);
+    if let Some((cursor, len)) = active_list_position(state) {
+        if let Some(selection) = active_list_selection_mut(state) {
+            selection.viewport_top =
+                scroll_top(cursor, selection.viewport_top, height, len, scrolloff);
+        }
+    } else if let Some(document) = active_text_document(state) {
+        if matches!(document, TextDocument::FullFile) {
+            crate::app::source_view::reveal_viewport(state, height);
+            return;
+        }
+        let file_len = |content: &LoadState<crate::domain::FileDocument>| match content {
+            LoadState::Ready(document) => Some(if document.message().is_some() {
+                1
+            } else {
+                document
+                    .lines()
+                    .len()
+                    .saturating_add(usize::from(document.is_truncated()))
+            }),
+            _ => None,
+        };
+        let len = match document {
+            TextDocument::Code => file_len(&state.code_view.content),
+            TextDocument::File => file_len(&state.file_view.content),
+            TextDocument::FullFile => file_len(&state.full_file.content),
+            TextDocument::Diff => match &state.diff.content {
+                LoadState::Ready(document) => Some(if document.message().is_some() {
+                    1
+                } else {
+                    document
+                        .lines()
+                        .len()
+                        .saturating_add(usize::from(document.is_truncated()))
+                }),
+                _ => None,
+            },
+            TextDocument::Message(extent) => match &state.message.content {
+                LoadState::Ready(message) => Some(match extent {
+                    MessageExtent::Body => message.body().lines().count(),
+                    MessageExtent::Complete => message.as_str().lines().count(),
+                }),
+                _ => None,
+            },
+        };
+        let Some(len) = len else {
+            return;
+        };
+        let cursor =
+            usize::try_from(document_position(state, document).line()).unwrap_or(usize::MAX);
+        let top = match document {
+            TextDocument::Code => &mut state.code_view.viewport_vertical,
+            TextDocument::File => &mut state.file_view.viewport_vertical,
+            TextDocument::FullFile => &mut state.full_file.viewport_vertical,
+            TextDocument::Diff => &mut state.diff.viewport_vertical,
+            TextDocument::Message(_) => &mut state.message.viewport_vertical,
+        };
+        *top = scroll_top(cursor, *top, height, len, scrolloff);
+    }
+}
+
+fn active_list_selection_mut(state: &mut AppState) -> Option<&mut crate::app::model::Selection> {
+    match (state.overlay, state.view, state.focus, state.history_panel) {
+        (Overlay::RepositorySearch, _, _, _) => Some(&mut state.repository_search.selection),
+        (Overlay::None, AppView::Code, FocusedPane::Primary | FocusedPane::Secondary, _) => {
+            Some(&mut state.code_view.selection)
+        }
+        (Overlay::None, AppView::Changes, FocusedPane::Primary, _) => {
+            Some(&mut state.change_selection)
+        }
+        (
+            Overlay::None,
+            AppView::History | AppView::CommitDetails | AppView::Graph,
+            FocusedPane::Primary,
+            _,
+        ) => Some(&mut state.commit_selection),
+        (Overlay::None, AppView::History, FocusedPane::Secondary, HistoryPanel::ChangedFiles)
+        | (Overlay::None, AppView::CommitDetails, FocusedPane::Diff, _)
+        | (Overlay::None, AppView::GraphDetails, FocusedPane::Secondary, _) => {
+            Some(&mut state.file_selection)
+        }
+        (Overlay::None, AppView::History, FocusedPane::Secondary, HistoryPanel::Tree) => {
+            Some(&mut state.tree.selection)
+        }
+        (Overlay::None, AppView::FileHistory, FocusedPane::Primary, _) => {
+            Some(&mut state.file_view.selection)
+        }
+        _ => None,
+    }
 }
 
 fn apply_list_vim_motion(
@@ -1424,6 +1540,46 @@ fn apply_list_vim_motion(
     ) {
         state.focus = next_pane(state.view, state.focus);
         return Vec::new();
+    }
+
+    sync_viewport(state);
+    if matches!(
+        motion.kind(),
+        VimMotionKind::CursorToWindowTop
+            | VimMotionKind::CursorToWindowTopFirstNonBlank
+            | VimMotionKind::CursorToWindowMiddle
+            | VimMotionKind::CursorToWindowMiddleFirstNonBlank
+            | VimMotionKind::CursorToWindowBottom
+            | VimMotionKind::CursorToWindowBottomFirstNonBlank
+    ) {
+        let Some((current, len)) = active_list_position(state) else {
+            return Vec::new();
+        };
+        let target = if motion.has_explicit_count() {
+            motion.count().saturating_sub(1).min(len.saturating_sub(1))
+        } else {
+            current
+        };
+        let effects = if target != current {
+            move_active_selection(
+                state,
+                count_as_isize(target).saturating_sub(count_as_isize(current)),
+            )
+        } else {
+            Vec::new()
+        };
+        if let Some(selection) = active_list_selection_mut(state) {
+            selection.viewport_top = match motion.kind() {
+                VimMotionKind::CursorToWindowTop
+                | VimMotionKind::CursorToWindowTopFirstNonBlank => target,
+                VimMotionKind::CursorToWindowMiddle
+                | VimMotionKind::CursorToWindowMiddleFirstNonBlank => {
+                    target.saturating_sub(viewport_height.saturating_sub(1) / 2)
+                }
+                _ => target.saturating_sub(viewport_height.saturating_sub(1)),
+            };
+        }
+        return effects;
     }
 
     let count = motion.count().max(1);
@@ -1477,7 +1633,14 @@ fn apply_list_vim_motion(
         return Vec::new();
     };
     let last = len.saturating_sub(1);
-    let top = current.saturating_sub(viewport_height.saturating_sub(1));
+    let top = active_list_selection_mut(state).map_or(0, |selection| selection.viewport_top);
+    let margin = crate::app::vim::scroll_margin(viewport_height, state.scrolloff);
+    let top_margin = if top == 0 { 0 } else { margin };
+    let bottom_margin = if top.saturating_add(viewport_height) >= len {
+        0
+    } else {
+        margin
+    };
     let percentage_base = usize::from(FULL_PERCENT);
     let target = match motion.kind() {
         VimMotionKind::LineStart | VimMotionKind::FirstNonBlank => 0,
@@ -1497,12 +1660,16 @@ fn apply_list_vim_motion(
             .saturating_div(percentage_base)
             .saturating_sub(1)
             .min(last),
-        VimMotionKind::WindowTop => top.saturating_add(count.saturating_sub(1)).min(last),
+        VimMotionKind::WindowTop => top
+            .saturating_add(count.saturating_sub(1).max(top_margin))
+            .min(last),
         VimMotionKind::WindowMiddle => top
             .saturating_add(viewport_height.saturating_sub(1) / 2)
             .min(last),
         VimMotionKind::WindowBottom => top
-            .saturating_add(viewport_height.saturating_sub(count))
+            .saturating_add(
+                viewport_height.saturating_sub(count.max(bottom_margin.saturating_add(1))),
+            )
             .min(last),
         _ => return Vec::new(),
     };
@@ -1576,103 +1743,46 @@ fn active_list_position(state: &AppState) -> Option<(usize, usize)> {
 }
 
 fn focused_viewport_dimensions(state: &AppState) -> (usize, usize) {
-    let terminal_height = usize::from(state.terminal_height);
-    let terminal_width = usize::from(state.terminal_width);
-    let main_height = terminal_height.saturating_sub(usize::from(FOOTER_ROWS));
-    let content = |height: usize, width: usize| {
-        (
-            height.saturating_sub(usize::from(PANE_BORDER_CELLS)).max(1),
-            width.saturating_sub(usize::from(PANE_BORDER_CELLS)).max(1),
-        )
-    };
-    match state.overlay {
+    use crate::layout::{centered, main_area, main_panes};
+    use ratatui::layout::{Constraint, Layout, Rect};
+    let screen = Rect::new(0, 0, state.terminal_width, state.terminal_height);
+    let area = match state.overlay {
         Overlay::CodeContent | Overlay::Diff | Overlay::FileContent | Overlay::FullFile => {
-            return content(
-                terminal_height.saturating_sub(usize::from(DOCUMENT_OVERLAY_RESERVED_ROWS)),
-                terminal_width.saturating_sub(usize::from(DOCUMENT_OVERLAY_INSET)),
-            );
+            Rect::new(
+                0,
+                0,
+                screen.width.saturating_sub(DOCUMENT_OVERLAY_INSET),
+                screen.height.saturating_sub(DOCUMENT_OVERLAY_RESERVED_ROWS),
+            )
         }
         Overlay::CommitMessage => {
-            return content(
-                percent(terminal_height, MESSAGE_HEIGHT_PERCENT)
-                    .saturating_sub(usize::from(SEARCH_BAR_ROWS)),
-                percent(terminal_width, MESSAGE_WIDTH_PERCENT),
+            let popup = centered(screen, MESSAGE_WIDTH_PERCENT, MESSAGE_HEIGHT_PERCENT);
+            Layout::vertical([Constraint::Min(1), Constraint::Length(SEARCH_BAR_ROWS)]).split(popup)
+                [0]
+        }
+        Overlay::RepositorySearch => {
+            let popup = centered(
+                screen,
+                REPOSITORY_SEARCH_WIDTH_PERCENT,
+                REPOSITORY_SEARCH_HEIGHT_PERCENT,
             );
+            Layout::vertical([Constraint::Length(SEARCH_INPUT_ROWS), Constraint::Min(1)])
+                .split(popup)[1]
         }
-        Overlay::RepositorySearch if state.repository_search.prompt.is_none() => {
-            return content(
-                percent(terminal_height, REPOSITORY_SEARCH_HEIGHT_PERCENT)
-                    .saturating_sub(usize::from(SEARCH_INPUT_ROWS)),
-                percent(terminal_width, REPOSITORY_SEARCH_WIDTH_PERCENT),
-            );
+        _ => {
+            let panes = main_panes(main_area(screen), state.view, state.focus);
+            match state.focus {
+                FocusedPane::Primary => panes[0],
+                FocusedPane::Secondary if state.view == AppView::Code => panes[0],
+                FocusedPane::Secondary => panes[1],
+                FocusedPane::Diff => panes[2],
+            }
         }
-        _ => {}
-    }
-    match (state.view, state.focus) {
-        (AppView::Changes, FocusedPane::Diff)
-            if terminal_width >= usize::from(WIDE_LAYOUT_WIDTH) =>
-        {
-            content(main_height, percent(terminal_width, CHANGES_DIFF_PERCENT))
-        }
-        (AppView::Changes, _) => content(main_height, terminal_width),
-        (AppView::History, FocusedPane::Primary) => {
-            content(percent(main_height, HISTORY_LIST_PERCENT), terminal_width)
-        }
-        (AppView::History, FocusedPane::Secondary) => {
-            content(percent(main_height, HISTORY_MIDDLE_PERCENT), terminal_width)
-        }
-        (AppView::History, FocusedPane::Diff) => {
-            content(percent(main_height, HISTORY_DIFF_PERCENT), terminal_width)
-        }
-        (AppView::CommitDetails, FocusedPane::Primary) => content(
-            percent(main_height, COMMIT_DETAILS_LIST_PERCENT),
-            terminal_width,
-        ),
-        (AppView::CommitDetails, FocusedPane::Secondary) => content(
-            percent(main_height, COMMIT_DETAILS_BODY_PERCENT),
-            terminal_width,
-        ),
-        (AppView::CommitDetails, FocusedPane::Diff) => content(
-            percent(main_height, COMMIT_DETAILS_FILES_PERCENT),
-            terminal_width,
-        ),
-        (AppView::Graph, _) => content(main_height, terminal_width),
-        (AppView::GraphDetails, FocusedPane::Secondary) => content(
-            percent(
-                percent(main_height, GRAPH_DETAILS_HEIGHT_PERCENT),
-                GRAPH_DETAILS_FILES_PERCENT,
-            ),
-            percent(terminal_width, GRAPH_DETAILS_WIDTH_PERCENT),
-        ),
-        (AppView::GraphDetails, FocusedPane::Diff) => content(
-            percent(
-                percent(main_height, GRAPH_DETAILS_HEIGHT_PERCENT),
-                GRAPH_DETAILS_DIFF_PERCENT,
-            ),
-            percent(terminal_width, GRAPH_DETAILS_WIDTH_PERCENT),
-        ),
-        (AppView::FileHistory, FocusedPane::Primary) => content(
-            percent(main_height, FILE_HISTORY_LIST_PERCENT),
-            terminal_width,
-        ),
-        (AppView::FileHistory, FocusedPane::Diff) => content(
-            percent(main_height, FILE_HISTORY_CONTENT_PERCENT),
-            terminal_width,
-        ),
-        (AppView::Code, FocusedPane::Primary | FocusedPane::Secondary) => {
-            content(percent(main_height, CODE_TREE_PERCENT), terminal_width)
-        }
-        (AppView::Code, FocusedPane::Diff) => {
-            content(percent(main_height, CODE_CONTENT_PERCENT), terminal_width)
-        }
-        _ => content(main_height, terminal_width),
-    }
-}
-
-fn percent(value: usize, percentage: u16) -> usize {
-    value
-        .saturating_mul(usize::from(percentage))
-        .saturating_div(usize::from(FULL_PERCENT))
+    };
+    (
+        usize::from(area.height.saturating_sub(PANE_BORDER_CELLS)).max(1),
+        usize::from(area.width.saturating_sub(PANE_BORDER_CELLS)).max(1),
+    )
 }
 
 fn count_as_isize(count: usize) -> isize {

@@ -2,6 +2,7 @@
 
 use std::collections::BTreeSet;
 
+use crate::app::VimMotionKind;
 use crate::app::model::{FullFileDeletion, FullFileMode, SourceFileIdentity};
 use crate::app::{
     Action, AppEffect, AppState, AppView, CursorColumnPolicy, Event, FALLBACK_HALF_PAGE_LINES,
@@ -38,10 +39,20 @@ pub(crate) fn apply_action(state: &mut AppState, action: Action) -> Option<Vec<A
     match action {
         Action::OpenFullFile => Some(open_full_file(state)),
         Action::ToggleFullFileMode if state.overlay == Overlay::FullFile => {
+            let row = display_line(
+                state,
+                usize::try_from(state.full_file.cursor.line()).unwrap_or(usize::MAX),
+            )
+            .saturating_sub(state.full_file.viewport_vertical);
             state.full_file.mode = match state.full_file.mode {
                 FullFileMode::Changes => FullFileMode::New,
                 FullFileMode::New => FullFileMode::Changes,
             };
+            state.full_file.viewport_vertical = display_line(
+                state,
+                usize::try_from(state.full_file.cursor.line()).unwrap_or(usize::MAX),
+            )
+            .saturating_sub(row);
             Some(Vec::new())
         }
         Action::MoveCursorLeft if state.overlay == Overlay::FullFile => {
@@ -467,12 +478,13 @@ pub(crate) fn apply_vim_motion(
             lines.push(TRUNCATED);
         }
         let mut viewport = crate::app::vim::Viewport::new(
-            state.full_file.viewport_vertical,
+            source_viewport_top(state),
             state.full_file.viewport_horizontal,
             viewport_height,
             viewport_width,
             SOURCE_GUTTER_COLUMNS,
         )
+        .with_scrolloff(state.scrolloff)
         .with_desired_column(state.full_file.desired_display_column);
         let position =
             crate::app::vim::apply(&lines, state.full_file.cursor, &mut viewport, motion);
@@ -480,7 +492,29 @@ pub(crate) fn apply_vim_motion(
     };
     state.full_file.cursor = position;
     state.full_file.desired_display_column = viewport.desired_column;
-    state.full_file.viewport_vertical = viewport.top;
+    let cursor = display_line(
+        state,
+        usize::try_from(position.line()).unwrap_or(usize::MAX),
+    );
+    state.full_file.viewport_vertical = match motion.kind() {
+        VimMotionKind::CursorToWindowTop | VimMotionKind::CursorToWindowTopFirstNonBlank => cursor,
+        VimMotionKind::CursorToWindowMiddle | VimMotionKind::CursorToWindowMiddleFirstNonBlank => {
+            cursor.saturating_sub(viewport_height.saturating_sub(1) / 2)
+        }
+        VimMotionKind::CursorToWindowBottom | VimMotionKind::CursorToWindowBottomFirstNonBlank => {
+            cursor.saturating_sub(viewport_height.saturating_sub(1))
+        }
+        VimMotionKind::HalfPageUp
+        | VimMotionKind::HalfPageDown
+        | VimMotionKind::PageUp
+        | VimMotionKind::PageDown
+        | VimMotionKind::ScrollLineUp
+        | VimMotionKind::ScrollLineDown
+        | VimMotionKind::NextWindowTop
+        | VimMotionKind::PreviousWindowBottom => display_line(state, viewport.top),
+        _ => state.full_file.viewport_vertical,
+    };
+    reveal_viewport(state, viewport_height);
     state.full_file.viewport_horizontal = viewport.left;
 }
 
@@ -557,12 +591,85 @@ fn clamp_byte_column(line: &str, requested: usize) -> usize {
 pub(crate) fn reveal_symbol(state: &mut AppState, position: SourcePosition) {
     state.full_file.cursor = position;
     clamp_cursor(state);
-    state.full_file.viewport_vertical = usize::try_from(state.full_file.cursor.line())
-        .unwrap_or(usize::MAX)
-        .saturating_sub(3);
+    state.full_file.viewport_vertical = display_line(
+        state,
+        usize::try_from(state.full_file.cursor.line()).unwrap_or(usize::MAX),
+    )
+    .saturating_sub(3);
     state.full_file.return_overlay = Overlay::SymbolContext;
     state.overlay = Overlay::FullFile;
     state.search.clear();
+}
+
+/// Converts a navigable source row to its displayed position among deletions.
+pub(crate) fn display_line(state: &AppState, source_line: usize) -> usize {
+    if state.full_file.mode != FullFileMode::Changes {
+        return source_line;
+    }
+    let source_len = match &state.full_file.content {
+        LoadState::Ready(document) => document.lines().len(),
+        _ => usize::MAX,
+    };
+    source_line.saturating_add(
+        state
+            .full_file
+            .deleted_lines
+            .iter()
+            .filter(|line| {
+                usize::try_from(line.anchor)
+                    .unwrap_or(usize::MAX)
+                    .min(source_len)
+                    <= source_line
+            })
+            .count(),
+    )
+}
+
+pub(crate) fn source_viewport_top(state: &AppState) -> usize {
+    let mut lower = 0;
+    let mut upper = last_line(state);
+    while lower < upper {
+        let middle = lower + (upper - lower) / 2;
+        if display_line(state, middle) < state.full_file.viewport_vertical {
+            lower = middle + 1;
+        } else {
+            upper = middle;
+        }
+    }
+    lower
+}
+
+pub(crate) fn reveal_viewport(state: &mut AppState, height: usize) {
+    let LoadState::Ready(document) = &state.full_file.content else {
+        return;
+    };
+    let source_len = if document.message().is_some() {
+        1
+    } else {
+        document
+            .lines()
+            .len()
+            .saturating_add(usize::from(document.is_truncated()))
+            .max(1)
+    };
+    let len = source_len.saturating_add(if state.full_file.mode == FullFileMode::Changes {
+        state.full_file.deleted_lines.len()
+    } else {
+        0
+    });
+    let cursor = display_line(
+        state,
+        usize::try_from(state.full_file.cursor.line())
+            .unwrap_or(usize::MAX)
+            .min(source_len.saturating_sub(1)),
+    );
+    state.full_file.viewport_vertical = crate::app::scroll_top(
+        cursor,
+        state.full_file.viewport_vertical,
+        height,
+        len,
+        state.scrolloff,
+    );
 }
 
 #[cfg(test)]

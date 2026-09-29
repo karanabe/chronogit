@@ -20,6 +20,8 @@ chronogit [OPTIONS] [PATH]
 | --- | --- | --- |
 | `[PATH]` | `.` | Repository root or any directory below it |
 | `--view changes\|history\|graph\|code` | `changes` | View to open first |
+| `--config PATH` | XDG path when present | Display settings file |
+| `--scrolloff LINES` | Config value, otherwise `2` | Context rows above/below the cursor; `0` disables. Overrides the config file |
 | `--keymap PATH` | XDG path when present | Explicit keymap configuration file |
 | `--lsp PROFILE` | disabled | Enable one trusted external language-server profile; repeatable |
 | `--lsp-config PATH` | XDG path when present | Explicit trusted user-level LSP profile file |
@@ -27,6 +29,18 @@ chronogit [OPTIONS] [PATH]
 | `-V`, `--version` | — | Print the version and exit |
 
 `PATH` is resolved before the TUI starts. It must exist, be a directory, and belong to a non-bare Git worktree. ChronoGit displays the repository root discovered by Git, even when `PATH` names a nested directory or linked worktree.
+
+## Display settings
+
+ChronoGit reads `$XDG_CONFIG_HOME/chronogit/config.toml`, falling back to `~/.config/chronogit/config.toml` when XDG is unset. Use `--config PATH` to select another file.
+
+```toml
+scrolloff = 2
+```
+
+`scrolloff` is a nonnegative integer specifying context rows above and below the cursor in file and commit lists, diffs, source code, and other text panes. Short panes reduce the margin to leave room for the cursor; file boundaries show the available context. Run `chronogit --scrolloff 3` to override it for one invocation.
+
+An absent default file uses built-in settings. A missing explicit file, malformed TOML, unknown setting, negative value, or non-integer value fails before terminal initialization. Key bindings remain in `keymap.conf`.
 
 ## Examples
 

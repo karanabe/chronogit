@@ -221,6 +221,7 @@ mod tests {
                 state.focus = focus;
                 state.set_lsp_availability(LspAvailability::Enabled);
                 state.set_terminal_size(140, 40);
+                state.set_scrolloff(3);
                 let old = state.request_id();
                 state.diff.content = LoadState::Loading { request_id: old };
                 state.code_view.path = Some(
@@ -252,6 +253,7 @@ mod tests {
                 assert!(state.code_view.path.is_none());
                 assert_eq!(state.lsp_availability, LspAvailability::Enabled);
                 assert_eq!((state.terminal_width, state.terminal_height), (140, 40));
+                assert_eq!(state.scrolloff, 3);
                 assert!(matches!(
                     (view, effects.as_slice()),
                     (

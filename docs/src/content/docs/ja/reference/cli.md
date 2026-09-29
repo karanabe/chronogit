@@ -20,6 +20,8 @@ chronogit [OPTIONS] [PATH]
 | --- | --- | --- |
 | `[PATH]` | `.` | リポジトリルートまたはその下のディレクトリ |
 | `--view changes\|history\|graph\|code` | `changes` | 最初に開くビュー |
+| `--config PATH` | 存在する場合はXDGパス | 表示設定ファイル |
+| `--scrolloff LINES` | 設定ファイルの値、未指定なら`2` | カーソル上下の余白行数。`0`で無効。設定ファイルより優先 |
 | `--keymap PATH` | 存在する場合はXDGパス | 明示するキーマップ設定ファイル |
 | `--lsp PROFILE` | 無効 | 信頼する外部language server profileを有効化。複数回指定可能 |
 | `--lsp-config PATH` | 存在する場合はXDGパス | 明示するtrusted user-level LSP profile file |
@@ -27,6 +29,18 @@ chronogit [OPTIONS] [PATH]
 | `-V`, `--version` | — | バージョンを出力して終了 |
 
 TUIを始める前に`PATH`を解決します。パスは存在するディレクトリで、bareではないGitワークツリーに属する必要があります。`PATH`が入れ子のディレクトリやlinked worktreeを指していても、Gitが検出したリポジトリルートを表示します。
+
+## 表示設定
+
+`$XDG_CONFIG_HOME/chronogit/config.toml`、XDG未設定時は`~/.config/chronogit/config.toml`を読み込みます。`--config PATH`で別のファイルを指定できます。
+
+```toml
+scrolloff = 2
+```
+
+`scrolloff`は0以上の整数で、ファイル・コミット一覧、diff、ソースコードなどの上下の余白を指定します。短いペインではカーソル行を残せる範囲まで縮め、先頭・末尾では存在する行だけを表示します。起動時に`chronogit --scrolloff 3`で上書きできます。
+
+標準パスにファイルがなければ既定値を使います。明示したファイルの欠落、不正なTOML、未知の設定名、負数や整数以外の値はターミナル初期化前にエラーになります。キーマップは引き続き`keymap.conf`で設定します。
 
 ## 例
 

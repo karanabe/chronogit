@@ -50,6 +50,7 @@ async fn run() -> Result<(), AppError> {
     let runner = SystemGitRunner;
     let service = Arc::new(GitService::discover(runner, cli.path())?);
     let keymap = KeyMapper::load(cli.keymap())?;
+    let config = chronogit::config::Config::load(cli.config())?;
     let lsp_config = LspConfig::load(cli.lsp_profiles(), cli.lsp_config())?;
 
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
@@ -58,6 +59,7 @@ async fn run() -> Result<(), AppError> {
 
     tui::terminal::install_panic_hook();
     let mut state = AppState::new(service.root().clone(), cli.initial_view());
+    state.set_scrolloff(cli.scrolloff().unwrap_or(config.scrolloff()));
     state.set_lsp_availability(if lsp_config.is_disabled() {
         LspAvailability::Disabled
     } else {

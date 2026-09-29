@@ -16,6 +16,8 @@ use crate::tui::keymap::KeyMapError;
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum AppError {
+    /// The display settings could not be loaded or validated.
+    Config(crate::config::ConfigError),
     /// Repository discovery or Git execution failed.
     Git(GitError),
     /// Terminal input, output, or signal handling failed.
@@ -31,6 +33,7 @@ pub enum AppError {
 impl Display for AppError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Config(_) => formatter.write_str("display configuration failed"),
             Self::Git(_) => formatter.write_str("Git operation failed"),
             Self::Io(_) => formatter.write_str("terminal I/O failed"),
             Self::NonInteractiveTerminal => {
@@ -45,12 +48,19 @@ impl Display for AppError {
 impl Error for AppError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Config(source) => Some(source),
             Self::Git(source) => Some(source),
             Self::Io(source) => Some(source),
             Self::KeyMap(source) => Some(source),
             Self::LspConfig(source) => Some(source),
             Self::NonInteractiveTerminal => None,
         }
+    }
+}
+
+impl From<crate::config::ConfigError> for AppError {
+    fn from(value: crate::config::ConfigError) -> Self {
+        Self::Config(value)
     }
 }
 

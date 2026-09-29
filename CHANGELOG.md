@@ -4,6 +4,14 @@ All notable changes to ChronoGit are documented here.
 
 ## Unreleased
 
+### Added
+
+- `zt`, `zz`, and `zb` positioning in file and commit lists, including counted
+  forms, with retained viewport positions when moving in either direction.
+- Shared `scrolloff` cursor context for lists, diffs, and source views, defaulting
+  to two rows. Configure it in the user-level `chronogit/config.toml`, select a
+  file with `--config`, or override it with `--scrolloff` (`0` disables).
+
 ### Fixed
 
 - Keep diff line numbers fixed during horizontal scrolling and keep the cursor

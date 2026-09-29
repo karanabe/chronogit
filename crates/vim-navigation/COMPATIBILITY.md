@@ -60,6 +60,11 @@ callers own their key bindings. See the implementation limits below.
 | Horizontal viewport | `zh`, `zl`, `zH`, `zL`, `zs`, `ze` | executable Vim oracle compares cursor and `leftcol` | Exercised under the stated limits |
 | Diff navigation | `[c`, `]c` | pure diff-block unit tests and ChronoGit diff adapter/render tests | Exercised through ChronoGit adapter |
 
+ChronoGit layers configurable cursor context onto this crate in its application
+adapter (default `scrolloff=2`). The oracle below continues to verify the reusable
+crate with `scrolloff=0`; it does not claim full Vim equivalence for that
+application-level context policy.
+
 The executable suite currently compares 85 direct cursor/viewport cases.
 The ordinary crate and ChronoGit suites also exercise stateful/contextual rows.
 Caller-adapter evidence describes ChronoGit's integration, not functionality

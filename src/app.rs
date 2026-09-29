@@ -14,7 +14,12 @@ mod search;
 mod semantic_navigation;
 mod source_view;
 mod update;
+#[cfg(test)]
+mod viewport_tests;
 mod vim;
+
+pub(crate) use source_view::display_line as full_file_display_line;
+pub(crate) use vim::scroll_top;
 
 pub(crate) const FALLBACK_HALF_PAGE_LINES: isize = 10;
 pub(crate) const HORIZONTAL_SCROLL_COLUMNS: usize = 4;

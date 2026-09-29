@@ -22,6 +22,14 @@ pub struct Cli {
     #[arg(long, value_name = "PATH")]
     keymap: Option<PathBuf>,
 
+    /// Display settings. Defaults to the user-level chronogit/config.toml.
+    #[arg(long, value_name = "PATH")]
+    config: Option<PathBuf>,
+
+    /// Context rows above/below the cursor (default: 2; 0 disables). Overrides config.
+    #[arg(long, value_name = "LINES")]
+    scrolloff: Option<usize>,
+
     /// Enable a trusted external language-server profile (repeatable).
     #[arg(long = "lsp", value_name = "PROFILE")]
     lsp: Vec<String>,
@@ -32,6 +40,18 @@ pub struct Cli {
 }
 
 impl Cli {
+    /// Returns the explicitly requested display settings file.
+    #[must_use]
+    pub fn config(&self) -> Option<&Path> {
+        self.config.as_deref()
+    }
+
+    /// Returns the command-line override for cursor context rows.
+    #[must_use]
+    pub fn scrolloff(&self) -> Option<usize> {
+        self.scrolloff
+    }
+
     /// Returns the repository root candidate supplied by the user.
     ///
     /// The path may name the worktree root or any directory below it; repository
@@ -97,6 +117,25 @@ mod tests {
 
     use super::Cli;
     use crate::app::AppView;
+
+    #[test]
+    fn parses_display_settings_and_rejects_invalid_margins() {
+        let default = Cli::try_parse_from(["chronogit"]).unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(default.scrolloff(), None);
+        for value in ["0", "2", "3"] {
+            let cli =
+                Cli::try_parse_from(["chronogit", "--config", "custom.toml", "--scrolloff", value])
+                    .unwrap_or_else(|error| panic!("{error}"));
+            assert_eq!(
+                cli.scrolloff().map(|value| value.to_string()).as_deref(),
+                Some(value)
+            );
+            assert_eq!(cli.config(), Some(std::path::Path::new("custom.toml")));
+        }
+        for value in ["-1", "2.5", "invalid"] {
+            assert!(Cli::try_parse_from(["chronogit", "--scrolloff", value]).is_err());
+        }
+    }
 
     #[test]
     fn parses_code_as_an_initial_view() {

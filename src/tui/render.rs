@@ -19,17 +19,13 @@ use crate::app::{
 };
 use crate::domain::{DiffDocument, DiffLine, DiffLineKind, DiffTarget, FileDocument, TreeKind};
 use crate::layout::{
-    CHANGES_DIFF_PERCENT, CHANGES_LIST_PERCENT, CODE_CONTENT_PERCENT, CODE_TREE_PERCENT,
-    COMMIT_DETAILS_BODY_PERCENT, COMMIT_DETAILS_FILES_PERCENT, COMMIT_DETAILS_LIST_PERCENT,
-    DIFF_GUTTER_COLUMNS, DOCUMENT_OVERLAY_INSET, DOCUMENT_OVERLAY_MARGIN,
-    FILE_HISTORY_CONTENT_PERCENT, FILE_HISTORY_LIST_PERCENT, FOOTER_ROWS, FULL_PERCENT,
-    GRAPH_DETAILS_DIFF_PERCENT, GRAPH_DETAILS_FILES_PERCENT, GRAPH_DETAILS_HEIGHT_PERCENT,
-    GRAPH_DETAILS_WIDTH_PERCENT, HELP_HEIGHT_PERCENT, HELP_WIDTH_PERCENT, HISTORY_DIFF_PERCENT,
-    HISTORY_LIST_PERCENT, HISTORY_MIDDLE_PERCENT, HOVER_HEIGHT_PERCENT, HOVER_WIDTH_PERCENT,
-    MESSAGE_HEIGHT_PERCENT, MESSAGE_WIDTH_PERCENT, MIN_CONTENT_ROWS, MIN_TERMINAL_HEIGHT,
-    MIN_TERMINAL_WIDTH, PANE_BORDER_CELLS, REPOSITORY_SEARCH_HEIGHT_PERCENT,
-    REPOSITORY_SEARCH_WIDTH_PERCENT, ROOT_DISPLAY_WIDTH, SEARCH_BAR_ROWS, SEARCH_INPUT_ROWS,
-    SOURCE_GUTTER_COLUMNS, SYMBOL_HEIGHT_PERCENT, SYMBOL_WIDTH_PERCENT, WIDE_LAYOUT_WIDTH,
+    DIFF_GUTTER_COLUMNS, DOCUMENT_OVERLAY_INSET, DOCUMENT_OVERLAY_MARGIN, FOOTER_ROWS,
+    GRAPH_DETAILS_HEIGHT_PERCENT, GRAPH_DETAILS_WIDTH_PERCENT, HELP_HEIGHT_PERCENT,
+    HELP_WIDTH_PERCENT, HOVER_HEIGHT_PERCENT, HOVER_WIDTH_PERCENT, MESSAGE_HEIGHT_PERCENT,
+    MESSAGE_WIDTH_PERCENT, MIN_CONTENT_ROWS, MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH,
+    PANE_BORDER_CELLS, REPOSITORY_SEARCH_HEIGHT_PERCENT, REPOSITORY_SEARCH_WIDTH_PERCENT,
+    ROOT_DISPLAY_WIDTH, SEARCH_BAR_ROWS, SEARCH_INPUT_ROWS, SOURCE_GUTTER_COLUMNS,
+    SYMBOL_HEIGHT_PERCENT, SYMBOL_WIDTH_PERCENT, WIDE_LAYOUT_WIDTH, centered, main_panes,
 };
 use crate::tui::graph::graph_prefixes;
 use crate::tui::highlight::{highlight_code, source_is_too_large};
@@ -85,58 +81,36 @@ pub fn render(frame: &mut Frame<'_>, state: &AppState) {
 }
 
 fn render_main(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
+    let panes = main_panes(area, state.view, state.focus);
     match state.view {
         AppView::Changes if area.width < WIDE_LAYOUT_WIDTH => match state.focus {
             FocusedPane::Primary | FocusedPane::Secondary => render_changes(frame, area, state),
             FocusedPane::Diff => render_diff(frame, area, state),
         },
         AppView::Changes => {
-            let columns = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Percentage(CHANGES_LIST_PERCENT),
-                    Constraint::Percentage(CHANGES_DIFF_PERCENT),
-                ])
-                .split(area);
-            render_changes(frame, columns[0], state);
-            render_diff(frame, columns[1], state);
+            render_changes(frame, panes[0], state);
+            render_diff(frame, panes[2], state);
         }
         AppView::History => {
-            let rows = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Percentage(HISTORY_LIST_PERCENT),
-                    Constraint::Percentage(HISTORY_MIDDLE_PERCENT),
-                    Constraint::Percentage(HISTORY_DIFF_PERCENT),
-                ])
-                .split(area);
-            render_commits(frame, rows[0], state);
-            render_history_middle(frame, rows[1], state);
+            render_commits(frame, panes[0], state);
+            render_history_middle(frame, panes[1], state);
             match state.history_preview {
                 HistoryPreview::Message => render_commit_message(
                     frame,
-                    rows[2],
+                    panes[2],
                     state,
                     pane_block(
                         "Commit message [Space m: diff]",
                         state.focus == FocusedPane::Diff,
                     ),
                 ),
-                HistoryPreview::Diff => render_diff(frame, rows[2], state),
+                HistoryPreview::Diff => render_diff(frame, panes[2], state),
             }
         }
         AppView::CommitDetails => {
-            let rows = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Percentage(COMMIT_DETAILS_LIST_PERCENT),
-                    Constraint::Percentage(COMMIT_DETAILS_BODY_PERCENT),
-                    Constraint::Percentage(COMMIT_DETAILS_FILES_PERCENT),
-                ])
-                .split(area);
-            render_commits(frame, rows[0], state);
-            render_commit_body(frame, rows[1], state);
-            render_detail_files(frame, rows[2], state);
+            render_commits(frame, panes[0], state);
+            render_commit_body(frame, panes[1], state);
+            render_detail_files(frame, panes[2], state);
         }
         AppView::Graph => render_graph(frame, area, state),
         AppView::GraphDetails => {
@@ -147,35 +121,21 @@ fn render_main(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                 GRAPH_DETAILS_HEIGHT_PERCENT,
             );
             frame.render_widget(Clear, popup);
-            let rows = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Percentage(GRAPH_DETAILS_FILES_PERCENT),
-                    Constraint::Percentage(GRAPH_DETAILS_DIFF_PERCENT),
-                ])
-                .split(popup);
             render_file_list(
                 frame,
-                rows[0],
+                panes[1],
                 state,
                 "Changed files [q/Esc: graph, Enter: full diff]",
                 state.focus == FocusedPane::Secondary,
             );
-            render_diff(frame, rows[1], state);
+            render_diff(frame, panes[2], state);
         }
         AppView::FileHistory => {
-            let rows = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Percentage(FILE_HISTORY_LIST_PERCENT),
-                    Constraint::Percentage(FILE_HISTORY_CONTENT_PERCENT),
-                ])
-                .split(area);
-            render_file_history(frame, rows[0], state);
+            render_file_history(frame, panes[0], state);
             if state.file_view.mode.shows_history_diff() {
-                render_diff(frame, rows[1], state);
+                render_diff(frame, panes[2], state);
             } else {
-                render_file_content(frame, rows[1], state, "Current working tree content");
+                render_file_content(frame, panes[2], state, "Current working tree content");
             }
         }
         AppView::Code => render_code_view(frame, area, state),
@@ -183,15 +143,9 @@ fn render_main(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
 }
 
 fn render_code_view(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(CODE_TREE_PERCENT),
-            Constraint::Percentage(CODE_CONTENT_PERCENT),
-        ])
-        .split(area);
-    render_code_tree(frame, rows[0], state);
-    render_code_content(frame, rows[1], state);
+    let panes = main_panes(area, AppView::Code, state.focus);
+    render_code_tree(frame, panes[0], state);
+    render_code_content(frame, panes[2], state);
 }
 
 fn render_code_tree(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
@@ -212,12 +166,14 @@ fn render_code_tree(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             })
             .collect(),
     };
-    frame.render_widget(
-        Paragraph::new(lines)
-            .block(block)
-            .scroll((list_scroll(state.code_view.selection.index(), area), 0)),
+    let scroll = list_scroll(
+        state.code_view.selection.index(),
+        state.code_view.selection.viewport_top,
         area,
+        lines.len(),
+        state.scrolloff,
     );
+    frame.render_widget(Paragraph::new(lines).block(block).scroll((scroll, 0)), area);
 }
 
 fn code_tree_line(entry: &VisibleCodeEntry, selected: bool) -> Line<'static> {
@@ -268,12 +224,14 @@ fn render_graph(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     if state.history_page.loading_more.is_some() {
         lines.push(plain("Loading more…"));
     }
-    frame.render_widget(
-        Paragraph::new(lines)
-            .block(block)
-            .scroll((list_scroll(state.commit_selection.index(), area), 0)),
+    let scroll = list_scroll(
+        state.commit_selection.index(),
+        state.commit_selection.viewport_top,
         area,
+        lines.len(),
+        state.scrolloff,
     );
+    frame.render_widget(Paragraph::new(lines).block(block).scroll((scroll, 0)), area);
 }
 
 fn render_file_history(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
@@ -310,12 +268,14 @@ fn render_file_history(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             })
             .collect(),
     };
-    frame.render_widget(
-        Paragraph::new(lines)
-            .block(block)
-            .scroll((list_scroll(state.file_view.selection.index(), area), 0)),
+    let scroll = list_scroll(
+        state.file_view.selection.index(),
+        state.file_view.selection.viewport_top,
         area,
+        lines.len(),
+        state.scrolloff,
     );
+    frame.render_widget(Paragraph::new(lines).block(block).scroll((scroll, 0)), area);
 }
 
 fn render_changes(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
@@ -346,12 +306,14 @@ fn render_changes(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             })
             .collect(),
     };
-    frame.render_widget(
-        Paragraph::new(lines)
-            .block(block)
-            .scroll((list_scroll(state.change_selection.index(), area), 0)),
+    let scroll = list_scroll(
+        state.change_selection.index(),
+        state.change_selection.viewport_top,
         area,
+        lines.len(),
+        state.scrolloff,
     );
+    frame.render_widget(Paragraph::new(lines).block(block).scroll((scroll, 0)), area);
 }
 
 fn render_commits(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
@@ -384,12 +346,14 @@ fn render_commits(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     if state.history_page.loading_more.is_some() {
         lines.push(plain("Loading more…"));
     }
-    frame.render_widget(
-        Paragraph::new(lines)
-            .block(block)
-            .scroll((list_scroll(state.commit_selection.index(), area), 0)),
+    let scroll = list_scroll(
+        state.commit_selection.index(),
+        state.commit_selection.viewport_top,
         area,
+        lines.len(),
+        state.scrolloff,
     );
+    frame.render_widget(Paragraph::new(lines).block(block).scroll((scroll, 0)), area);
 }
 
 fn render_commit_message(frame: &mut Frame<'_>, area: Rect, state: &AppState, block: Block<'_>) {
@@ -404,7 +368,13 @@ fn render_commit_message(frame: &mut Frame<'_>, area: Rect, state: &AppState, bl
         .message
         .scroll
         .min(text.lines().count().saturating_sub(1));
-    let vertical = followed_scroll(cursor, state.message.viewport_vertical, visible);
+    let vertical = followed_scroll(
+        cursor,
+        state.message.viewport_vertical,
+        visible,
+        text.lines().count(),
+        state.scrolloff,
+    );
     let lines = message_cursor_lines(&text, cursor, state.message.byte_column);
     frame.render_widget(
         Paragraph::new(lines).block(block).scroll((
@@ -427,7 +397,13 @@ fn render_commit_body(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let visible = usize::from(area.height.saturating_sub(PANE_BORDER_CELLS)).max(1);
     let last = text.lines().count().saturating_sub(1);
     let cursor = state.message.scroll.min(last);
-    let vertical = followed_scroll(cursor, state.message.viewport_vertical, visible);
+    let vertical = followed_scroll(
+        cursor,
+        state.message.viewport_vertical,
+        visible,
+        text.lines().count(),
+        state.scrolloff,
+    );
     let lines = message_cursor_lines(&text, cursor, state.message.byte_column);
     frame.render_widget(
         Paragraph::new(lines).block(block).scroll((
@@ -497,12 +473,14 @@ fn render_file_list(
             })
             .collect(),
     };
-    frame.render_widget(
-        Paragraph::new(lines)
-            .block(block)
-            .scroll((list_scroll(state.file_selection.index(), area), 0)),
+    let scroll = list_scroll(
+        state.file_selection.index(),
+        state.file_selection.viewport_top,
         area,
+        lines.len(),
+        state.scrolloff,
     );
+    frame.render_widget(Paragraph::new(lines).block(block).scroll((scroll, 0)), area);
 }
 
 fn render_tree(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
@@ -521,12 +499,14 @@ fn render_tree(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             .map(|(index, entry)| tree_line(entry, state.tree.selection.index() == Some(index)))
             .collect(),
     };
-    frame.render_widget(
-        Paragraph::new(lines)
-            .block(block)
-            .scroll((list_scroll(state.tree.selection.index(), area), 0)),
+    let scroll = list_scroll(
+        state.tree.selection.index(),
+        state.tree.selection.viewport_top,
         area,
+        lines.len(),
+        state.scrolloff,
     );
+    frame.render_widget(Paragraph::new(lines).block(block).scroll((scroll, 0)), area);
 }
 
 fn tree_line(entry: &VisibleTreeEntry, selected: bool) -> Line<'static> {
@@ -575,7 +555,13 @@ fn render_diff_pane(
     };
     let visible = usize::from(content_area.height).max(1);
     let cursor = state.diff.vertical.min(lines.len().saturating_sub(1));
-    let vertical = followed_scroll(cursor, state.diff.viewport_vertical, visible);
+    let vertical = followed_scroll(
+        cursor,
+        state.diff.viewport_vertical,
+        visible,
+        lines.len(),
+        state.scrolloff,
+    );
     let horizontal = state.diff.horizontal.min(u16::MAX as usize) as u16;
     render_diff_line_backgrounds(frame, content_area, &lines, vertical);
     frame.render_widget(block, area);
@@ -641,7 +627,13 @@ fn render_file_content(frame: &mut Frame<'_>, area: Rect, state: &AppState, titl
     };
     let visible = usize::from(area.height.saturating_sub(PANE_BORDER_CELLS)).max(1);
     let cursor = state.file_view.vertical.min(lines.len().saturating_sub(1));
-    let vertical = followed_scroll(cursor, state.file_view.viewport_vertical, visible);
+    let vertical = followed_scroll(
+        cursor,
+        state.file_view.viewport_vertical,
+        visible,
+        lines.len(),
+        state.scrolloff,
+    );
     let horizontal = state.file_view.horizontal.min(u16::MAX as usize) as u16;
     frame.render_widget(
         Paragraph::new(lines)
@@ -1153,6 +1145,13 @@ fn render_branches(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             })
             .collect(),
     };
+    let scroll = list_scroll(
+        picker.selection.index(),
+        picker.selection.viewport_top,
+        sections[0],
+        lines.len(),
+        state.scrolloff,
+    );
     frame.render_widget(
         Paragraph::new(lines)
             .block(
@@ -1160,7 +1159,7 @@ fn render_branches(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                     .title(" Local branches [* current] ")
                     .borders(Borders::ALL),
             )
-            .scroll((list_scroll(picker.selection.index(), sections[0]), 0)),
+            .scroll((scroll, 0)),
         sections[0],
     );
     let message = match &picker.switching {
@@ -1297,9 +1296,9 @@ fn render_full_file_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState)
     let source_cursor = usize::try_from(state.full_file.cursor.line())
         .unwrap_or(usize::MAX)
         .min(lines.len().saturating_sub(1));
-    let cursor = full_file_display_cursor(state, source_cursor);
-    let requested = full_file_display_viewport(state, state.full_file.viewport_vertical);
-    let vertical = followed_scroll(cursor, requested, visible);
+    let cursor = crate::app::full_file_display_line(state, source_cursor);
+    let requested = state.full_file.viewport_vertical;
+    let vertical = followed_scroll(cursor, requested, visible, lines.len(), state.scrolloff);
     if state.full_file.mode == FullFileMode::Changes {
         render_diff_line_backgrounds(frame, content_area, &lines, vertical);
     }
@@ -1429,38 +1428,6 @@ fn full_file_deleted_line(
     Line::from(spans).style(Style::default().bg(REMOVED_BACKGROUND))
 }
 
-fn full_file_display_cursor(state: &AppState, source_line: usize) -> usize {
-    if state.full_file.mode != FullFileMode::Changes
-        || !matches!(state.full_file.content, LoadState::Ready(_))
-    {
-        return source_line;
-    }
-    source_line.saturating_add(
-        state
-            .full_file
-            .deleted_lines
-            .iter()
-            .filter(|line| usize::try_from(line.anchor).unwrap_or(usize::MAX) <= source_line)
-            .count(),
-    )
-}
-
-fn full_file_display_viewport(state: &AppState, source_line: usize) -> usize {
-    if state.full_file.mode != FullFileMode::Changes
-        || !matches!(state.full_file.content, LoadState::Ready(_))
-    {
-        return source_line;
-    }
-    source_line.saturating_add(
-        state
-            .full_file
-            .deleted_lines
-            .iter()
-            .filter(|line| usize::try_from(line.anchor).unwrap_or(usize::MAX) < source_line)
-            .count(),
-    )
-}
-
 fn render_symbol_context(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let popup = centered(area, SYMBOL_WIDTH_PERCENT, SYMBOL_HEIGHT_PERCENT);
     frame.render_widget(Clear, popup);
@@ -1494,6 +1461,13 @@ fn render_symbol_context(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             }))
         }
     }
+    let scroll = list_scroll(
+        state.symbol_context.selection.index(),
+        state.symbol_context.selection.viewport_top,
+        popup,
+        lines.len(),
+        state.scrolloff,
+    );
     frame.render_widget(
         Paragraph::new(lines)
             .block(
@@ -1501,10 +1475,7 @@ fn render_symbol_context(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                     .title(" Symbol/context [j/k: move, Enter: open and jump, q/Esc: back] ")
                     .borders(Borders::ALL),
             )
-            .scroll((
-                list_scroll(state.symbol_context.selection.index(), popup),
-                0,
-            )),
+            .scroll((scroll, 0)),
         popup,
     );
 }
@@ -1595,13 +1566,17 @@ fn render_repository_search_overlay(frame: &mut Frame<'_>, area: Rect, state: &A
     } else {
         "Results [j/k: move, Enter: open, Ctrl-h/k: search, q/Esc: close]"
     };
+    let scroll = list_scroll(
+        state.repository_search.selection.index(),
+        state.repository_search.selection.viewport_top,
+        sections[1],
+        lines.len(),
+        state.scrolloff,
+    );
     frame.render_widget(
         Paragraph::new(lines)
             .block(pane_block(results_title, !prompt_active))
-            .scroll((
-                list_scroll(state.repository_search.selection.index(), sections[1]),
-                0,
-            )),
+            .scroll((scroll, 0)),
         sections[1],
     );
 }
@@ -1700,6 +1675,13 @@ fn render_semantic_targets(frame: &mut Frame<'_>, area: Rect, state: &AppState) 
         LoadState::Loading { .. } => vec![plain("Loading semantic targets…")],
         LoadState::Failed(error) => vec![error_line(error.message())],
     };
+    let scroll = list_scroll(
+        state.semantic_navigation.selection.index(),
+        state.semantic_navigation.selection.viewport_top,
+        popup,
+        lines.len(),
+        state.scrolloff,
+    );
     frame.render_widget(
         Paragraph::new(lines)
             .block(
@@ -1709,10 +1691,7 @@ fn render_semantic_targets(frame: &mut Frame<'_>, area: Rect, state: &AppState) 
                     ))
                     .borders(Borders::ALL),
             )
-            .scroll((
-                list_scroll(state.semantic_navigation.selection.index(), popup),
-                0,
-            )),
+            .scroll((scroll, 0)),
         popup,
     );
 }
@@ -1722,12 +1701,13 @@ fn code_scroll(state: &AppState, area: Rect, line_count: usize) -> (u16, u16) {
     let cursor_line = usize::try_from(state.code_view.cursor.line())
         .unwrap_or(usize::MAX)
         .min(line_count.saturating_sub(1));
-    let mut vertical = state.code_view.viewport_vertical;
-    if cursor_line < vertical {
-        vertical = cursor_line;
-    } else if cursor_line >= vertical.saturating_add(visible_lines) {
-        vertical = cursor_line.saturating_sub(visible_lines.saturating_sub(1));
-    }
+    let vertical = crate::app::scroll_top(
+        cursor_line,
+        state.code_view.viewport_vertical,
+        visible_lines,
+        line_count,
+        state.scrolloff,
+    );
 
     let source_line = match &state.code_view.content {
         LoadState::Ready(document) => document.lines().get(cursor_line),
@@ -2108,23 +2088,26 @@ fn message_cursor_lines(text: &str, cursor: usize, byte_column: usize) -> Vec<Li
     lines
 }
 
-fn followed_scroll(cursor: usize, requested: usize, visible: usize) -> u16 {
-    let top = if cursor < requested {
-        cursor
-    } else if cursor >= requested.saturating_add(visible) {
-        cursor.saturating_sub(visible.saturating_sub(1))
-    } else {
-        requested
-    };
-    top.min(usize::from(u16::MAX)) as u16
+fn followed_scroll(
+    cursor: usize,
+    requested: usize,
+    visible: usize,
+    len: usize,
+    scrolloff: usize,
+) -> u16 {
+    crate::app::scroll_top(cursor, requested, visible, len, scrolloff).min(usize::from(u16::MAX))
+        as u16
 }
 
-fn list_scroll(selection: Option<usize>, area: Rect) -> u16 {
+fn list_scroll(
+    selection: Option<usize>,
+    requested: usize,
+    area: Rect,
+    len: usize,
+    scrolloff: usize,
+) -> u16 {
     let visible = usize::from(area.height.saturating_sub(PANE_BORDER_CELLS)).max(1);
-    selection
-        .unwrap_or(0)
-        .saturating_sub(visible.saturating_sub(1))
-        .min(usize::from(u16::MAX)) as u16
+    followed_scroll(selection.unwrap_or(0), requested, visible, len, scrolloff)
 }
 
 fn document_overlay(area: Rect) -> Rect {
@@ -2134,25 +2117,6 @@ fn document_overlay(area: Rect) -> Rect {
         width: area.width.saturating_sub(DOCUMENT_OVERLAY_INSET),
         height: area.height.saturating_sub(DOCUMENT_OVERLAY_INSET),
     }
-}
-
-fn centered(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
-    let vertical = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((FULL_PERCENT - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((FULL_PERCENT - percent_y) / 2),
-        ])
-        .split(area);
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((FULL_PERCENT - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((FULL_PERCENT - percent_x) / 2),
-        ])
-        .split(vertical[1])[1]
 }
 
 #[cfg(test)]
@@ -3619,9 +3583,12 @@ mod tests {
         assert!(text.contains("line 59"));
         assert!(text.contains("? backward search"));
 
+        let top = state.diff.viewport_vertical;
         let _none = state.handle_action(Action::MoveUp);
+        assert_eq!(state.diff.viewport_vertical, top);
         let moved_up = rendered_text(&state, 80, 24);
-        assert!(moved_up.contains("line 40"));
+        assert!(moved_up.contains("line 41"));
+        assert!(moved_up.contains("line 59"));
     }
 
     #[test]

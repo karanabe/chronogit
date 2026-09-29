@@ -134,7 +134,7 @@ Codeツリーは別の方法を使います。Gitから追跡済み・非ignore�
 - 通常のHistoryはコミット、変更ファイル/ツリー、差分を全幅の3段で描画し、本文レイアウトは同じコミット一覧、コミット本文、変更ファイルを描画します。Graphは読み込んだ親IDからクライアント側でレーンを描き、その上の中央ウィンドウへ詳細2段を描画します。ファイル履歴とCodeは2段のビューです。Changesは110列以上で2ペインを表示し、それ未満ではフォーカス中のペインが横幅を使います。
 - 80×24未満では安定したサイズ案内に置き換え、終了キーを使えるままにします。
 
-pane比率、overlay inset、border、gutter、responsive thresholdは`src/layout.rs`で共有します。描画とreducer側のviewport計算が同じ定数を使うため、cursor followの計算と表示layoutが暗黙にずれません。
+pane比率、overlay inset、border、gutter、responsive thresholdは`src/layout.rs`で共有します。描画とreducer側のviewport計算は同じRatatuiレイアウトでペインの寸法を決めます。一覧は選択位置と表示開始行を保持し、`app::vim`の共通処理で設定された`scrolloff`を適用します。全文表示の表示開始行は削除行を含む画面行で保持し、ソースのカーソル座標とは変換して扱います。ユーザー用`config.toml`と`--scrolloff`は起動時に`AppState`へ適用し、ブランチ切替後も設定を維持します。
 
 ## Git比較の契約
 

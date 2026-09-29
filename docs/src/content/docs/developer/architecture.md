@@ -140,7 +140,7 @@ Owns key translation, terminal lifecycle, layout, rendering, and the event loop.
 - Standard History renders commits, changed files/tree, and diff as three full-width rows. Its body layout renders the same commit list, commit body, and changed files. Graph renders client-side lanes from loaded parent IDs; its two-row details are drawn in a centered window over the graph, while file history and Code use two-row views. Changes renders both panes from 110 columns and gives the focused pane the full width below that threshold.
 - Below 80×24, rendering becomes a stable size message and quit remains available.
 
-Shared pane percentages, overlay insets, borders, gutters, and responsive thresholds live in `src/layout.rs`. Rendering and reducer-side viewport calculations consume the same constants so cursor-follow behavior cannot silently diverge from the visible layout.
+Shared pane percentages, overlay insets, borders, gutters, and responsive thresholds live in `src/layout.rs`. Rendering and reducer-side viewport calculations use the same Ratatui pane layout. Lists retain both their selection and viewport origin; shared following rules in `app::vim` apply the configured `scrolloff`. Full-source viewport origins count displayed deletion rows and are converted separately from source cursor coordinates. User-level `config.toml` and `--scrolloff` are applied to `AppState` at startup and retained across branch switches.
 
 ## Git comparison contracts
 

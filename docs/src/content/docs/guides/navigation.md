@@ -11,6 +11,16 @@ sidebar:
 
 ChronoGit is operated entirely from the keyboard. Press `F1` inside the application for a compact reminder.
 
+## Positioning selections and keeping context
+
+File and commit lists support `zt` (top), `zz` (middle), and `zb` (bottom). These commands reposition the selected item without changing it or reloading its preview. A count such as `25zt` selects and positions the 25th item.
+
+The same commands position the cursor line in diff and source panes, including the expanded views opened with `Enter` and the complete source opened with `Space v`. They apply to the focused pane or the open text overlay.
+
+Lists, diffs, and source views keep at least two context rows above and below the cursor by default. The window stays still until the cursor reaches this margin, including when reversing direction. `zt` and `zb` respect the margin, so with `scrolloff = 2` the cursor normally sits two rows inside the top or bottom edge. `zz` centers the selection once, after which normal following resumes. Short panes reduce the margin, and file boundaries keep only the available context.
+
+Set `scrolloff` in the [display settings](/reference/cli/#display-settings), or run `chronogit --scrolloff 3`. Use `--scrolloff 0` to disable the margin.
+
 ## Switch branches
 
 From Changes (1), History (2), Graph (3), or Code (4), press `Space` then lowercase `b` to list existing local branches. `*` marks the current branch. Select with `j`/`k` or the arrow keys, press `Enter` to switch, or `q`/`Esc` to cancel. Press `r` to reload the list. If a search prompt is accepting text, cancel input with `Esc` first.

@@ -266,11 +266,15 @@ impl<T> LoadState<T> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Selection {
     index: Option<usize>,
+    pub(crate) viewport_top: usize,
 }
 
 impl Selection {
     pub(crate) fn new() -> Self {
-        Self { index: None }
+        Self {
+            index: None,
+            viewport_top: 0,
+        }
     }
 
     pub(crate) fn index(&self) -> Option<usize> {
@@ -279,9 +283,13 @@ impl Selection {
 
     pub(crate) fn reset(&mut self, len: usize) {
         self.index = (len > 0).then_some(0);
+        self.viewport_top = 0;
     }
 
     pub(crate) fn reset_to(&mut self, len: usize, preferred: Option<usize>) {
+        if len == 0 {
+            self.viewport_top = 0;
+        }
         self.index = if len == 0 {
             None
         } else {
@@ -290,6 +298,9 @@ impl Selection {
     }
 
     pub(crate) fn clamp(&mut self, len: usize) {
+        if len == 0 {
+            self.viewport_top = 0;
+        }
         self.index = match (self.index, len) {
             (_, 0) => None,
             (Some(index), _) => Some(index.min(len - 1)),
@@ -672,6 +683,7 @@ pub(crate) struct FullFileState {
     pub(crate) mode: FullFileMode,
     pub(crate) cursor: SourcePosition,
     pub(crate) desired_display_column: Option<usize>,
+    /// Display row offset, including removed rows in Changes mode.
     pub(crate) viewport_vertical: usize,
     pub(crate) viewport_horizontal: usize,
     pub(crate) changed_lines: BTreeSet<u32>,
@@ -866,6 +878,7 @@ pub struct AppState {
     pub(crate) preferred_commit: Option<ObjectId>,
     pub(crate) terminal_width: u16,
     pub(crate) terminal_height: u16,
+    pub(crate) scrolloff: usize,
     next_request: RequestId,
     diff_cache: DiffCache,
 }
@@ -934,6 +947,7 @@ impl AppState {
             preferred_commit: None,
             terminal_width: 80,
             terminal_height: 24,
+            scrolloff: crate::config::DEFAULT_SCROLLOFF,
             next_request: RequestId::FIRST,
             diff_cache: DiffCache::new(),
         }
@@ -943,6 +957,16 @@ impl AppState {
     pub fn set_terminal_size(&mut self, width: u16, height: u16) {
         self.terminal_width = width;
         self.terminal_height = height;
+        crate::app::update::sync_viewport(self);
+    }
+
+    /// Sets context rows above/below the cursor in lists and text panes.
+    ///
+    /// Defaults to two. Zero disables the margin; short panes reduce it to
+    /// leave room for the cursor. File boundaries may have fewer context rows.
+    pub fn set_scrolloff(&mut self, rows: usize) {
+        self.scrolloff = rows;
+        crate::app::update::sync_viewport(self);
     }
 
     /// Records whether at least one trusted language-server profile was enabled.
@@ -976,11 +1000,37 @@ impl AppState {
 
     /// Applies semantic user input and returns any resulting repository work.
     pub fn handle_action(&mut self, action: Action) -> Vec<GitEffect> {
-        crate::app::update::apply_action(self, action)
+        let sync = self.action_updates_viewport(action);
+        let effects = crate::app::update::apply_action(self, action);
+        if sync {
+            crate::app::update::sync_viewport(self);
+        }
+        effects
     }
 
     /// Applies input through the complete Git and semantic-navigation reducer.
     pub fn handle_app_action(&mut self, action: Action) -> Vec<AppEffect> {
+        let sync = self.action_updates_viewport(action);
+        let effects = self.dispatch_app_action(action);
+        if sync {
+            crate::app::update::sync_viewport(self);
+        }
+        effects
+    }
+
+    fn action_updates_viewport(&self, action: Action) -> bool {
+        !matches!(
+            action,
+            Action::StartSearch(_)
+                | Action::InsertSearch(_)
+                | Action::DeleteSearch
+                | Action::CancelSearch
+                | Action::Tick
+        ) && !(action == Action::DismissSearchOrClose
+            && (self.is_search_input_active() || self.has_active_search_highlights()))
+    }
+
+    fn dispatch_app_action(&mut self, action: Action) -> Vec<AppEffect> {
         if action == Action::OpenBranches || self.branch_picker.is_some() {
             return self
                 .handle_action(action)
@@ -1010,11 +1060,19 @@ impl AppState {
     /// Obsolete events are ignored according to their request ID and resource
     /// identity.
     pub fn handle_event(&mut self, event: Event) -> Vec<GitEffect> {
-        crate::app::update::apply_event(self, event)
+        let effects = crate::app::update::apply_event(self, event);
+        crate::app::update::sync_viewport(self);
+        effects
     }
 
     /// Applies a completion through the complete Git and LSP reducer.
     pub fn handle_app_event(&mut self, event: Event) -> Vec<AppEffect> {
+        let effects = self.dispatch_app_event(event);
+        crate::app::update::sync_viewport(self);
+        effects
+    }
+
+    fn dispatch_app_event(&mut self, event: Event) -> Vec<AppEffect> {
         match event {
             Event::SemanticNavigationCompleted { .. }
             | Event::LspHoverCompleted { .. }
@@ -1084,6 +1142,7 @@ impl AppState {
         // repository cache and pending Git/LSP result from the previous branch.
         fresh.next_request = self.next_request;
         fresh.terminal_width = self.terminal_width;
+        fresh.scrolloff = self.scrolloff;
         fresh.terminal_height = self.terminal_height;
         fresh.lsp_availability = self.lsp_availability;
         fresh.should_quit = self.should_quit;

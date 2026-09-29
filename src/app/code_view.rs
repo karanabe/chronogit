@@ -370,6 +370,7 @@ pub(crate) fn apply_vim_motion(
             viewport_width,
             SOURCE_GUTTER_COLUMNS,
         )
+        .with_scrolloff(state.scrolloff)
         .with_desired_column(state.code_view.desired_display_column);
         let position =
             crate::app::vim::apply(&lines, state.code_view.cursor, &mut viewport, motion);
