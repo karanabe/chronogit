@@ -4,6 +4,10 @@ All notable changes to ChronoGit are documented here.
 
 ## Unreleased
 
+## 0.8.0
+
+This release pairs ChronoGit 0.8.0 with `vim-navigation` 0.2.0.
+
 ### Added
 
 - `zt`, `zz`, and `zb` positioning in file and commit lists, including counted

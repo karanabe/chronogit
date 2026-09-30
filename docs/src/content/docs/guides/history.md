@@ -44,7 +44,7 @@ ChronoGit displays the active baseline in the changed-files title, diff title, a
 | Normal commit | Parent → selected commit |
 | Merge commit | First parent → selected merge commit |
 
-Merge commits are not shown as a combined or per-parent diff in `0.7.0`. When another parent matters, use Git alongside ChronoGit.
+Merge commits are not shown as a combined or per-parent diff in `0.8.0`. When another parent matters, use Git alongside ChronoGit.
 
 ## Read the complete commit message
 

@@ -12,7 +12,7 @@ sidebar:
 ChronoGit is a terminal interface for inspecting Git changes, history, and working-tree source code, with optional local-branch switching. This guide installs it with Cargo and opens a repository without changing it.
 
 :::note[Distribution status]
-Version `0.7.0` is prepared in this checkout. Until it is available from crates.io, install from a trusted checkout to use the behavior described below.
+Version `0.8.0` is prepared in this checkout. Until it is available from crates.io, install from a trusted checkout to use the behavior described below.
 :::
 
 ## Requirements
@@ -23,7 +23,7 @@ Version `0.7.0` is prepared in this checkout. Until it is available from crates.
 - An interactive terminal at least 80 columns by 24 rows
 - A non-bare Git repository
 
-Windows, bare repositories, pipes, captured commands, and background sessions are not supported in `0.7.0`.
+Windows, bare repositories, pipes, captured commands, and background sessions are not supported in `0.8.0`.
 
 ## Install from crates.io
 
@@ -45,8 +45,14 @@ Whichever installation method you use, confirm that the binary is available:
 
 ```sh title="Terminal"
 chronogit --version
-# chronogit 0.7.0
+# chronogit 0.8.0
 ```
+
+## Upgrade from 0.7.0
+
+Version `0.8.0` keeps two rows of cursor context by default in lists, diffs, and source views. To retain the previous scrolling behavior, pass `--scrolloff 0` or set `scrolloff = 0` in the user configuration file.
+
+File and commit lists also support `zt`, `zz`, and `zb` to position the selected item within the viewport. See the [navigation guide](/guides/navigation/) for details.
 
 ## Upgrade from 0.6.0
 

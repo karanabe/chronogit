@@ -111,7 +111,7 @@ ChronoGit自身の未使用versionとpackage検証の成功が必要です。
 クリーンなチェックアウトで、必要に応じてtargetを置き換えて実行します。
 
 ```sh title="ターミナル"
-release_version=0.7.0
+release_version=0.8.0
 release_target=x86_64-unknown-linux-gnu
 release_name="chronogit-${release_version}-${release_target}"
 release_stage=$(mktemp -d)
