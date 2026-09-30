@@ -11,6 +11,8 @@ Code to switch an existing local branch; this updates HEAD, the index, and the
 working tree while preserving local changes or reporting conflicts. Select with
 `j`/`k`, press `Enter` to switch, or `q`/`Esc` to cancel.
 
+![ChronoGit History view showing commits, changed files, and a syntax-highlighted diff](docs/src/assets/screenshots/ChronoGit1.png)
+
 ## Quick start
 
 ### Requirements
